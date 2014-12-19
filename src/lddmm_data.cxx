@@ -16,6 +16,9 @@
 #include "itkSmoothingRecursiveGaussianImageFilter.h"
 #include "itkDiscreteGaussianImageFilter.h"
 #include "itkMinimumMaximumImageFilter.h"
+#include "itkShrinkImageFilter.h"
+#include "itkResampleImageFilter.h"
+#include "itkVectorResampleImageFilter.h"
 
 template <class TFloat, uint VDim>
 void 
@@ -634,6 +637,67 @@ LDDMMData<TFloat, VDim>
     v.push_back(vt);
     }
 }
+
+template <class TFloat, uint VDim>
+void 
+LDDMMData<TFloat, VDim>
+::img_shrink(ImageType *src, ImageType *trg, int factor)
+{
+  typedef itk::ShrinkImageFilter<ImageType, ImageType> Filter;
+  typename Filter::Pointer filter = Filter::New();
+  filter->SetInput(src);
+  filter->SetShrinkFactors(factor);
+  filter->GraftOutput(trg);
+  filter->Update();
+}
+
+template <class TFloat, uint VDim>
+void 
+LDDMMData<TFloat, VDim>
+::img_resample_identity(ImageType *src, ImageType *ref, ImageType *trg)
+{
+  typedef itk::ResampleImageFilter<ImageType, ImageType> ResampleFilter;
+  typedef itk::IdentityTransform<TFloat, VDim> TranType;
+  typedef itk::LinearInterpolateImageFunction<ImageType, TFloat> InterpType;
+
+  typename ResampleFilter::Pointer filter = ResampleFilter::New();
+  typename TranType::Pointer tran = TranType::New();
+  typename InterpType::Pointer func = InterpType::New();
+
+  filter->SetInput(src);
+  filter->SetTransform(tran);
+  filter->SetInterpolator(func);
+  filter->UseReferenceImageOn();
+  filter->SetReferenceImage(ref);
+  filter->GraftOutput(trg);
+  filter->Update();
+}
+
+template <class TFloat, uint VDim>
+void 
+LDDMMData<TFloat, VDim>
+::vimg_resample_identity(VectorImageType *src, ImageType *ref, VectorImageType *trg)
+{
+  typedef itk::VectorResampleImageFilter<VectorImageType, VectorImageType> ResampleFilter;
+  typedef itk::IdentityTransform<TFloat, VDim> TranType;
+  typedef itk::OptVectorLinearInterpolateImageFunction<VectorImageType, TFloat> InterpType;
+
+  typename ResampleFilter::Pointer filter = ResampleFilter::New();
+  typename TranType::Pointer tran = TranType::New();
+  typename InterpType::Pointer func = InterpType::New();
+
+  filter->SetInput(src);
+  filter->SetTransform(tran);
+  filter->SetInterpolator(func.GetPointer());
+  filter->SetSize(ref->GetBufferedRegion().GetSize());
+  filter->SetOutputSpacing(ref->GetSpacing());
+  filter->SetOutputOrigin(ref->GetOrigin());
+  filter->SetOutputDirection(ref->GetDirection());
+  filter->GraftOutput(trg);
+  filter->Update();
+}
+
+
 
 /* =============================== */
 

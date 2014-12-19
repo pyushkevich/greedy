@@ -27,7 +27,7 @@ int usage()
   printf("Optional: \n");
   printf("  -w weight                   : weight of the next -i pair\n");
   printf("  -e epsilon                  : step size (default = 1.0)\n");
-  printf("  -s sigma                    : smoothing for the greedy update step (3.0)\n");
+  printf("  -s sigma1 sigma2            : smoothing for the greedy update step (3.0, 1.0)\n");
   printf("  -n number                   : number of iterations (200) \n");
   printf("  -dump-moving                : dump moving image at each iter\n");
   printf("  -dump-freq N                : dump frequency\n");
@@ -49,7 +49,7 @@ struct GreedyParameters
 
   bool flag_dump_moving;
   int dump_frequency;
-  double epsilon, sigma;
+  double epsilon, sigma_pre, sigma_post;
   int niter;
 };
 
@@ -70,6 +70,7 @@ public:
     VectorImagePointer grad_moving;
     double weight;
   };
+
 
   static int Run(GreedyParameters &param);
 
@@ -190,8 +191,8 @@ int GreedyApproach<VDim, TReal>
       }
 
     // We have now computed the gradient vector field. Next, we smooth it 
-    // LDDMMType::vimg_smooth(uk1, viTemp, param.sigma);
-    fft.convolution_fft(uk1, kernel, true, viTemp); // 'GradJt0' stores K[ GradJt0 * (det Phi_t1)(Jt1-Jt0) ]
+    LDDMMType::vimg_smooth(uk1, viTemp, param.sigma_pre);
+    // fft.convolution_fft(uk1, kernel, true, viTemp); // 'GradJt0' stores K[ GradJt0 * (det Phi_t1)(Jt1-Jt0) ]
 
     // Write Uk1
     if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
@@ -213,9 +214,10 @@ int GreedyApproach<VDim, TReal>
       }
 
     // Swap uk and uk1 pointers
-    VectorImagePointer tmpptr = uk1; uk1 = uk; uk = tmpptr;
+    // VectorImagePointer tmpptr = uk1; uk1 = uk; uk = tmpptr;
 
-    // LDDMMType::vimg_smooth(uk1, uk, 1.0);
+    // Another layer of smoothing - really?
+    LDDMMType::vimg_smooth(uk1, uk, param.sigma_post);
 
     // Compute the Jacobian determinant of the updated field (temporary)
     /*
@@ -246,7 +248,8 @@ int main(int argc, char *argv[])
   param.flag_dump_moving = false;
   param.dump_frequency = 1;
   param.epsilon = 1.0;
-  param.sigma = 3.0;
+  param.sigma_pre = 3.0;
+  param.sigma_post = 1.0;
   param.niter = 200;
 
   if(argc < 3)
@@ -273,7 +276,8 @@ int main(int argc, char *argv[])
       }
     else if(arg == "-s")
       {
-      param.sigma = atof(argv[++i]);
+      param.sigma_pre = atof(argv[++i]);
+      param.sigma_post = atof(argv[++i]);
       }
     else if(arg == "-i")
       {

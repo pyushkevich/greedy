@@ -101,6 +101,11 @@ public:
 
   // Generate a kernel image for navier-stokes operator
   static void compute_navier_stokes_kernel(ImageType *kernel, double alpha, double gamma);
+
+  // Downsample and upsample images (includes smoothing, use sparingly)
+  static void img_shrink(ImageType *src, ImageType *trg, int factor);
+  static void img_resample_identity(ImageType *src, ImageType *ref, ImageType *trg);
+  static void vimg_resample_identity(VectorImageType *src, ImageType *ref, VectorImageType *trg);
   
   // Some IO methods
   static void img_read(const char *fn, ImagePointer &trg);
