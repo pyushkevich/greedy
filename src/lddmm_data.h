@@ -64,10 +64,10 @@ public:
   // Apply deformation to data
   static void interp_vimg(
     VectorImageType *data, VectorImageType *field, 
-    TFloat def_scale, VectorImageType *out);
+    TFloat def_scale, VectorImageType *out, bool use_nn = false);
 
   // Apply deformation to data
-  static void interp_img(ImageType *data, VectorImageType *field, ImageType *out);
+  static void interp_img(ImageType *data, VectorImageType *field, ImageType *out, bool use_nn = false);
 
   // Take Jacobian of deformation field
   static void field_jacobian_det(VectorImageType *vec, ImageType *out);
@@ -103,6 +103,7 @@ public:
   static void compute_navier_stokes_kernel(ImageType *kernel, double alpha, double gamma);
 
   // Downsample and upsample images (includes smoothing, use sparingly)
+  static void img_downsample(ImageType *src, ImageType *trg, double factor);
   static void img_shrink(ImageType *src, ImageType *trg, int factor);
   static void img_resample_identity(ImageType *src, ImageType *ref, ImageType *trg);
   static void vimg_resample_identity(VectorImageType *src, ImageType *ref, VectorImageType *trg);

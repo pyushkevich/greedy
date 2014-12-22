@@ -1,4 +1,5 @@
 #include <iostream>
+#include <sstream>
 #include <cstdio>
 #include <vector>
 #include <string>
@@ -28,7 +29,7 @@ int usage()
   printf("  -w weight                   : weight of the next -i pair\n");
   printf("  -e epsilon                  : step size (default = 1.0)\n");
   printf("  -s sigma1 sigma2            : smoothing for the greedy update step (3.0, 1.0)\n");
-  printf("  -n number                   : number of iterations (200) \n");
+  printf("  -n NxNxN                    : number of iterations per level of multi-res (100x100) \n");
   printf("  -dump-moving                : dump moving image at each iter\n");
   printf("  -dump-freq N                : dump frequency\n");
   return -1;
@@ -50,7 +51,9 @@ struct GreedyParameters
   bool flag_dump_moving;
   int dump_frequency;
   double epsilon, sigma_pre, sigma_post;
-  int niter;
+
+  // Iterations per level (i.e., 40x40x100)
+  std::vector<int> iter_per_level;
 };
 
 
@@ -85,9 +88,9 @@ int GreedyApproach<VDim, TReal>
 ::Run(GreedyParameters &param)
 {
   // Image pairs to register
-  std::vector<ImagePair> img;
+  std::vector<ImagePair> imgRaw;
 
-  // Read the input images
+  // Read the input images and stick them into an image array
   for(int i = 0; i < param.inputs.size(); i++)
     {
     ImagePair ip;
@@ -117,122 +120,178 @@ int GreedyApproach<VDim, TReal>
     ip.weight = param.inputs[i].weight;
 
     // Append
-    img.push_back(ip);
+    imgRaw.push_back(ip);
     }
 
-  // Reference space
-  ImagePointer refspace = img.front().fixed;
+  // An image pointer desribing the current estimate of the deformation
+  VectorImagePointer uLevel = NULL;
 
-  // Initialize the displacement to identity
-  VectorImagePointer uk = VectorImageType::New();
-  LDDMMType::alloc_vimg(uk, refspace);
+  // The number of resolution levels
+  int nlevels = param.iter_per_level.size();
 
-  // Initialize the intermediate data
-  ImagePointer iTemp = ImageType::New();
-  LDDMMType::alloc_img(iTemp, refspace);
-
-  VectorImagePointer viTemp = VectorImageType::New();
-  LDDMMType::alloc_vimg(viTemp, refspace);
-
-  VectorImagePointer uk1 = VectorImageType::New();
-  LDDMMType::alloc_vimg(uk1, refspace);
-
-  // Navier-stokes kernel
-  ImagePointer kernel = ImageType::New();
-  LDDMMType::alloc_img(kernel, refspace);
-  LDDMMType::compute_navier_stokes_kernel(kernel, 0.000001, 1.0);
-
-  // FFT kernel
-  typedef LDDMMFFTInterface<TReal, VDim> FFTType;
-  FFTType fft(refspace);
-
-  // Iterate
-  for(unsigned int iter = 0; iter < param.niter; iter++)
+  // Iterate over the resolution levels
+  for(unsigned int level = 0; level < nlevels; ++level)
     {
-    // Initialize u(k+1) to zero
-    uk1->FillBuffer(typename LDDMMType::Vec(0.0));
+    // Reference space
+    ImagePointer refspace = NULL;
 
-    // Initialize the energy computation
-    double total_energy = 0.0;
+    // Intermediate images
+    ImagePointer iTemp = ImageType::New();
+    VectorImagePointer viTemp = VectorImageType::New();
+    VectorImagePointer uk = VectorImageType::New();
+    VectorImagePointer uk1 = VectorImageType::New();
 
-    // Add all the derivative terms
-    for(int j = 0; j < img.size(); j++)
+    // Prepare the data for this iteration
+    std::vector<ImagePair> img;
+
+    // The scaling factor
+    int shrink_factor = 1 << (nlevels - (1 + level));
+
+    // What to do at this level?
+    if(level == nlevels - 1)
       {
-      // Interpolate each moving image
-      LDDMMType::interp_img(img[j].moving, uk, iTemp);
+      img = imgRaw;
+      }
+    else
+      {
+      // Resample the input images to lower resolution
+      for(int i = 0; i < imgRaw.size(); i++)
+        {
+        // Create the new image pair
+        ImagePair ip;
+        ip.moving = ImageType::New();
+        ip.fixed = ImageType::New();
 
-      // Dump the moving image?
+        // Resample the images to lower resolution
+        // We should smooth the raw image by a nyquist-appropriate kernel first
+        // TODO: sigmas - units
+        LDDMMType::img_downsample(imgRaw[i].moving, ip.moving, shrink_factor);
+        LDDMMType::img_downsample(imgRaw[i].fixed, ip.fixed, shrink_factor);
+
+        // Compute the gradient of the moving image
+        LDDMMType::alloc_vimg(ip.grad_moving, ip.moving);
+
+        // Precompute the gradient of the moving images. There should be some
+        // smoothing of the input images before applying this computation!
+        LDDMMType::image_gradient(ip.moving, ip.grad_moving);
+
+        // Keep the weight the same
+        ip.weight = imgRaw[i].weight;
+
+        // Add to the list
+        img.push_back(ip);
+        }
+      }
+
+    // Allocate the intermediate data
+    refspace = img.front().fixed;
+    LDDMMType::alloc_vimg(uk, refspace);
+    LDDMMType::alloc_img(iTemp, refspace);
+    LDDMMType::alloc_vimg(viTemp, refspace);
+    LDDMMType::alloc_vimg(uk1, refspace);
+
+
+    // Initialize the deformation field from last iteration
+    if(uLevel.IsNotNull())
+      {
+      LDDMMType::vimg_resample_identity(uLevel, refspace, uk);
+      }
+
+    // Iterate for this level
+    for(unsigned int iter = 0; iter < param.iter_per_level[level]; iter++)
+      {
+      // Initialize u(k+1) to zero
+      uk1->FillBuffer(typename LDDMMType::Vec(0.0));
+
+      // Initialize the energy computation
+      double total_energy = 0.0;
+
+      // Add all the derivative terms
+      for(int j = 0; j < img.size(); j++)
+        {
+        // Interpolate each moving image
+        LDDMMType::interp_img(img[j].moving, uk, iTemp);
+
+        // Dump the moving image?
+        if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
+          {
+          char fname[256];
+          sprintf(fname, "dump_moving_%02d_lev%02d_iter%04d.nii.gz", j, level, iter);
+          LDDMMType::img_write(iTemp, fname);
+          }
+
+        // Subtract the fixed image
+        LDDMMType::img_subtract_in_place(iTemp, img[j].fixed);
+
+        // Record the norm of the difference image
+        total_energy += img[j].weight * LDDMMType::img_euclidean_norm_sq(iTemp);
+
+        // Interpolate the gradient of the moving image
+        LDDMMType::interp_vimg(img[j].grad_moving, uk, 1.0, viTemp);
+        LDDMMType::vimg_multiply_in_place(viTemp, iTemp);
+
+        // Accumulate to the force
+        LDDMMType::vimg_add_scaled_in_place(uk1, viTemp, -img[j].weight * param.epsilon);
+        }
+
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
         {
         char fname[256];
-        sprintf(fname, "dump_moving_%02d_iter%04d.nii.gz", j, iter);
-        LDDMMType::img_write(iTemp, fname);
+        sprintf(fname, "dump_graduent_iter%04d.nii.gz", iter);
+        LDDMMType::vimg_write(uk1, fname);
         }
 
-      // Subtract the fixed image
-      LDDMMType::img_subtract_in_place(iTemp, img[j].fixed);
+      // We have now computed the gradient vector field. Next, we smooth it
+      LDDMMType::vimg_smooth(uk1, viTemp, param.sigma_pre * shrink_factor);
+      // fft.convolution_fft(uk1, kernel, true, viTemp); // 'GradJt0' stores K[ GradJt0 * (det Phi_t1)(Jt1-Jt0) ]
 
-      // Record the norm of the difference image
-      total_energy += img[j].weight * LDDMMType::img_euclidean_norm_sq(iTemp);
+      // Write Uk1
+      if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
+        {
+        char fname[256];
+        sprintf(fname, "dump_optflow_lev%02d_iter%04d.nii.gz", level, iter);
+        LDDMMType::vimg_write(viTemp, fname);
+        }
 
-      // Interpolate the gradient of the moving image
-      LDDMMType::interp_vimg(img[j].grad_moving, uk, 1.0, viTemp);
-      LDDMMType::vimg_multiply_in_place(viTemp, iTemp);
+      // Compute the updated deformation field - in uk1
+      LDDMMType::interp_vimg(uk, viTemp, 1.0, uk1);
+      LDDMMType::vimg_add_in_place(uk1, viTemp);
 
-      // Accumulate to the force
-      LDDMMType::vimg_add_scaled_in_place(uk1, viTemp, -img[j].weight * param.epsilon);
+      if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
+        {
+        char fname[256];
+        sprintf(fname, "dump_uk1_lev%02d_iter%04d.nii.gz", level, iter);
+        LDDMMType::vimg_write(uk1, fname);
+        }
+
+      // Swap uk and uk1 pointers
+      // VectorImagePointer tmpptr = uk1; uk1 = uk; uk = tmpptr;
+
+      // Another layer of smoothing - really?
+      LDDMMType::vimg_smooth(uk1, uk, param.sigma_post * shrink_factor);
+
+      // Compute the Jacobian determinant of the updated field (temporary)
+          /*
+        */
+
+      // Report the energy
+      // printf("Iter %5d:    Energy = %8.4f     DetJac Range: %8.4f  to %8.4f \n", iter, total_energy, jac_min, jac_max);
+      printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
       }
 
-    if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
-      {
-      char fname[256];
-      sprintf(fname, "dump_graduent_iter%04d.nii.gz", iter);
-      LDDMMType::vimg_write(uk1, fname);
-      }
+    // Store the end result
+    uLevel = uk;
 
-    // We have now computed the gradient vector field. Next, we smooth it 
-    LDDMMType::vimg_smooth(uk1, viTemp, param.sigma_pre);
-    // fft.convolution_fft(uk1, kernel, true, viTemp); // 'GradJt0' stores K[ GradJt0 * (det Phi_t1)(Jt1-Jt0) ]
-
-    // Write Uk1
-    if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
-      {
-      char fname[256];
-      sprintf(fname, "dump_optflow_iter%04d.nii.gz", iter);
-      LDDMMType::vimg_write(viTemp, fname);
-      }
-
-    // Compute the updated deformation field - in uk1
-    LDDMMType::interp_vimg(uk, viTemp, 1.0, uk1);
-    LDDMMType::vimg_add_in_place(uk1, viTemp);
-
-    if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
-      {
-      char fname[256];
-      sprintf(fname, "dump_uk1_iter%04d.nii.gz", iter);
-      LDDMMType::vimg_write(uk1, fname);
-      }
-
-    // Swap uk and uk1 pointers
-    // VectorImagePointer tmpptr = uk1; uk1 = uk; uk = tmpptr;
-
-    // Another layer of smoothing - really?
-    LDDMMType::vimg_smooth(uk1, uk, param.sigma_post);
-
-    // Compute the Jacobian determinant of the updated field (temporary)
-    /*
+    // Compute the jacobian of the deformation field
     LDDMMType::field_jacobian_det(uk, iTemp);
     TReal jac_min, jac_max;
     LDDMMType::img_min_max(iTemp, jac_min, jac_max);
-    */
+    printf("END OF LEVEL %5d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
 
-    // Report the energy
-    // printf("Iter %5d:    Energy = %8.4f     DetJac Range: %8.4f  to %8.4f \n", iter, total_energy, jac_min, jac_max);
-    printf("Iter %5d:    Energy = %8.4f\n", iter, total_energy);
     }
 
   // Write the resulting transformation field
-  LDDMMType::vimg_write(uk, param.output.c_str());
+  LDDMMType::vimg_write(uLevel, param.output.c_str());
 
   return 0;
 }
@@ -250,7 +309,9 @@ int main(int argc, char *argv[])
   param.epsilon = 1.0;
   param.sigma_pre = 3.0;
   param.sigma_post = 1.0;
-  param.niter = 200;
+
+  param.iter_per_level.push_back(100);
+  param.iter_per_level.push_back(100);
 
   if(argc < 3)
     return usage();
@@ -264,7 +325,11 @@ int main(int argc, char *argv[])
       }
     else if(arg == "-n")
       {
-      param.niter = atoi(argv[++i]);
+      std::istringstream f(argv[++i]);
+      std::string s;
+      param.iter_per_level.clear();
+      while (getline(f, s, 'x'))
+        param.iter_per_level.push_back(atoi(s.c_str()));
       }
     else if(arg == "-w")
       {

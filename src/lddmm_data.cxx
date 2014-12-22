@@ -19,6 +19,8 @@
 #include "itkShrinkImageFilter.h"
 #include "itkResampleImageFilter.h"
 #include "itkVectorResampleImageFilter.h"
+#include "itkNearestNeighborInterpolateImageFunction.h"
+#include "itkVectorNearestNeighborInterpolateImageFunction.h"
 
 template <class TFloat, uint VDim>
 void 
@@ -122,9 +124,8 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::interp_vimg(
-  VectorImageType *data, VectorImageType *field, 
-  TFloat def_scale, VectorImageType *out)
+::interp_vimg(VectorImageType *data, VectorImageType *field,
+  TFloat def_scale, VectorImageType *out, bool use_nn)
 {
   // Create a warp filter
   typedef itk::SimpleWarpImageFilter<
@@ -132,16 +133,21 @@ LDDMMData<TFloat, VDim>
   typename WarpFilterType::Pointer flt = WarpFilterType::New();
 
   // Create an interpolation function
-  typedef itk::OptVectorLinearInterpolateImageFunction<
-    VectorImageType, TFloat> InterpType;
+  typedef itk::OptVectorLinearInterpolateImageFunction<VectorImageType, TFloat> InterpType;
+  typedef itk::VectorNearestNeighborInterpolateImageFunction<VectorImageType, TFloat> NNInterpType;
+
   typename InterpType::Pointer func = InterpType::New();
+  typename NNInterpType::Pointer funcNN = NNInterpType::New();
 
   // Graft output of the warp filter
   flt->GraftOutput(out);
 
   // Set inputs
   flt->SetInput(data);
-  flt->SetInterpolator(func.GetPointer());
+  if(use_nn)
+    flt->SetInterpolator(funcNN);
+  else
+    flt->SetInterpolator(func);
   flt->SetDeformationField(field);
   flt->SetDeformationScaling(def_scale);
   flt->Update();
@@ -151,7 +157,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::interp_img(ImageType *data, VectorImageType *field, ImageType *out)
+::interp_img(ImageType *data, VectorImageType *field, ImageType *out, bool use_nn)
 {
   // Create a warp filter
   typedef itk::SimpleWarpImageFilter<
@@ -160,14 +166,20 @@ LDDMMData<TFloat, VDim>
 
   // Create an interpolation function
   typedef itk::LinearInterpolateImageFunction<ImageType, TFloat> InterpType;
+  typedef itk::NearestNeighborInterpolateImageFunction<ImageType, TFloat> NNInterpType;
+
   typename InterpType::Pointer func = InterpType::New();
+  typename NNInterpType::Pointer funcNN = NNInterpType::New();
 
   // Graft output of the warp filter
   flt->GraftOutput(out);
 
   // Set inputs
   flt->SetInput(data);
-  flt->SetInterpolator(func.GetPointer());
+  if(use_nn)
+    flt->SetInterpolator(funcNN);
+  else
+    flt->SetInterpolator(func);
   flt->SetDeformationField(field);
   flt->SetDeformationScaling(1.0);
   flt->Update();
@@ -671,6 +683,67 @@ LDDMMData<TFloat, VDim>
   filter->SetReferenceImage(ref);
   filter->GraftOutput(trg);
   filter->Update();
+}
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::img_downsample(ImageType *src, ImageType *trg, double factor)
+{
+  // Begin by smoothing the image
+  typedef itk::SmoothingRecursiveGaussianImageFilter<ImageType, ImageType> SmoothType;
+  typename SmoothType::Pointer fltSmooth = SmoothType::New();
+  fltSmooth->SetInput(src);
+  fltSmooth->SetSigmaArray(0.5 * factor * src->GetSpacing());
+
+  // Now resample the image to occupy the same physical space
+  typedef itk::ResampleImageFilter<ImageType, ImageType> ResampleFilter;
+  typedef itk::IdentityTransform<TFloat, VDim> TranType;
+  typedef itk::LinearInterpolateImageFunction<ImageType, TFloat> InterpType;
+
+  typename ResampleFilter::Pointer filter = ResampleFilter::New();
+  typename TranType::Pointer tran = TranType::New();
+  typename InterpType::Pointer func = InterpType::New();
+
+  // Compute the size of the new image
+  typename ImageType::SizeType sz;
+  for(int i = 0; i < VDim; i++)
+    sz[i] = vcl_ceil(src->GetBufferedRegion().GetSize()[i] / factor);
+
+  // Compute the spacing of the new image
+  typename ImageType::SpacingType spc_pre = src->GetSpacing();
+  typename ImageType::SpacingType spc_post = spc_pre;
+  for(size_t i = 0; i < VDim; i++)
+    spc_post[i] *= src->GetBufferedRegion().GetSize()[i] * 1.0 / sz[i];
+
+  // Get the bounding box of the input image
+  typename ImageType::PointType origin_pre = src->GetOrigin();
+
+  // Recalculate the origin. The origin describes the center of voxel 0,0,0
+  // so that as the voxel size changes, the origin will change as well.
+  typename ImageType::SpacingType off_pre = (src->GetDirection() * spc_pre) * 0.5;
+  typename ImageType::SpacingType off_post = (src->GetDirection() * spc_post) * 0.5;
+  typename ImageType::PointType origin_post = origin_pre - off_pre + off_post;
+
+  // Weird - have to allocate the output image?
+  trg->SetRegions(sz);
+  trg->SetOrigin(origin_post);
+  trg->SetSpacing(spc_post);
+  trg->SetDirection(src->GetDirection());
+  trg->Allocate();
+
+  // Set the image sizes and spacing.
+  filter->SetSize(sz);
+  filter->SetOutputSpacing(spc_post);
+  filter->SetOutputOrigin(origin_post);
+  filter->SetOutputDirection(src->GetDirection());
+  filter->SetInput(fltSmooth->GetOutput());
+  filter->SetTransform(tran);
+  filter->SetInterpolator(func);
+
+  filter->GraftOutput(trg);
+  filter->Update();
+
 }
 
 template <class TFloat, uint VDim>
