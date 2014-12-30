@@ -21,6 +21,50 @@
 #include "itkImageToImageFilter.h"
 #include "itkPoint.h"
 #include "itkFixedArray.h"
+#include "itkVectorImage.h"
+
+/**
+ * This class is used to perform mean square intensity difference type
+ * registration with multiple images. The filter is designed for speed
+ * of interpolation.
+ */
+template <class TFloat, unsigned int VDim>
+class MultiImageOpticalFlowHelper
+{
+public:
+
+  typedef itk::VectorImage<TFloat, VDim> CompositeImageType;
+  typedef itk::Image<TFloat, VDim> FloatImageType;
+  typedef itk::CovariantVector<TFloat, VDim> VectorType;
+  typedef itk::Image<VectorType, VDim> VectorImageType;
+
+  /** Add a pair of images to the class */
+  void AddImagePair(ImageType *fixed, ImageType *moving, double weight);
+
+  /** Compute the composite image - must be run before any sampling is done */
+  void BuildCompositeImage();
+
+  /** Get the reference to the warp field */
+
+  /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
+  void ComputeOpticalFlowField();
+
+
+protected:
+
+  // Fixed and moving images
+  std::vector<typename FloatImageType::Pointer> m_Fixed, m_Moving;
+
+  // Composite image
+  typename CompositeImageType::Pointer m_Composite;
+
+  // Warp, output image
+  typename VectorImageType::Pointer m_Warp, m_FlowField;
+
+  // Affine transformation
+  // ...
+
+};
 
 namespace itk
 {

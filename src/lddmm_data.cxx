@@ -770,6 +770,61 @@ LDDMMData<TFloat, VDim>
   filter->Update();
 }
 
+template <class TImage>
+struct VoxelToPhysicalFunctor
+{
+
+  typedef typename TImage::PixelType PixelType;
+
+  PixelType operator() (const PixelType &x)
+  {
+    typedef itk::ContinuousIndex<double, TImage::ImageDimension> CIType;
+    typedef typename TImage::PointType PtType;
+    CIType ci0, ci;
+    PtType p0, p;
+    for(int i = 0; i < TImage::ImageDimension; i++)
+      {
+      ci[i] = x[i];
+      ci0[i] = 0.0;
+      }
+
+    m_Image->TransformContinuousIndexToPhysicalPoint(ci, p);
+    m_Image->TransformContinuousIndexToPhysicalPoint(ci0, p0);
+    PixelType y;
+
+    for(int i = 0; i < TImage::ImageDimension; i++)
+      {
+      y[i] = p[i] - p0[i];
+      }
+
+    return y;
+  }
+
+  bool operator != (const VoxelToPhysicalFunctor<TImage> &other)
+    { return other.m_Image != m_Image; }
+
+  TImage *m_Image;
+};
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::warp_voxel_to_physical(VectorImageType *src, VectorImageType *trg)
+{
+  // Set up functor
+  typedef VoxelToPhysicalFunctor<VectorImageType> FunctorType;
+  FunctorType fnk;
+  fnk.m_Image = src;
+
+  // Set up filter
+  typedef itk::UnaryFunctorImageFilter<VectorImageType, VectorImageType, FunctorType> FilterType;
+  typename FilterType::Pointer filter = FilterType::New();
+  filter->SetInput(src);
+  filter->GraftOutput(trg);
+  filter->SetFunctor(fnk);
+  filter->Update();
+}
+
 
 
 /* =============================== */

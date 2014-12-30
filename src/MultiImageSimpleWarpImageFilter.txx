@@ -129,78 +129,75 @@ MultiImageOpticalFlowImageFilter<TImage,TVectorImage,TFloat>
 /**
   Trilinear interpolation
  */
-void trilerp()
-{
 #define DENS(X, Y, Z) ((X)+xsize*((Y)+ysize*(Z)))
 #define INRANGE(X, Y, Z) ((X) >= 0 && (X) < xsize && (Y) >= 0 && (Y) < ysize && (Z) >= 0 && (Z) < zsize)
 
+void trilerp()
+{
+  int	x0, y0, z0, x1, y1, z1, dp;
+  int d000, d001, d010, d011, d100, d101, d110, d111;
+  double fx, fy, fz;
+  double dx00, dx01, dx10, dx11, dxy0, dxy1, dxyz;
 
-    int	       x0, y0, z0, x1, y1, z1, dp;
-    int        d000, d001, d010, d011,
-               d100, d101, d110, d111;
+  x0 = floor(cix[0]); fx = cix[0] - x0;
+  y0 = floor(cix[1]); fy = cix[1] - y0;
+  z0 = floor(cix[2]); fz = cix[2] - z0;
 
-    double     fx, fy, fz,
-            d000, d001, d010, d011,
-            d100, d101, d110, d111,
-            dx00, dx01, dx10, dx11,
-            dxy0, dxy1, dxyz;
+  x1 = x0 + 1;
+  y1 = y0 + 1;
+  z1 = z0 + 1;
 
-    x0 = floor(cix[0]); fx = cix[0] - x0;
-    y0 = floor(cix[1]); fy = cix[1] - y0;
-    z0 = floor(cix[2]); fz = cix[2] - z0;
+  if (x0 >= 0 && x1 < xsize &&
+      y0 >= 0 && y1 < ysize &&
+      z0 >= 0 && z1 < zsize)
+    {
+    dp = DENS(x0, y0, z0);
+    d000 = dp;
+    d100 = dp+1;
+    dp += xsize;
+    d010 = dp;
+    d110 = dp+1;
+    dp += xsize*ysize;
+    d011 = dp;
+    d111 = dp+1;
+    dp -= xsize;
+    d001 = dp;
+    d101 = dp+1;
+    }
+  else
+    {
+    d000 = INRANGE(x0, y0, z0) ? DENS(x0, y0, z0) : def;
+    d001 = INRANGE(x0, y0, z1) ? DENS(x0, y0, z1) : def;
+    d010 = INRANGE(x0, y1, z0) ? DENS(x0, y1, z0) : def;
+    d011 = INRANGE(x0, y1, z1) ? DENS(x0, y1, z1) : def;
+    d100 = INRANGE(x1, y0, z0) ? DENS(x1, y0, z0) : def;
+    d101 = INRANGE(x1, y0, z1) ? DENS(x1, y0, z1) : def;
+    d110 = INRANGE(x1, y1, z0) ? DENS(x1, y1, z0) : def;
+    d111 = INRANGE(x1, y1, z1) ? DENS(x1, y1, z1) : def;
+    }
 
-    x1 = x0 + 1;
-    y1 = y0 + 1;
-    z1 = z0 + 1;
+  // Loop over the moving images
+  for(int i = 0; i < nPair; i++)
+    {
+    PairStruct p = pairs[i];
+    TFloat *dimg = p.moving_ptr;
+    TFloat *dgrad0 = p.gradMoving_ptr;
+    TFloat *dgrad1 = p.gradMoving_ptr[1];
+    TFloat *dgrad2 = p.gradMoving_ptr[2];
 
-    if (x0 >= 0 && x1 < xsize &&
-        y0 >= 0 && y1 < ysize &&
-        z0 >= 0 && z1 < zsize)
-        {
-        dp = DENS(x0, y0, z0);
-        d000 = dp;
-        d100 = dp+1;
-        dp += xsize;
-        d010 = dp;
-        d110 = dp+1;
-        dp += xsize*ysize;
-        d011 = dp;
-        d111 = dp+1;
-        dp -= xsize;
-        d001 = dp;
-        d101 = dp+1;
-        }
-    else
-        {
-        d000 = INRANGE(x0, y0, z0) ? DENS(x0, y0, z0) : def;
-        d001 = INRANGE(x0, y0, z1) ? DENS(x0, y0, z1) : def;
-        d010 = INRANGE(x0, y1, z0) ? DENS(x0, y1, z0) : def;
-        d011 = INRANGE(x0, y1, z1) ? DENS(x0, y1, z1) : def;
-        d100 = INRANGE(x1, y0, z0) ? DENS(x1, y0, z0) : def;
-        d101 = INRANGE(x1, y0, z1) ? DENS(x1, y0, z1) : def;
-        d110 = INRANGE(x1, y1, z0) ? DENS(x1, y1, z0) : def;
-        d111 = INRANGE(x1, y1, z1) ? DENS(x1, y1, z1) : def;
-        }
+    }
+  dx00 = LERP(fx, d000, d100);
+  dx01 = LERP(fx, d001, d101);
+  dx10 = LERP(fx, d010, d110);
+  dx11 = LERP(fx, d011, d111);
 
-    // Loop over the moving images
-    for(int i = 0; i < nPair; i++)
-        {
+  dxy0 = LERP(fy, dx00, dx10);
+  dxy1 = LERP(fy, dx01, dx11);
 
-        }
-    dx00 = LERP(fx, d000, d100);
-    dx01 = LERP(fx, d001, d101);
-    dx10 = LERP(fx, d010, d110);
-    dx11 = LERP(fx, d011, d111);
+  dxyz = LERP(fz, dxy0, dxy1);
 
-    dxy0 = LERP(fy, dx00, dx10);
-    dxy1 = LERP(fy, dx01, dx11);
-
-    dxyz = LERP(fz, dxy0, dxy1);
-
-    return dxyz;
+  return dxyz;
 }
-
-
 
 /**
  * Compute the output for the region specified by outputRegionForThread.

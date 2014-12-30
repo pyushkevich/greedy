@@ -107,6 +107,9 @@ public:
   static void img_shrink(ImageType *src, ImageType *trg, int factor);
   static void img_resample_identity(ImageType *src, ImageType *ref, ImageType *trg);
   static void vimg_resample_identity(VectorImageType *src, ImageType *ref, VectorImageType *trg);
+
+  // Convert voxel-space warp to a physical space warp
+  static void warp_voxel_to_physical(VectorImageType *src, VectorImageType *trg);
   
   // Some IO methods
   static void img_read(const char *fn, ImagePointer &trg);
