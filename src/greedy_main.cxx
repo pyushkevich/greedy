@@ -35,6 +35,7 @@ int usage()
   printf("  -n NxNxN                    : number of iterations per level of multi-res (100x100) \n");
   printf("  -dump-moving                : dump moving image at each iter\n");
   printf("  -dump-freq N                : dump frequency\n");
+  printf("  -threads N                  : set the number of allowed concurrent threads\n");
   return -1;
 }
 
@@ -53,7 +54,7 @@ struct GreedyParameters
 
   bool flag_optimize_affine;
   bool flag_dump_moving;
-  int dump_frequency;
+  int dump_frequency, threads;
   double epsilon, sigma_pre, sigma_post;
 
   // Iterations per level (i.e., 40x40x100)
@@ -573,6 +574,7 @@ int main(int argc, char *argv[])
   param.epsilon = 1.0;
   param.sigma_pre = 3.0;
   param.sigma_post = 1.0;
+  param.threads = 0;
 
   param.iter_per_level.push_back(100);
   param.iter_per_level.push_back(100);
@@ -624,9 +626,13 @@ int main(int argc, char *argv[])
       {
       param.flag_dump_moving = true;
       }
-    else if(arg == "-dump-frequency")
+    else if(arg == "-dump-frequency" || arg == "-dump-freq")
       {
       param.dump_frequency = atoi(argv[++i]);
+      }
+    else if(arg == "-threads")
+      {
+      param.threads = atoi(argv[++i]);
       }
     else if(arg == "-a")
       {
@@ -637,6 +643,18 @@ int main(int argc, char *argv[])
       std::cerr << "Unknown parameter " << arg << std::endl;
       return -1;
       }
+    }
+
+  // Use the threads parameter
+  if(param.threads > 0)
+    {
+    std::cout << "Limiting the number of threads to " << param.threads << std::endl;
+    itk::MultiThreader::SetGlobalMaximumNumberOfThreads(param.threads);
+    }
+  else
+    {
+    std::cout << "Executing with the default number of threads: " << itk::MultiThreader::GetGlobalDefaultNumberOfThreads() << std::endl;
+
     }
 
   if(param.flag_optimize_affine)
