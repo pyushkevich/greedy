@@ -210,6 +210,8 @@ int run_test(int argc, char *argv[])
 
     //    fprintf('Iter: %4i    Eps: %8d    Analytic: %12d     Numeric: %12d\n', ...
     //        i, eps, gateaux_analytic, gateaux_numeric);
+
+    return 0;
     }
   else
     throw itk::ExceptionObject("Unknown test ID");

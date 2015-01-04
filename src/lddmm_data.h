@@ -4,6 +4,7 @@
 #include <lddmm_common.h>
 #include <itkNumericTraits.h>
 #include <itkImage.h>
+#include <itkVectorImage.h>
 #include <itkImageRegionIteratorWithIndex.h>
 #include <itkCovariantVector.h>
 #include <vnl/vnl_math.h>
@@ -26,6 +27,10 @@ public:
   typedef itk::Image<Vec, VDim> VectorImageType;
   typedef typename VectorImageType::Pointer VectorImagePointer;
   typedef std::vector<VectorImagePointer> VelocityField;
+
+  // Composite images (variable number of components)
+  typedef itk::VectorImage<TFloat, VDim> CompositeImageType;
+  typedef typename CompositeImageType::Pointer CompositeImagePointer;
 
   // Regions, etc
   typedef itk::ImageRegion<VDim> RegionType;
@@ -105,8 +110,8 @@ public:
   // Downsample and upsample images (includes smoothing, use sparingly)
   static void img_downsample(ImageType *src, ImageType *trg, double factor);
   static void img_shrink(ImageType *src, ImageType *trg, int factor);
-  static void img_resample_identity(ImageType *src, ImageType *ref, ImageType *trg);
-  static void vimg_resample_identity(VectorImageType *src, ImageType *ref, VectorImageType *trg);
+  static void img_resample_identity(ImageType *src, ImageBaseType *ref, ImageType *trg);
+  static void vimg_resample_identity(VectorImageType *src, ImageBaseType *ref, VectorImageType *trg);
 
   // Convert voxel-space warp to a physical space warp
   static void warp_voxel_to_physical(VectorImageType *src, VectorImageType *trg);

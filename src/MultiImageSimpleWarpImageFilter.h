@@ -33,37 +33,53 @@ class MultiImageOpticalFlowHelper
 {
 public:
 
-  typedef itk::VectorImage<TFloat, VDim> CompositeImageType;
+  typedef itk::VectorImage<TFloat, VDim> MultiComponentImageType;
   typedef itk::Image<TFloat, VDim> FloatImageType;
   typedef itk::CovariantVector<TFloat, VDim> VectorType;
   typedef itk::Image<VectorType, VDim> VectorImageType;
+  typedef itk::ImageBase<VDim> ImageBaseType;
 
-  /** Add a pair of images to the class */
-  void AddImagePair(ImageType *fixed, ImageType *moving, double weight);
+  typedef std::vector<int> PyramidFactorsType;
+
+  /** Set default (power of two) pyramid factors */
+  void SetDefaultPyramidFactors(int n_levels);
+
+  /** Set the pyramid factors - for multi-resolution (e.g., 8,4,2) */
+  void SetPyramidFactors(const PyramidFactorsType &factors);
+
+  /** Add a pair of multi-component images to the class - same weight for each component */
+  void AddImagePair(MultiComponentImageType *fixed, MultiComponentImageType *moving, double weight);
 
   /** Compute the composite image - must be run before any sampling is done */
-  void BuildCompositeImage();
+  void BuildCompositeImages();
 
-  /** Get the reference to the warp field */
+  /** Get the reference image for level k */
+  ImageBaseType *GetReferenceSpace(int level);
 
   /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
-  void ComputeOpticalFlowField();
+  double ComputeOpticalFlowField(int level, VectorImageType *def, VectorImageType *result,
+                                 double result_scaling = 1.0);
 
 
 protected:
 
+  // Pyramid factors
+  PyramidFactorsType m_PyramidFactors;
+
+  // Weights
+  std::vector<double> m_Weights;
+
+  // Vector of images
+  typedef std::vector<typename MultiComponentImageType::Pointer> MultiCompImageSet;
+
   // Fixed and moving images
-  std::vector<typename FloatImageType::Pointer> m_Fixed, m_Moving;
+  MultiCompImageSet m_Fixed, m_Moving;
 
-  // Composite image
-  typename CompositeImageType::Pointer m_Composite;
+  // Composite image at each resolution level
+  MultiCompImageSet m_FixedComposite, m_MovingComposite;
 
-  // Warp, output image
-  typename VectorImageType::Pointer m_Warp, m_FlowField;
-
-  // Affine transformation
-  // ...
-
+  void PlaceIntoComposite(FloatImageType *src, MultiComponentImageType *target, int offset);
+  void PlaceIntoComposite(VectorImageType *src, MultiComponentImageType *target, int offset);
 };
 
 namespace itk
@@ -72,117 +88,100 @@ namespace itk
 /** \class MultiImageOpticalFlowImageFilter
  * \brief Warps an image using an input deformation field (for LDDMM)
  *
- * SimpleWarpImageFilter warps an existing image with respect to
- * a given deformation field.
+ * This filter efficiently computes the optical flow field between a
+ * set of image pairs, given a transformation phi. This filter is the
+ * workhorse of deformable and affine rigid registration algorithms that
+ * use the mean squared difference metric. Given a set of fixed images F_i
+ * and moving images M_i, it computes
  *
- * A deformation field is represented as a image whose pixel type is some
- * vector type with at least N elements, where N is the dimension of
- * the input image. The vector type must support element access via operator
- * [].
+ *   v(x) = Sum_i w_i \[ F_i(x) - M_i(Phi(x)) ] \Grad M_i (Phi(x))
  *
- * The output image is produced by inverse mapping: the output pixels
- * are mapped back onto the input image. This scheme avoids the creation of
- * any holes and overlaps in the output image.
+ * The efficiency of this filter comes from combining the interpolation of
+ * all the M and GradM terms in one loop, so that all possible computations
+ * are reused
  *
- * Each vector in the deformation field represent the distance between
- * a geometric point in the input space and a point in the output space 
- * in VOXEL COORDINATES (why? because it's faster!)
+ * The fixed and moving images must be passed in to the filter in the form
+ * of VectorImages of size K and (VDim+K), respectively - i.e., the moving
+ * images and their gradients are packed together.
  *
- * \f[ p_{in} = p_{out} + d \f]
- *
- * Linear interpolation is used
- *
- * Position mapped to outside of the input image buffer are assigned
- * a edge padding value.
- *
- * This class is templated over the type of the input image, the
- * type of the output image and the type of the deformation field.
- *
- * The input image is set via SetInput. The input deformation field
- * is set via SetDeformationField.
- *
- * This filter is implemented as a multithreaded filter.
+ * The output should be an image of CovariantVector type
  *
  * \warning This filter assumes that the input type, output type
  * and deformation field type all have the same number of dimensions.
  *
  */
-template <
-  class TImage,
-  class TVectorImage,
-  class TFloat
-  >
+template <class TInputImage, class TOutputImage, class TDeformationField = TOutputImage>
 class ITK_EXPORT MultiImageOpticalFlowImageFilter :
-    public ImageToImageFilter<TImage, TImage>
+    public ImageToImageFilter<TInputImage, TOutputImage>
 {
 public:
   /** Standard class typedefs. */
   typedef MultiImageOpticalFlowImageFilter             Self;
-  typedef ImageToImageFilter<TImage,TImage>            Superclass;
+  typedef ImageToImageFilter<TInputImage,TOutputImage> Superclass;
   typedef SmartPointer<Self>                           Pointer;
   typedef SmartPointer<const Self>                     ConstPointer;
 
   /** Method for creation through the object factory. */
-  itkNewMacro(Self);
+  itkNewMacro(Self)
 
   /** Run-time type information (and related methods) */
-  itkTypeMacro( MultiImageOpticalFlowImageFilter, ImageToImageFilter );
+  itkTypeMacro( MultiImageOpticalFlowImageFilter, ImageToImageFilter )
 
   /** Typedef to describe the output image region type. */
-  typedef typename TImage::RegionType OutputImageRegionType;
+  typedef typename TInputImage::RegionType OutputImageRegionType;
 
   /** Inherit some types from the superclass. */
-  typedef typename TImage                             InputImageType;
-  typedef typename TVectorImage                       InputVectorImageType;
-  typedef typename TVectorImage                       OutputImageType;
+  typedef TInputImage                                 InputImageType;
+  typedef typename TInputImage::PixelType             InputPixelType;
+  typedef typename TInputImage::InternalPixelType     InputComponentType;
+  typedef TOutputImage                                OutputImageType;
+  typedef typename OutputImageType::PixelType         OutputPixelType;
+  typedef typename OutputPixelType::ComponentType     OutputComponentType;
   typedef typename OutputImageType::IndexType         IndexType;
   typedef typename OutputImageType::IndexValueType    IndexValueType;
   typedef typename OutputImageType::SizeType          SizeType;
-  typedef typename OutputImageType::PixelType         PixelType;
   typedef typename OutputImageType::SpacingType       SpacingType;
+  typedef typename OutputImageType::DirectionType     DirectionType;
+
+  /** Weight vector */
+  typedef vnl_vector<float>                           WeightVectorType;
 
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int,
                       OutputImageType::ImageDimension );
-  itkStaticConstMacro(InputImageDimension, unsigned int,
-                      InputImageType::ImageDimension );
-  itkStaticConstMacro(DeformationFieldDimension, unsigned int,
-                      InputVectorImageType::ImageDimension );
+
   /** typedef for base image type at the current ImageDimension */
   typedef ImageBase<itkGetStaticConstMacro(ImageDimension)> ImageBaseType;
 
   /** Deformation field typedef support. */
-  typedef TVectorImage                             DeformationFieldType;
+  typedef TDeformationField                        DeformationFieldType;
   typedef typename DeformationFieldType::Pointer   DeformationFieldPointer;
   typedef typename DeformationFieldType::PixelType DisplacementType;
 
-  /** Type for representing the direction of the output image */
-  typedef typename OutputImageType::DirectionType     DirectionType;
+  /** Set the fixed image(s) */
+  void SetFixedImage(InputImageType *fixed)
+    { this->ProcessObject::SetInput("Primary", fixed); }
+
+  /** Set the moving image(s) and their gradients */
+  void SetMovingImageAndGradient(InputImageType *moving)
+    { this->ProcessObject::SetInput("moving", moving); }
+
+  /** Set the weight vector */
+  itkSetMacro(Weights, WeightVectorType)
+  itkGetConstMacro(Weights, WeightVectorType)
 
   /** Set the deformation field. */
-  void SetDeformationField( const DeformationFieldType * field );
+  void SetDeformationField(DeformationFieldType *field)
+    { this->ProcessObject::SetInput("deformation", field); }
 
-  /** Get a pointer the deformation field. */
-  DeformationFieldType * GetDeformationField(void);
+  /** Set constant scaling factor for the deformation field */
+  itkSetMacro(DeformationScaling, float)
+  itkGetConstMacro(DeformationScaling, float)
 
-  /** Add a fixed / moving / gradient image pair */
-  void AddImagePair(
-          InputImageType *fixed,
-          InputImageType *moving,
-          InputVectorImageType *gradMoving,
-          double weight);
+  /** Get the total energy of optical flow - only after Update has been called */
+  itkGetConstMacro(TotalEnergy, double)
 
-  /** Set the edge padding value */
-  itkSetMacro( EdgePaddingValue, PixelType );
-
-  /** Get the edge padding value */
-  itkGetConstMacro( EdgePaddingValue, PixelType );
-
-  /** Set scaling factor for the deformation field */
-  itkSetMacro(DeformationScaling, TFloat);
-  itkGetMacro(DeformationScaling, TFloat);
-
-  /** SimpleWarpImageFilter produces an image which is a different
+  /** This filter produces an image which is a different
    * size than its input image. As such, it needs to provide an
    * implemenation for GenerateOutputInformation() which set
    * the output information according the OutputSpacing, OutputOrigin
@@ -216,33 +215,52 @@ protected:
   void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
                             ThreadIdType threadId );
 
+  void VerifyInputInformation() {}
+
+  // Object to assist specializaiton
+  struct DispatchBase {};
+  template <unsigned int VDim> struct Dispatch : public DispatchBase {};
+
+  /** Fast interpolation method */
+  double OpticalFlowFastInterpolate(const Dispatch<3> &dispatch,
+                                    float *cix,
+                                    const InputComponentType *fixed_ptr,
+                                    const InputComponentType *moving_ptr,
+                                    OutputPixelType &outVector,
+                                    int *movSize,
+                                    int nComp,
+                                    const InputComponentType *def_value);
+
+  // Dummy implementation
+  double OpticalFlowFastInterpolate(const DispatchBase &base,
+                                    float *cix,
+                                    const InputComponentType *fixed_ptr,
+                                    const InputComponentType *moving_ptr,
+                                    OutputPixelType &outVector,
+                                    int *movSize,
+                                    int nComp,
+                                    const InputComponentType *def_value)
+    { return 0.0; }
+
 private:
-  MultiImageSimpleWarpImageFilter(const Self&); //purposely not implemented
+  MultiImageOpticalFlowImageFilter(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
 
-  PixelType                  m_EdgePaddingValue;
-
   // Scaling for the deformation field
-  TFloat m_DeformationScaling;
+  float                     m_DeformationScaling;
 
-  // Interpolator
-  typename InterpolatorType::Pointer m_Interpolator;
+  // Weight vector
+  WeightVectorType          m_Weights;
 
-  struct ImageSet {
-      InputImageType *fixed, *moving;
-      InputVectorImageType *grad_moving;
-      double weight;
-  };
-
-  std::vector<ImageSet> m_ImageSet;
-  InputVectorImageType *m_Deformation;
-
+  // Total energy - Sum |I_k - J_k|^2
+  double                    m_TotalEnergy;
+  std::vector<double>       m_TotalEnergyPerThread;
 };
 
 } // end namespace itk
 
 #ifndef ITK_MANUAL_INSTANTIATION
-#include "SimpleWarpImageFilter.txx"
+#include "MultiImageSimpleWarpImageFilter.txx"
 #endif
 
 #endif

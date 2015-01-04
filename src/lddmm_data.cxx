@@ -532,9 +532,9 @@ LDDMMData<TFloat, VDim>
   typedef itk::GradientImageFilter<ImageType, TFloat, TFloat> Filter;
   typename Filter::Pointer flt = Filter::New();
   flt->SetInput(src);
+  flt->GraftOutput(grad);
   flt->SetUseImageSpacingOff();
   flt->SetUseImageDirection(false);
-  flt->GraftOutput(grad);
   flt->Update();
 }
 
@@ -666,7 +666,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::img_resample_identity(ImageType *src, ImageType *ref, ImageType *trg)
+::img_resample_identity(ImageType *src, ImageBaseType *ref, ImageType *trg)
 {
   typedef itk::ResampleImageFilter<ImageType, ImageType> ResampleFilter;
   typedef itk::IdentityTransform<TFloat, VDim> TranType;
@@ -684,6 +684,7 @@ LDDMMData<TFloat, VDim>
   filter->GraftOutput(trg);
   filter->Update();
 }
+
 
 template <class TFloat, uint VDim>
 void
@@ -743,13 +744,12 @@ LDDMMData<TFloat, VDim>
 
   filter->GraftOutput(trg);
   filter->Update();
-
 }
 
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::vimg_resample_identity(VectorImageType *src, ImageType *ref, VectorImageType *trg)
+::vimg_resample_identity(VectorImageType *src, ImageBaseType *ref, VectorImageType *trg)
 {
   typedef itk::VectorResampleImageFilter<VectorImageType, VectorImageType> ResampleFilter;
   typedef itk::IdentityTransform<TFloat, VDim> TranType;

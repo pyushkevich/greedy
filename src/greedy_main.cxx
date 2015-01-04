@@ -14,6 +14,7 @@
 #include <itkIdentityTransform.h>
 #include <itkShrinkImageFilter.h>
 
+#include "MultiImageSimpleWarpImageFilter.h"
 #include <vnl/vnl_cost_function.h>
 
 
@@ -66,10 +67,15 @@ class GreedyApproach
 public:
 
   typedef LDDMMData<TReal, VDim> LDDMMType;
+  typedef typename LDDMMType::ImageBaseType ImageBaseType;
   typedef typename LDDMMType::ImageType ImageType;
   typedef typename LDDMMType::ImagePointer ImagePointer;
   typedef typename LDDMMType::VectorImageType VectorImageType;
   typedef typename LDDMMType::VectorImagePointer VectorImagePointer;
+  typedef typename LDDMMType::CompositeImageType CompositeImageType;
+  typedef typename LDDMMType::CompositeImagePointer CompositeImagePointer;
+
+  typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
 
   struct ImagePair {
     ImagePointer fixed, moving;
@@ -84,6 +90,7 @@ public:
 
 protected:
 
+  static void ReadImages(GreedyParameters &param, OFHelperType &ofhelper);
   static void ReadImages(GreedyParameters &param, std::vector<ImagePair> &imgRaw);
   static void ResampleImages(GreedyParameters &param,
                              const std::vector<ImagePair> &imgRaw,
@@ -110,6 +117,30 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
 
   // Interpolate the images in img at positions specified by x
 
+}
+
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
+::ReadImages(GreedyParameters &param, OFHelperType &ofhelper)
+{
+  // Read the input images and stick them into an image array
+  for(int i = 0; i < param.inputs.size(); i++)
+    {
+    // Read fixed
+    typedef itk::ImageFileReader<CompositeImageType> ReaderType;
+    typename ReaderType::Pointer readfix = ReaderType::New();
+    readfix->SetFileName(param.inputs[i].fixed);
+    readfix->Update();
+
+    // Read moving
+    typedef itk::ImageFileReader<CompositeImageType> ReaderType;
+    typename ReaderType::Pointer readmov = ReaderType::New();
+    readmov->SetFileName(param.inputs[i].moving);
+    readmov->Update();
+
+    // Add to the helper object
+    ofhelper.AddImagePair(readfix->GetOutput(), readmov->GetOutput(), param.inputs[i].weight);
+    }
 }
 
 template <unsigned int VDim, typename TReal>
@@ -373,9 +404,17 @@ template <unsigned int VDim, typename TReal>
 int GreedyApproach<VDim, TReal>
 ::Run(GreedyParameters &param)
 {
+  // Create an optical flow helper object
+  OFHelperType of_helper;
+
+  // Set the scaling factors for multi-resolution
+  of_helper.SetDefaultPyramidFactors(param.iter_per_level.size());
+
   // Read the image pairs to register
-  std::vector<ImagePair> imgRaw;
-  ReadImages(param, imgRaw);
+  ReadImages(param, of_helper);
+
+  // Generate the optimized composite images
+  of_helper.BuildCompositeImages();
 
   // An image pointer desribing the current estimate of the deformation
   VectorImagePointer uLevel = NULL;
@@ -386,8 +425,11 @@ int GreedyApproach<VDim, TReal>
   // Iterate over the resolution levels
   for(unsigned int level = 0; level < nlevels; ++level)
     {
+    // The scaling factor
+    int shrink_factor = 1 << (nlevels - (1 + level));
+
     // Reference space
-    ImagePointer refspace = NULL;
+    ImageBaseType *refspace = of_helper.GetReferenceSpace(level);
 
     // Intermediate images
     ImagePointer iTemp = ImageType::New();
@@ -395,17 +437,7 @@ int GreedyApproach<VDim, TReal>
     VectorImagePointer uk = VectorImageType::New();
     VectorImagePointer uk1 = VectorImageType::New();
 
-    // Prepare the data for this iteration
-    std::vector<ImagePair> img;
-
-    // The scaling factor
-    int shrink_factor = 1 << (nlevels - (1 + level));
-
-    // Perform resampling
-    ResampleImages(param, imgRaw, img, level);
-
     // Allocate the intermediate data
-    refspace = img.front().fixed;
     LDDMMType::alloc_vimg(uk, refspace);
     LDDMMType::alloc_img(iTemp, refspace);
     LDDMMType::alloc_vimg(viTemp, refspace);
@@ -423,8 +455,10 @@ int GreedyApproach<VDim, TReal>
       // Initialize u(k+1) to zero
       uk1->FillBuffer(typename LDDMMType::Vec(0.0));
 
-      // Initialize the energy computation
-      double total_energy = 0.0;
+      // Compute the gradient of objective
+      double total_energy = of_helper.ComputeOpticalFlowField(level, uk, uk1, param.epsilon);
+
+      /*
 
       // Add all the derivative terms
       for(int j = 0; j < img.size(); j++)
@@ -453,6 +487,8 @@ int GreedyApproach<VDim, TReal>
         // Accumulate to the force
         LDDMMType::vimg_add_scaled_in_place(uk1, viTemp, -img[j].weight * param.epsilon);
         }
+
+        */
 
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
         {
