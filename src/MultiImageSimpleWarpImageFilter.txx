@@ -210,7 +210,11 @@ double
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeOpticalFlowField(int level, VectorImageType *def, VectorImageType *result, double result_scaling)
 {
-  typedef itk::MultiImageOpticalFlowImageFilter<MultiComponentImageType, VectorImageType> FilterType;
+  typedef itk::MultiImageOpticalFlowWarpTraits<
+      MultiComponentImageType, VectorImageType, VectorImageType> TraitsType;
+  typedef itk::MultiImageOpticalFlowImageFilter<
+      MultiComponentImageType, VectorImageType, TraitsType> FilterType;
+
   typename FilterType::Pointer filter = FilterType::New();
 
   // Scale the weights by epsilon
@@ -221,7 +225,37 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   // Run the filter
   filter->SetFixedImage(m_FixedComposite[level]);
   filter->SetMovingImageAndGradient(m_MovingComposite[level]);
-  filter->SetDeformationField(def);
+  // filter->SetDeformationField(def);
+  filter->SetTransform(def);
+  filter->SetWeights(wscaled);
+  filter->GraftOutput(result);
+  filter->Update();
+
+  // Get the total energy
+  return filter->GetSummaryResult()[0];
+}
+
+template <class TFloat, unsigned int VDim>
+double
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeOpticalFlowField(int level, LinearTransformType *tran, VectorImageType *result, double result_scaling)
+{
+  typedef itk::MultiImageOpticalFlowAffineGradientTraits<
+      MultiComponentImageType, VectorImageType> TraitsType;
+  typedef itk::MultiImageOpticalFlowImageFilter<
+      MultiComponentImageType, VectorImageType, TraitsType> FilterType;
+
+  typename FilterType::Pointer filter = FilterType::New();
+
+  // Scale the weights by epsilon
+  vnl_vector<float> wscaled(m_Weights.size());
+  for(int i = 0; i < wscaled.size(); i++)
+    wscaled[i] = m_Weights[i] * result_scaling;
+
+  // Run the filter
+  filter->SetFixedImage(m_FixedComposite[level]);
+  filter->SetMovingImageAndGradient(m_MovingComposite[level]);
+  filter->SetTransform(tran);
   filter->SetWeights(wscaled);
   filter->GraftOutput(result);
   filter->Update();
@@ -246,7 +280,7 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 ::MultiImageOpticalFlowImageFilter()
 {
   // Setup default values
-  m_DeformationScaling = 1.0;
+  // m_DeformationScaling = 1.0;
 }
 
 /**
@@ -270,8 +304,14 @@ void
 MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 ::BeforeThreadedGenerateData()
 {
+  // Create the prototype results vector
+  InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
+  int kMoving = moving->GetNumberOfComponentsPerPixel();
+  m_SummaryResult = SummaryType(kMoving, 0.0);
+
   // Clear the energy per thread array
-  m_TotalEnergyPerThread = std::vector<double>(this->GetNumberOfThreads(), 0.0);
+  m_SummaryResultPerThread =
+      std::vector<SummaryType>(this->GetNumberOfThreads(), m_SummaryResult);
 }
 
 /**
@@ -282,9 +322,8 @@ void
 MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 ::AfterThreadedGenerateData()
 {
-  m_TotalEnergy = 0.0;
-  for(int i = 0; i < m_TotalEnergyPerThread.size(); i++)
-    m_TotalEnergy += m_TotalEnergyPerThread[i];
+  for(int i = 0; i < m_SummaryResultPerThread.size(); i++)
+    m_SummaryResult += m_SummaryResultPerThread[i];
 }
 
 
@@ -300,6 +339,7 @@ inline TFloat LERP(TFloat a, TFloat l, TFloat h)
   return l+((h-l)*a);
 }
 
+/*
 template <class TInputImage, class TOutputImage, class TDeformationField>
 double
 MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
@@ -425,6 +465,78 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
   // What to return?
   return Tval;
 }
+*/
+
+template <class TInputImage, class TOutputImage, class TDeformationField>
+void
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
+::OpticalFlowFastInterpolate(const Dispatch<3> &,
+                             const InputComponentType *moving_ptr,
+                             int nComp, int stride, int *movSize,
+                             const InputComponentType *def_value,
+                             float *cix,
+                             InputComponentType *out)
+{
+  int	x0, y0, z0, x1, y1, z1;
+  const InputComponentType *dp, *d000, *d001, *d010, *d011, *d100, *d101, *d110, *d111;
+
+  double fx, fy, fz;
+  double dx00, dx01, dx10, dx11, dxy0, dxy1, dxyz;
+
+  int xsize = movSize[0];
+  int ysize = movSize[1];
+  int zsize = movSize[2];
+
+  x0 = floor(cix[0]); fx = cix[0] - x0;
+  y0 = floor(cix[1]); fy = cix[1] - y0;
+  z0 = floor(cix[2]); fz = cix[2] - z0;
+
+  x1 = x0 + 1;
+  y1 = y0 + 1;
+  z1 = z0 + 1;
+
+  if (x0 >= 0 && x1 < xsize &&
+      y0 >= 0 && y1 < ysize &&
+      z0 >= 0 && z1 < zsize)
+    {
+    dp = DENS(x0, y0, z0, moving_ptr, nComp);
+    d000 = dp;
+    d100 = dp+nComp;
+    dp += xsize*nComp;
+    d010 = dp;
+    d110 = dp+nComp;
+    dp += xsize*ysize*nComp;
+    d011 = dp;
+    d111 = dp+nComp;
+    dp -= xsize*nComp;
+    d001 = dp;
+    d101 = dp+nComp;
+    }
+  else
+    {
+    d000 = INRANGE(x0, y0, z0) ? DENS(x0, y0, z0, moving_ptr, nComp) : def_value;
+    d001 = INRANGE(x0, y0, z1) ? DENS(x0, y0, z1, moving_ptr, nComp) : def_value;
+    d010 = INRANGE(x0, y1, z0) ? DENS(x0, y1, z0, moving_ptr, nComp) : def_value;
+    d011 = INRANGE(x0, y1, z1) ? DENS(x0, y1, z1, moving_ptr, nComp) : def_value;
+    d100 = INRANGE(x1, y0, z0) ? DENS(x1, y0, z0, moving_ptr, nComp) : def_value;
+    d101 = INRANGE(x1, y0, z1) ? DENS(x1, y0, z1, moving_ptr, nComp) : def_value;
+    d110 = INRANGE(x1, y1, z0) ? DENS(x1, y1, z0, moving_ptr, nComp) : def_value;
+    d111 = INRANGE(x1, y1, z1) ? DENS(x1, y1, z1, moving_ptr, nComp) : def_value;
+    }
+
+  // Interpolate each component
+  for(int iComp = 0; iComp < nComp; iComp+=stride)
+    {
+    // Interpolate first component
+    dx00 = LERP(fx, *d000++, *d100++);
+    dx01 = LERP(fx, *d001++, *d101++);
+    dx10 = LERP(fx, *d010++, *d110++);
+    dx11 = LERP(fx, *d011++, *d111++);
+    dxy0 = LERP(fy, dx00, dx10);
+    dxy1 = LERP(fy, dx01, dx11);
+    *(out++) = LERP(fz, dxy0, dxy1);
+    }
+}
 
 template <typename TImage>
 class ImageRegionConstIteratorWithIndexOverride
@@ -443,9 +555,91 @@ public:
   const InternalPixelType *GetBeginPosition() { return this->m_Begin; }
 };
 
+
 /**
  * Compute the output for the region specified by outputRegionForThread.
  */
+template <class TInputImage, class TOutputImage, class TTransformTraits>
+void
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
+::ThreadedGenerateData(
+  const OutputImageRegionType& outputRegionForThread,
+  ThreadIdType threadId )
+{
+  // Get the pointers to the input and output images
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
+  InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
+  OutputImageType *out = this->GetOutput();
+
+  // Get the number of components
+  int kFixed = fixed->GetNumberOfComponentsPerPixel();
+  int kMoving = moving->GetNumberOfComponentsPerPixel();
+
+  // Iterate over the deformation field and the output image. In reality, we don't
+  // need to waste so much time on iteration, so we use a specialized iterator here
+  typedef ImageRegionConstIteratorWithIndexOverride<OutputImageType> OutputIter;
+
+  // Location of the lookup
+  vnl_vector_fixed<float, ImageDimension> cix;
+
+  // Pointer to the fixed image data
+  const typename InputImageType::InternalPixelType *bFix = fixed->GetBufferPointer();
+  const typename InputImageType::InternalPixelType *bMov = moving->GetBufferPointer();
+  typename OutputImageType::InternalPixelType *bOut = out->GetBufferPointer();
+
+  // Pointer to store interpolated moving data
+  vnl_vector<typename InputImageType::InternalPixelType> interp_mov(kMoving);
+  SummaryType &sum_res = m_SummaryResultPerThread[threadId];
+
+  // Get the stride for interpolation (how many moving pixels to skip)
+  int stride = TTransformTraits::GetStride(kMoving);
+
+  // Array of moving image size
+  vnl_vector<int> mov_size(ImageDimension);
+  for(unsigned int j = 0; j < ImageDimension; j++ )
+    mov_size[j] = moving->GetBufferedRegion().GetSize()[j];
+
+  // Array of zeros - default value
+  vnl_vector<InputComponentType> zeros(kMoving, 0.0);
+
+  // Iterate over the fixed space region
+  for(OutputIter it(out, outputRegionForThread); !it.IsAtEnd(); ++it)
+    {
+    // Get the index at the current location
+    const IndexType &idx = it.GetIndex();
+
+    // Get the output pointer at this location
+    typename OutputImageType::InternalPixelType *ptrOut =
+        const_cast<typename OutputImageType::InternalPixelType *>(it.GetPosition());
+
+    // Get the offset into the fixed pointer
+    long offset = ptrOut - bOut;
+
+    // Map to a position at which to interpolate
+    TTransformTraits::TransformIndex(idx, m_Transform, offset, cix.data_block());
+
+    // Perform the interpolation, put the results into interp_mov
+    this->OpticalFlowFastInterpolate(
+          Dispatch<ImageDimension>(),
+          bMov, kMoving, stride, mov_size.data_block(), zeros.data_block(),
+          cix.data_block(), interp_mov.data_block());
+
+    // Perform the calculation of interest on the interpolated data
+    TTransformTraits::PostInterpolate(
+          idx, bFix + offset * kFixed,
+          interp_mov.data_block(), kMoving, m_Weights.data_block(),
+          sum_res.data_block(), *ptrOut);
+    }
+
+}
+
+
+
+
+/**
+ * Compute the output for the region specified by outputRegionForThread.
+ */
+/*
 template <class TImage, class TVectorImage, class TFloat>
 void
 MultiImageOpticalFlowImageFilter<TImage,TVectorImage,TFloat>
@@ -465,10 +659,30 @@ MultiImageOpticalFlowImageFilter<TImage,TVectorImage,TFloat>
 
   // Iterate over the deformation field and the output image. In reality, we don't
   // need to waste so much time on iteration, so we use a specialized iterator here
-  typedef ImageRegionConstIteratorWithIndexOverride<DeformationFieldType> DeformIter;
+  typedef ImageRegionConstIteratorWithIndexOverride<OutputImageType> OutputIter;
+
+  // Get the transform parameters if using affine transform
+  vnl_matrix_fixed<float, ImageDimension, ImageDimension> t_M;
+  vnl_vector_fixed<float, ImageDimension> t_b;
+  if(m_Transform)
+    {
+    for(int i = 0; i < ImageDimension; i++)
+      {
+      for(int j = 0; j < ImageDimension; j++)
+        {
+        t_M(i,j) = m_Transform->GetMatrix().GetVnlMatrix()(i,j);
+        }
+      t_b(i) = m_Transform->GetOffset()(i);
+      }
+    }
+  else
+    {
+    t_M.set_identity();
+    t_b.fill(0.0f);
+    }
 
   // Location of the lookup
-  itk::ContinuousIndex<float, ImageDimension> cix;
+  vnl_vector_fixed<float, ImageDimension> cix;
 
   // Pointer to the fixed image data
   const typename InputImageType::InternalPixelType *bFix = fixed->GetBufferPointer();
@@ -484,42 +698,58 @@ MultiImageOpticalFlowImageFilter<TImage,TVectorImage,TFloat>
   vnl_vector<InputComponentType> zeros(kMoving, 0.0);
 
   // Iterate over the fixed space region
-  for(DeformIter it(def, outputRegionForThread); !it.IsAtEnd(); ++it)
+  for(OutputIter it(out, outputRegionForThread); !it.IsAtEnd(); ++it)
     {
     // Get the index at the current location
     const IndexType &idx = it.GetIndex();
 
-    // Get the deformation at this location
-    const typename DeformationFieldType::InternalPixelType *ptrDef = it.GetPosition();
+    // Get the output pointer at this location
+    const typename OutputImageType::InternalPixelType *ptrOut = it.GetPosition();
 
     // Get the offset into the fixed pointer
-    long offset = ptrDef - bDef;
+    long offset = ptrOut - bOut;
 
     // Map to a position at which to interpolate
-    for(unsigned int j = 0; j < ImageDimension; j++ )
+    if(def)
       {
-      cix[j] = idx[j] + m_DeformationScaling * (*ptrDef)[j];
+      const typename DeformationFieldType::InternalPixelType &def_x = bDef[offset];
+
+      // Use deformation field
+      for(unsigned int j = 0; j < ImageDimension; j++ )
+        {
+        cix[j] = idx[j] + m_DeformationScaling * def_x[j];
+        }
+      }
+    else
+      {
+      // Compute the affine transform - directly in index space
+      for(int i = 0; i < ImageDimension; i++)
+        {
+        cix[i] = t_b(i);
+        for(int j = 0; j < ImageDimension; j++)
+          cix[i] += t_M(i,j) * idx[j];
+        }
       }
 
     // Call the interpolation code
     m_TotalEnergyPerThread[threadId] +=
         this->OpticalFlowFastInterpolate(
           Dispatch<ImageDimension>(),
-          cix.GetDataPointer(),
+          cix.data_block(),
           bFix + offset * kFixed,
           moving->GetBufferPointer(),
-          bOut[offset],
+          *ptrOut,
           mov_size.data_block(),
           kMoving,
           zeros.data_block());
     }
 
 }
+*/
 
-
-template <class TImage, class TVectorImage, class TFloat>
+template <class TInputImage, class TOutputImage, class TTransformTraits>
 void
-MultiImageOpticalFlowImageFilter<TImage,TVectorImage,TFloat>
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
 ::GenerateInputRequestedRegion()
 {
   // call the superclass's implementation
@@ -528,7 +758,8 @@ MultiImageOpticalFlowImageFilter<TImage,TVectorImage,TFloat>
   // Different behavior for fixed and moving images
   InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
   InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
-  DeformationFieldType *def = dynamic_cast<DeformationFieldType *>(this->ProcessObject::GetInput("deformation"));
+  ImageBase<ImageDimension> *transform = TTransformTraits::AsImageBase(m_Transform);
+  // DeformationFieldType *def = dynamic_cast<DeformationFieldType *>(this->ProcessObject::GetInput("deformation"));
 
   if(moving)
     moving->SetRequestedRegionToLargestPossibleRegion();
@@ -540,11 +771,11 @@ MultiImageOpticalFlowImageFilter<TImage,TVectorImage,TFloat>
       fixed->SetRequestedRegionToLargestPossibleRegion();
     }
 
-  if(def)
+  if(transform)
     {
-    def->SetRequestedRegion( this->GetOutput()->GetRequestedRegion() );
-    if(!def->VerifyRequestedRegion())
-      def->SetRequestedRegionToLargestPossibleRegion();
+    transform->SetRequestedRegion( this->GetOutput()->GetRequestedRegion() );
+    if(!transform->VerifyRequestedRegion())
+      transform->SetRequestedRegionToLargestPossibleRegion();
     }
 }
 
@@ -558,11 +789,11 @@ MultiImageOpticalFlowImageFilter<TImage,TVectorImage,TFloat>
   Superclass::GenerateOutputInformation();
 
   OutputImageType *outputPtr = this->GetOutput();
-  DeformationFieldType *def = dynamic_cast<DeformationFieldType *>(this->ProcessObject::GetInput("deformation"));
-  outputPtr->SetSpacing( def->GetSpacing() );
-  outputPtr->SetOrigin( def->GetOrigin() );
-  outputPtr->SetDirection( def->GetDirection() );
-  outputPtr->SetLargestPossibleRegion( def->GetLargestPossibleRegion() );
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
+  outputPtr->SetSpacing( fixed->GetSpacing() );
+  outputPtr->SetOrigin( fixed->GetOrigin() );
+  outputPtr->SetDirection( fixed->GetDirection() );
+  outputPtr->SetLargestPossibleRegion( fixed->GetLargestPossibleRegion() );
 }
 
 

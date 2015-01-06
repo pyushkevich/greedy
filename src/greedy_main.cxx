@@ -103,11 +103,41 @@ protected:
   class AffineCostFunction : public vnl_cost_function
   {
   public:
+
+
+    // Construct the function
+    AffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper);
+
+    // Cost function computation
     virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+
   protected:
-    std::vector<ImagePair> &img;
+
+    typedef typename OFHelperType::LinearTransformType TransformType;
+
+    // Data needed to compute the cost function
+    GreedyParameters *m_Param;
+    OFHelperType *m_OFHelper;
+    int m_Level;
+
+    // Storage for the gradient of the similarity map
+    VectorImagePointer *m_GradSim;
   };
 };
+
+template <unsigned int VDim, typename TReal>
+GreedyApproach<VDim, TReal>::AffineCostFunction
+::AffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper)
+{
+  // Store the data
+  m_Param = param;
+  m_OFHelper = helper;
+  m_Level = level;
+
+  // Initialize the image data
+  m_GradSim = VectorImageType::New();
+  LDDMMType::alloc_vimg(m_GradSim, helper->GetReferenceSpace(level));
+}
 
 template <unsigned int VDim, typename TReal>
 void
@@ -115,8 +145,21 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
 ::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
 {
   // Form a matrix/vector from x
+  typename TransformType::Pointer tran = TransformType::New();
+  typename TransformType::ParametersType vParam;
+  vParam.set_size(x.size());
+  for(int i = 0; i < x.size(); i++)
+    vParam[i] = x[i];
 
-  // Interpolate the images in img at positions specified by x
+  // Set the parameters of the transform
+  tran->SetParameters(x);
+
+  // Compute the objective function and gradient field
+  // double total_energy = m_OFHelper->ComputeOpticalFlowField(m_Level, m_GradSim, uk1, 1.0);
+
+  // Compute the gradient of the affine transform
+  //
+
 
 }
 
@@ -228,11 +271,56 @@ void GreedyApproach<VDim, TReal>
     }
 }
 
+
 /*
 template <unsigned int VDim, typename TReal>
 int GreedyApproach<VDim, TReal>
 ::RunAffine(GreedyParameters &param)
 {
+  // Create an optical flow helper object
+  OFHelperType of_helper;
+
+  // Set the scaling factors for multi-resolution
+  of_helper.SetDefaultPyramidFactors(param.iter_per_level.size());
+
+  // Read the image pairs to register
+  ReadImages(param, of_helper);
+
+  // Generate the optimized composite images
+  of_helper.BuildCompositeImages();
+
+  // The number of resolution levels
+  int nlevels = param.iter_per_level.size();
+
+  // Iterate over the resolution levels
+  for(unsigned int level = 0; level < nlevels; ++level)
+    {
+    // Reference space
+    ImageBaseType *refspace = of_helper.GetReferenceSpace(level);
+
+    // Deformation field corresponding to the current affine transform. In the future
+    // we should modify the filter to directly compute th
+    ImagePointer iTemp = ImageType::New();
+    VectorImagePointer viTemp = VectorImageType::New();
+    VectorImagePointer uk = VectorImageType::New();
+    VectorImagePointer uk1 = VectorImageType::New();
+
+    // Allocate the intermediate data
+    LDDMMType::alloc_vimg(uk, refspace);
+    LDDMMType::alloc_img(iTemp, refspace);
+    LDDMMType::alloc_vimg(viTemp, refspace);
+    LDDMMType::alloc_vimg(uk1, refspace);
+
+    // Create an optimizer
+
+    // Iterate for this level
+    for(unsigned int iter = 0; iter < param.iter_per_level[level]; iter++)
+      {
+
+      // Compute the gradient of objective
+      double total_energy = of_helper.ComputeOpticalFlowField(level, uk, uk1, param.epsilon);
+
+
   // Read the image pairs to register
   std::vector<ImagePair> imgRaw;
   ReadImages(param, imgRaw);
@@ -453,56 +541,22 @@ int GreedyApproach<VDim, TReal>
     // Iterate for this level
     for(unsigned int iter = 0; iter < param.iter_per_level[level]; iter++)
       {
-      // Initialize u(k+1) to zero
-      uk1->FillBuffer(typename LDDMMType::Vec(0.0));
 
       // Compute the gradient of objective
       double total_energy = of_helper.ComputeOpticalFlowField(level, uk, uk1, param.epsilon);
 
-      /*
-
-      // Add all the derivative terms
-      for(int j = 0; j < img.size(); j++)
-        {
-        // Interpolate each moving image
-        LDDMMType::interp_img(img[j].moving, uk, iTemp);
-
-        // Dump the moving image?
-        if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
-          {
-          char fname[256];
-          sprintf(fname, "dump_moving_%02d_lev%02d_iter%04d.nii.gz", j, level, iter);
-          LDDMMType::img_write(iTemp, fname);
-          }
-
-        // Subtract the fixed image
-        LDDMMType::img_subtract_in_place(iTemp, img[j].fixed);
-
-        // Record the norm of the difference image
-        total_energy += img[j].weight * LDDMMType::img_euclidean_norm_sq(iTemp);
-
-        // Interpolate the gradient of the moving image
-        LDDMMType::interp_vimg(img[j].grad_moving, uk, 1.0, viTemp);
-        LDDMMType::vimg_multiply_in_place(viTemp, iTemp);
-
-        // Accumulate to the force
-        LDDMMType::vimg_add_scaled_in_place(uk1, viTemp, -img[j].weight * param.epsilon);
-        }
-
-        */
-
+      // Dump the gradient image if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
         {
         char fname[256];
-        sprintf(fname, "dump_graduent_iter%04d.nii.gz", iter);
+        sprintf(fname, "dump_gradient_lev%02d_iter%04d.nii.gz", level, iter);
         LDDMMType::vimg_write(uk1, fname);
         }
 
       // We have now computed the gradient vector field. Next, we smooth it
       LDDMMType::vimg_smooth(uk1, viTemp, param.sigma_pre * shrink_factor);
-      // fft.convolution_fft(uk1, kernel, true, viTemp); // 'GradJt0' stores K[ GradJt0 * (det Phi_t1)(Jt1-Jt0) ]
 
-      // Write Uk1
+      // Dump the smoothed gradient image if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
         {
         char fname[256];
@@ -514,6 +568,7 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::interp_vimg(uk, viTemp, 1.0, uk1);
       LDDMMType::vimg_add_in_place(uk1, viTemp);
 
+      // Dump if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
         {
         char fname[256];
