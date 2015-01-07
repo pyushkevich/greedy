@@ -59,12 +59,15 @@ public:
   /** Get the reference image for level k */
   ImageBaseType *GetReferenceSpace(int level);
 
+  /** Get the reference image for level k */
+  ImageBaseType *GetMovingReferenceSpace(int level);
+
   /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
   double ComputeOpticalFlowField(int level, VectorImageType *def, VectorImageType *result,
                                  double result_scaling = 1.0);
 
-  double ComputeOpticalFlowField(int level, LinearTransformType *tran, VectorImageType *result,
-                                 double result_scaling = 1.0);
+  double ComputeAffineMatchAndGradient(int level, LinearTransformType *tran,
+                                       LinearTransformType *grad = NULL);
 
 
 protected:
@@ -90,6 +93,42 @@ protected:
 
 namespace itk
 {
+
+template<class TFloat, class TFloatArr, unsigned int VDim>
+static void flatten_affine_transform(
+    const MatrixOffsetTransformBase<TFloat, VDim, VDim> *transform,
+    TFloatArr *flat_array)
+{
+  int pos = 0;
+  for(int i = 0; i < VDim; i++)
+    {
+    flat_array[pos++] = transform->GetOffset()[i];
+    for(int j = 0; j < VDim; j++)
+      flat_array[pos++] = transform->GetMatrix()(i,j);
+    }
+}
+
+template<class TFloat, class TFloatArr, unsigned int VDim>
+static void unflatten_affine_transform(
+   const TFloatArr *flat_array,
+   MatrixOffsetTransformBase<TFloat, VDim, VDim> *transform,
+   double scaling = 1.0)
+{
+  typename MatrixOffsetTransformBase<TFloat, VDim, VDim>::MatrixType matrix;
+  typename MatrixOffsetTransformBase<TFloat, VDim, VDim>::OffsetType offset;
+
+  int pos = 0;
+  for(int i = 0; i < VDim; i++)
+    {
+    offset[i] = flat_array[pos++] * scaling;
+    for(int j = 0; j < VDim; j++)
+      matrix(i, j) = flat_array[pos++] * scaling;
+    }
+
+  transform->SetMatrix(matrix);
+  transform->SetOffset(offset);
+}
+
 
 template<class TInputImage, class TOutputImage, class TDeformationImage>
 class MultiImageOpticalFlowWarpTraits
@@ -150,7 +189,7 @@ public:
   itkStaticConstMacro(ImageDimension, unsigned int,
                       TInputImage::ImageDimension );
 
-  typedef MatrixOffsetTransformBase<float, ImageDimension, ImageDimension> TransformType;
+  typedef MatrixOffsetTransformBase<double, ImageDimension, ImageDimension> TransformType;
 
 
   static DataObject *AsDataObject(TransformType *t) { return NULL; }
@@ -166,7 +205,7 @@ public:
     {
     for(int i = 0; i < ImageDimension; i++)
       {
-      ptran[i] = transform->GetOffset()(i);
+      ptran[i] = transform->GetOffset()[i];
       for(int j = 0; j < ImageDimension; j++)
         ptran[i] += transform->GetMatrix()(i,j) * pos[j];
       }
@@ -180,7 +219,7 @@ public:
     for(int i = 0; i < ImageDimension; i++)
       vOut[i] = 0;
 
-    InputPixelType *pMovEnd = pMov + nComp;
+    const InputPixelType *pMovEnd = pMov + nComp;
     while(pMov < pMovEnd)
       {
       double del = (*pFix++) - *(pMov++);
@@ -195,7 +234,7 @@ public:
       *(++summary) += vOut[i];
       for(int j = 0; j < ImageDimension; j++)
         {
-        *(++summary) += vOut[j] * pos[i];
+        *(++summary) += vOut[i] * pos[j];
         }
       }
   }
@@ -225,7 +264,7 @@ public:
                             TransformType *transform, long offset,
                             float *ptran)
     {
-    return SourceTraits::TranformIndex(pos, transform, offset, ptran);
+    return SourceTraits::TransformIndex(pos, transform, offset, ptran);
     }
 
   static void PostInterpolate(

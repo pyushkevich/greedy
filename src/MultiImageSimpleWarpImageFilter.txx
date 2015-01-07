@@ -200,6 +200,14 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 typename MultiImageOpticalFlowHelper<TFloat, VDim>::ImageBaseType *
 MultiImageOpticalFlowHelper<TFloat, VDim>
+::GetMovingReferenceSpace(int level)
+{
+  return m_MovingComposite[level];
+}
+
+template <class TFloat, unsigned int VDim>
+typename MultiImageOpticalFlowHelper<TFloat, VDim>::ImageBaseType *
+MultiImageOpticalFlowHelper<TFloat, VDim>
 ::GetReferenceSpace(int level)
 {
   return m_FixedComposite[level];
@@ -238,30 +246,62 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 double
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::ComputeOpticalFlowField(int level, LinearTransformType *tran, VectorImageType *result, double result_scaling)
+::ComputeAffineMatchAndGradient(
+    int level, LinearTransformType *tran,
+    LinearTransformType *grad)
 {
-  typedef itk::MultiImageOpticalFlowAffineGradientTraits<
-      MultiComponentImageType, VectorImageType> TraitsType;
-  typedef itk::MultiImageOpticalFlowImageFilter<
-      MultiComponentImageType, VectorImageType, TraitsType> FilterType;
-
-  typename FilterType::Pointer filter = FilterType::New();
-
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
   for(int i = 0; i < wscaled.size(); i++)
-    wscaled[i] = m_Weights[i] * result_scaling;
+    wscaled[i] = m_Weights[i];
 
-  // Run the filter
-  filter->SetFixedImage(m_FixedComposite[level]);
-  filter->SetMovingImageAndGradient(m_MovingComposite[level]);
-  filter->SetTransform(tran);
-  filter->SetWeights(wscaled);
-  filter->GraftOutput(result);
-  filter->Update();
+  if(grad)
+    {
+    typedef itk::MultiImageOpticalFlowAffineGradientTraits<
+        MultiComponentImageType, VectorImageType> TraitsType;
+    typedef itk::MultiImageOpticalFlowImageFilter<
+        MultiComponentImageType, VectorImageType, TraitsType> FilterType;
 
-  // Get the total energy
-  return filter->GetTotalEnergy();
+    typename FilterType::Pointer filter = FilterType::New();
+
+    // Run the filter
+    filter->SetFixedImage(m_FixedComposite[level]);
+    filter->SetMovingImageAndGradient(m_MovingComposite[level]);
+    filter->SetTransform(tran);
+    filter->SetWeights(wscaled);
+
+    // TODO: stop the filter from allocating a image pointlessly!
+    // filter->GraftOutput(result);
+    filter->Update();
+
+    // Process the results, scaling by -2
+    itk::unflatten_affine_transform(filter->GetSummaryResult().data_block()+1, grad, -2.0);
+
+    // Get the total energy
+    return filter->GetSummaryResult()[0];
+    }
+  else
+    {
+    typedef itk::MultiImageOpticalFlowAffineObjectiveTraits<
+        MultiComponentImageType, VectorImageType> TraitsType;
+    typedef itk::MultiImageOpticalFlowImageFilter<
+        MultiComponentImageType, VectorImageType, TraitsType> FilterType;
+
+    typename FilterType::Pointer filter = FilterType::New();
+
+    // Run the filter
+    filter->SetFixedImage(m_FixedComposite[level]);
+    filter->SetMovingImageAndGradient(m_MovingComposite[level]);
+    filter->SetTransform(tran);
+    filter->SetWeights(wscaled);
+    // TODO: stop the filter from allocating a image pointlessly!
+
+    // filter->GraftOutput(result);
+    filter->Update();
+
+    // Process the results
+    return filter->GetSummaryResult()[0];
+    }
 }
 
 
@@ -275,8 +315,8 @@ namespace itk
  * Default constructor.
  */
 
-template <class TInputImage, class TOutputImage, class TDeformationField>
-MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
+template <class TInputImage, class TOutputImage, class TTransformTraits>
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
 ::MultiImageOpticalFlowImageFilter()
 {
   // Setup default values
@@ -286,9 +326,9 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 /**
  * Standard PrintSelf method.
  */
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TInputImage, class TOutputImage, class TTransformTraits>
 void
-MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
 ::PrintSelf(std::ostream& os, Indent indent) const
 {
   Superclass::PrintSelf(os, indent);
@@ -299,15 +339,16 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
  * InterpolatorType::SetInputImage is not thread-safe and hence
  * has to be setup before ThreadedGenerateData
  */
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TInputImage, class TOutputImage, class TTransformTraits>
 void
-MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
 ::BeforeThreadedGenerateData()
 {
   // Create the prototype results vector
   InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
   int kMoving = moving->GetNumberOfComponentsPerPixel();
-  m_SummaryResult = SummaryType(kMoving, 0.0);
+  int nResult = TTransformTraits::GetResultAccumSize(kMoving);
+  m_SummaryResult = SummaryType(nResult, 0.0);
 
   // Clear the energy per thread array
   m_SummaryResultPerThread =
@@ -317,9 +358,9 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 /**
  * Setup state of filter after multi-threading.
  */
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TInputImage, class TOutputImage, class TTransformTraits>
 void
-MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
 ::AfterThreadedGenerateData()
 {
   for(int i = 0; i < m_SummaryResultPerThread.size(); i++)
@@ -467,9 +508,9 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 }
 */
 
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TInputImage, class TOutputImage, class TTransformTraits>
 void
-MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
 ::OpticalFlowFastInterpolate(const Dispatch<3> &,
                              const InputComponentType *moving_ptr,
                              int nComp, int stride, int *movSize,
@@ -780,9 +821,9 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
 }
 
 
-template <class TImage, class TVectorImage, class TFloat>
+template <class TInputImage, class TOutputImage, class TTransformTraits>
 void
-MultiImageOpticalFlowImageFilter<TImage,TVectorImage,TFloat>
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
 ::GenerateOutputInformation()
 {
   // call the superclass's implementation of this method

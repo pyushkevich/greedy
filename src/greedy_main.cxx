@@ -62,6 +62,31 @@ struct GreedyParameters
 };
 
 
+// Helper function to map from ITK coordiante space to RAS space
+template<unsigned int VDim>
+void
+GetVoxelSpaceToNiftiSpaceTransform(itk::ImageBase<VDim> *image,
+                                   vnl_matrix<double> &A,
+                                   vnl_vector<double> &b)
+{
+  // Generate intermediate terms
+  vnl_matrix<double> m_dir, m_ras_matrix;
+  vnl_diag_matrix<double> m_scale, m_lps_to_ras;
+  vnl_vector<double> v_origin, v_ras_offset;
+
+  // Compute the matrix
+  m_dir = image->GetDirection().GetVnlMatrix();
+  m_scale.set(image->GetSpacing().GetVnlVector());
+  m_lps_to_ras.set(vnl_vector<double>(VDim, 1.0));
+  m_lps_to_ras[0] = -1;
+  m_lps_to_ras[1] = -1;
+  A = m_lps_to_ras * m_dir * m_scale;
+
+  // Compute the vector
+  v_origin = image->GetOrigin().GetVnlVector();
+  b = m_lps_to_ras * v_origin;
+}
+
 template <unsigned int VDim, typename TReal = double>
 class GreedyApproach
 {
@@ -128,6 +153,7 @@ protected:
 template <unsigned int VDim, typename TReal>
 GreedyApproach<VDim, TReal>::AffineCostFunction
 ::AffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper)
+  : vnl_cost_function(VDim * (VDim + 1))
 {
   // Store the data
   m_Param = param;
@@ -135,8 +161,8 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
   m_Level = level;
 
   // Initialize the image data
-  m_GradSim = VectorImageType::New();
-  LDDMMType::alloc_vimg(m_GradSim, helper->GetReferenceSpace(level));
+  // m_GradSim = VectorImageType::New();
+  // LDDMMType::alloc_vimg(m_GradSim, helper->GetReferenceSpace(level));
 }
 
 template <unsigned int VDim, typename TReal>
@@ -146,21 +172,25 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
 {
   // Form a matrix/vector from x
   typename TransformType::Pointer tran = TransformType::New();
-  typename TransformType::ParametersType vParam;
-  vParam.set_size(x.size());
-  for(int i = 0; i < x.size(); i++)
-    vParam[i] = x[i];
 
-  // Set the parameters of the transform
-  tran->SetParameters(x);
+  // Set the components of the transform
+  itk::unflatten_affine_transform(x.data_block(), tran.GetPointer());
 
-  // Compute the objective function and gradient field
-  // double total_energy = m_OFHelper->ComputeOpticalFlowField(m_Level, m_GradSim, uk1, 1.0);
+  // Compute the gradient
+  double val = 0.0;
+  if(g)
+    {
+    typename TransformType::Pointer grad = TransformType::New();
+    val = m_OFHelper->ComputeAffineMatchAndGradient(m_Level, tran, grad);
+    itk::flatten_affine_transform(grad.GetPointer(), g->data_block());
+    }
+  else
+    {
+    val = m_OFHelper->ComputeAffineMatchAndGradient(m_Level, tran, NULL);
+    }
 
-  // Compute the gradient of the affine transform
-  //
-
-
+  if(f)
+    *f = val;
 }
 
 template <unsigned int VDim, typename TReal>
@@ -187,92 +217,8 @@ void GreedyApproach<VDim, TReal>
     }
 }
 
-template <unsigned int VDim, typename TReal>
-void GreedyApproach<VDim, TReal>
-::ReadImages(GreedyParameters &param, std::vector<ImagePair> &imgRaw)
-{
-  // Read the input images and stick them into an image array
-  for(int i = 0; i < param.inputs.size(); i++)
-    {
-    ImagePair ip;
+#include <vnl/algo/vnl_lbfgs.h>
 
-    // Read fixed
-    typedef itk::ImageFileReader<ImageType> ReaderType;
-    typename ReaderType::Pointer readfix = ReaderType::New();
-    readfix->SetFileName(param.inputs[i].fixed);
-    readfix->Update();
-    ip.fixed = readfix->GetOutput();
-
-    // Read moving
-    typedef itk::ImageFileReader<ImageType> ReaderType;
-    typename ReaderType::Pointer readmov = ReaderType::New();
-    readmov->SetFileName(param.inputs[i].moving);
-    readmov->Update();
-    ip.moving = readmov->GetOutput();
-
-    // Allocate the gradient
-    LDDMMType::alloc_vimg(ip.grad_moving, ip.moving);
-
-    // Precompute the gradient of the moving images. There should be some
-    // smoothing of the input images before applying this computation!
-    LDDMMType::image_gradient(ip.moving, ip.grad_moving);
-
-    // Set weight
-    ip.weight = param.inputs[i].weight;
-
-    // Append
-    imgRaw.push_back(ip);
-    }
-}
-
-template <unsigned int VDim, typename TReal>
-void GreedyApproach<VDim, TReal>
-::ResampleImages(GreedyParameters &param,
-                 const std::vector<GreedyApproach::ImagePair> &imgRaw,
-                 std::vector<GreedyApproach::ImagePair> &img, int level)
-{
-  // The scaling factor
-  int shrink_factor = 1 << (param.iter_per_level.size() - (1 + level));
-
-  // What to do at this level?
-  if(level == param.iter_per_level.size() - 1)
-    {
-    img = imgRaw;
-    }
-  else
-    {
-    // Resample the input images to lower resolution
-    for(int i = 0; i < imgRaw.size(); i++)
-      {
-      // Create the new image pair
-      ImagePair ip;
-      ip.moving = ImageType::New();
-      ip.fixed = ImageType::New();
-
-      // Resample the images to lower resolution
-      // We should smooth the raw image by a nyquist-appropriate kernel first
-      // TODO: sigmas - units
-      LDDMMType::img_downsample(imgRaw[i].moving, ip.moving, shrink_factor);
-      LDDMMType::img_downsample(imgRaw[i].fixed, ip.fixed, shrink_factor);
-
-      // Compute the gradient of the moving image
-      LDDMMType::alloc_vimg(ip.grad_moving, ip.moving);
-
-      // Precompute the gradient of the moving images. There should be some
-      // smoothing of the input images before applying this computation!
-      LDDMMType::image_gradient(ip.moving, ip.grad_moving);
-
-      // Keep the weight the same
-      ip.weight = imgRaw[i].weight;
-
-      // Add to the list
-      img.push_back(ip);
-      }
-    }
-}
-
-
-/*
 template <unsigned int VDim, typename TReal>
 int GreedyApproach<VDim, TReal>
 ::RunAffine(GreedyParameters &param)
@@ -298,193 +244,79 @@ int GreedyApproach<VDim, TReal>
     // Reference space
     ImageBaseType *refspace = of_helper.GetReferenceSpace(level);
 
-    // Deformation field corresponding to the current affine transform. In the future
-    // we should modify the filter to directly compute th
-    ImagePointer iTemp = ImageType::New();
-    VectorImagePointer viTemp = VectorImageType::New();
-    VectorImagePointer uk = VectorImageType::New();
-    VectorImagePointer uk1 = VectorImageType::New();
+    // Define the affine cost function
+    AffineCostFunction acf(&param, level, &of_helper);
 
-    // Allocate the intermediate data
-    LDDMMType::alloc_vimg(uk, refspace);
-    LDDMMType::alloc_img(iTemp, refspace);
-    LDDMMType::alloc_vimg(viTemp, refspace);
-    LDDMMType::alloc_vimg(uk1, refspace);
+    // Perform the optimization
+    vnl_lbfgs optimizer(acf);
+    optimizer.set_f_tolerance(1e-4);
+    optimizer.set_x_tolerance(1e-3);
+    optimizer.set_g_tolerance(1e-2);
+    optimizer.set_trace(true);
+    //  optimizer.set_check_derivatives(1);
 
-    // Create an optimizer
+    // Set the initial parameter vector
+    typedef typename OFHelperType::LinearTransformType TransformType;
+    typename TransformType::Pointer tInit = TransformType::New();
+    tInit->SetIdentity();
+    vnl_vector<double> xInit(acf.get_number_of_unknowns(), 0.0);
+    itk::flatten_affine_transform(tInit.GetPointer(), xInit.data_block());
 
-    // Iterate for this level
-    for(unsigned int iter = 0; iter < param.iter_per_level[level]; iter++)
+    // Test the function
+    vnl_vector<double> xGrad(acf.get_number_of_unknowns(), 0.0);
+    double f0;
+    acf.compute(xInit, &f0, &xGrad);
+    std::cout << "Analytic gradient: " << xGrad << std::endl;
+
+    vnl_vector<double> xGradN(acf.get_number_of_unknowns(), 0.0);
+    for(int i = 0; i < acf.get_number_of_unknowns(); i++)
       {
+      double eps = 1.0e-2, f1, f2;
+      vnl_vector<double> x1 = xInit, x2 = xInit;
+      x1[i] -= eps; x2[i] += eps;
 
-      // Compute the gradient of objective
-      double total_energy = of_helper.ComputeOpticalFlowField(level, uk, uk1, param.epsilon);
+      acf.compute(x1, &f1, NULL);
+      acf.compute(x2, &f2, NULL);
 
-
-  // Read the image pairs to register
-  std::vector<ImagePair> imgRaw;
-  ReadImages(param, imgRaw);
-
-  // Create a representation of the current transformation
-  typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
-  typedef vnl_vector_fixed<double, VDim> Vec;
-  Mat A_level; Vec b_level;
-  A_level.set_identity();
-  b_level.fill(0.0);
-
-  // Initialize the transformation such that the center voxel of the moving image
-  // maps to the center voxel of the fixed image
-  ImagePair &pair = imgRaw.front();
-
-  // Compute the center index of the moving and fixed images
-  itk::ContinuousIndex<double, VDim> ctrFix, ctrMov;
-  for(int i = 0; i < VDim; i++)
-    {
-    ctrFix[i] = pair.fixed->GetBufferedRegion().GetIndex()[i]
-                + 0.5 * pair.fixed->GetBufferedRegion().GetSize()[i];
-    ctrMov[i] = pair.moving->GetBufferedRegion().GetIndex()[i]
-                + 0.5 * pair.moving->GetBufferedRegion().GetSize()[i];
-    }
-
-  // Map to the physical location
-  itk::Point<double, VDim> pctrFix, pctrMov;
-  pair.fixed->TransformContinuousIndexToPhysicalPoint(ctrFix, pctrFix);
-  pair.moving->TransformContinuousIndexToPhysicalPoint(ctrMov, pctrMov);
-
-  // Initialize the transform
-  for(int i = 0; i < VDim; i++)
-    b_level[i] = pctrMov - pctrFix;
-
-  // Iterate over resolution levels
-  // The number of resolution levels
-  int nlevels = param.iter_per_level.size();
-
-  // Iterate over the resolution levels
-  for(unsigned int level = 0; level < nlevels; ++level)
-    {
-    // Reference space
-    ImagePointer refspace = NULL;
-
-    // Intermediate images
-    ImagePointer iTemp = ImageType::New();
-    VectorImagePointer viTemp = VectorImageType::New();
-    VectorImagePointer uk = VectorImageType::New();
-
-    // Prepare the data for this iteration
-    std::vector<ImagePair> img;
-
-    // The scaling factor
-    int shrink_factor = 1 << (nlevels - (1 + level));
-
-    // Perform resampling
-    ResampleImages(param, imgRaw, img, level);
-
-    // Allocate the intermediate data
-    refspace = img.front().fixed;
-    LDDMMType::alloc_vimg(uk, refspace);
-    LDDMMType::alloc_img(iTemp, refspace);
-    LDDMMType::alloc_vimg(viTemp, refspace);
-
-    // There is no need to initialize the affine transformation, since it is defined in
-    // the physical rather than voxel space
-
-    // Set up the optimization problem
-
-    // Iterate for this level
-    for(unsigned int iter = 0; iter < param.iter_per_level[level]; iter++)
-      {
-      // Initialize u(k+1) to zero
-      uk1->FillBuffer(typename LDDMMType::Vec(0.0));
-
-      // Initialize the energy computation
-      double total_energy = 0.0;
-
-      // Add all the derivative terms
-      for(int j = 0; j < img.size(); j++)
-        {
-        // Interpolate each moving image
-        LDDMMType::interp_img(img[j].moving, uk, iTemp);
-
-        // Dump the moving image?
-        if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
-          {
-          char fname[256];
-          sprintf(fname, "dump_moving_%02d_lev%02d_iter%04d.nii.gz", j, level, iter);
-          LDDMMType::img_write(iTemp, fname);
-          }
-
-        // Subtract the fixed image
-        LDDMMType::img_subtract_in_place(iTemp, img[j].fixed);
-
-        // Record the norm of the difference image
-        total_energy += img[j].weight * LDDMMType::img_euclidean_norm_sq(iTemp);
-
-        // Interpolate the gradient of the moving image
-        LDDMMType::interp_vimg(img[j].grad_moving, uk, 1.0, viTemp);
-        LDDMMType::vimg_multiply_in_place(viTemp, iTemp);
-
-        // Accumulate to the force
-        LDDMMType::vimg_add_scaled_in_place(uk1, viTemp, -img[j].weight * param.epsilon);
-        }
-
-      if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
-        {
-        char fname[256];
-        sprintf(fname, "dump_graduent_iter%04d.nii.gz", iter);
-        LDDMMType::vimg_write(uk1, fname);
-        }
-
-      // We have now computed the gradient vector field. Next, we smooth it
-      LDDMMType::vimg_smooth(uk1, viTemp, param.sigma_pre * shrink_factor);
-      // fft.convolution_fft(uk1, kernel, true, viTemp); // 'GradJt0' stores K[ GradJt0 * (det Phi_t1)(Jt1-Jt0) ]
-
-      // Write Uk1
-      if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
-        {
-        char fname[256];
-        sprintf(fname, "dump_optflow_lev%02d_iter%04d.nii.gz", level, iter);
-        LDDMMType::vimg_write(viTemp, fname);
-        }
-
-      // Compute the updated deformation field - in uk1
-      LDDMMType::interp_vimg(uk, viTemp, 1.0, uk1);
-      LDDMMType::vimg_add_in_place(uk1, viTemp);
-
-      if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
-        {
-        char fname[256];
-        sprintf(fname, "dump_uk1_lev%02d_iter%04d.nii.gz", level, iter);
-        LDDMMType::vimg_write(uk1, fname);
-        }
-
-      // Swap uk and uk1 pointers
-      // VectorImagePointer tmpptr = uk1; uk1 = uk; uk = tmpptr;
-
-      // Another layer of smoothing - really?
-      LDDMMType::vimg_smooth(uk1, uk, param.sigma_post * shrink_factor);
-
-
-      // Report the energy
-      // printf("Iter %5d:    Energy = %8.4f     DetJac Range: %8.4f  to %8.4f \n", iter, total_energy, jac_min, jac_max);
-      printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
+      xGradN[i] = (f2 - f1) / (2 * eps);
       }
 
-    // Store the end result
-    uLevel = uk;
+    std::cout << "Numeric gradient: " << xGradN << std::endl;
 
-    // Compute the jacobian of the deformation field
-    LDDMMType::field_jacobian_det(uk, iTemp);
-    TReal jac_min, jac_max;
-    LDDMMType::img_min_max(iTemp, jac_min, jac_max);
-    printf("END OF LEVEL %5d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
+    std::cout << "f = " << f0 << std::endl;
 
+    optimizer.minimize(xInit);
+
+    // Get the final transform
+    typename TransformType::Pointer tFinal = TransformType::New();
+    itk::unflatten_affine_transform(xInit.data_block(), tFinal.GetPointer());
+
+    // Map the transform to NIFTI units
+    vnl_matrix<double> T_fix, T_mov, Q, A;
+    vnl_vector<double> s_fix, s_mov, p, b;
+
+    GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetReferenceSpace(level), T_fix, s_fix);
+    GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetMovingReferenceSpace(level), T_mov, s_mov);
+    A = tFinal->GetMatrix().GetVnlMatrix();
+    b = tFinal->GetOffset().GetVnlVector();
+
+    Q = T_mov * A * vnl_matrix_inverse<double>(T_fix);
+    p = T_mov * b + s_mov - Q * s_fix;
+
+    vnl_matrix<double> Qp(VDim+1, VDim+1);
+    Qp.set_identity();
+    for(int i = 0; i < VDim; i++)
+      {
+      Qp(i, VDim) = p(i);
+      for(int j = 0; j < VDim; j++)
+        Qp(i,j) = Q(i,j);
+      }
+
+    std::cout << "Final Transform: " << std::endl << Qp << std::endl;
     }
 
-  // Write the resulting transformation field
-  LDDMMType::vimg_write(uLevel, param.output.c_str());
+  return 0;
 }
-
-*/
 
 /**
  * This is the main function of the GreedyApproach algorithm
@@ -715,14 +547,14 @@ int main(int argc, char *argv[])
   if(param.flag_optimize_affine)
     {
     switch(param.dim)
-      {/*
+      {
       case 2: return GreedyApproach<2>::RunAffine(param); break;
       case 3: return GreedyApproach<3>::RunAffine(param); break;
       case 4: return GreedyApproach<4>::RunAffine(param); break;
       default:
             std::cerr << "Wrong dimensionality" << std::endl;
             return -1;
-      */}
+      }
     }
   else
     {
