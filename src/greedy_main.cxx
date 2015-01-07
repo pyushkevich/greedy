@@ -266,7 +266,8 @@ int GreedyApproach<VDim, TReal>
     vnl_vector<double> xGrad(acf.get_number_of_unknowns(), 0.0);
     double f0;
     acf.compute(xInit, &f0, &xGrad);
-    std::cout << "Analytic gradient: " << xGrad << std::endl;
+
+    std::cout << "A-Gradient: " << xGrad << std::endl;
 
     vnl_vector<double> xGradN(acf.get_number_of_unknowns(), 0.0);
     for(int i = 0; i < acf.get_number_of_unknowns(); i++)
@@ -281,7 +282,7 @@ int GreedyApproach<VDim, TReal>
       xGradN[i] = (f2 - f1) / (2 * eps);
       }
 
-    std::cout << "Numeric gradient: " << xGradN << std::endl;
+    std::cout << "N-gradient: " << xGradN << std::endl;
 
     std::cout << "f = " << f0 << std::endl;
 

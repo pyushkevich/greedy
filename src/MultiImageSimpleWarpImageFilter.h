@@ -149,6 +149,8 @@ public:
 
   static int GetStride(int) { return 1; }
 
+  static bool InterpolateOutsideOverlapRegion() { return true; }
+
   static void TransformIndex(const itk::Index<ImageDimension> &pos,
                             TransformType *transform, long offset,
                             float *ptran)
@@ -198,6 +200,8 @@ public:
   static int GetResultAccumSize(int nComp) { return 1 + ImageDimension * (1 + ImageDimension); }
 
   static int GetStride(int) { return 1; }
+
+  static bool InterpolateOutsideOverlapRegion() { return true; }
 
   static void TransformIndex(const itk::Index<ImageDimension> &pos,
                             TransformType *transform, long offset,
@@ -256,9 +260,14 @@ public:
   static DataObject *AsDataObject(TransformType *t) { return NULL; }
   static ImageBase<ImageDimension> *AsImageBase(TransformType *t) { return NULL; }
 
-  static int GetResultAccumSize(int) { return 1; }
+  // We keep track of the average difference between fixed and interpolating moving
+  // images as well as the size of the overlap region (i.e., number of voxels where
+  // the measurement was obtained
+  static int GetResultAccumSize(int) { return 2; }
 
   static int GetStride(int) { return 1 + ImageDimension; }
+
+  static bool InterpolateOutsideOverlapRegion() { return true; }
 
   static void TransformIndex(const itk::Index<ImageDimension> &pos,
                             TransformType *transform, long offset,
@@ -272,12 +281,15 @@ public:
       const InputPixelType *pFix, const InputPixelType *pMov, int nComp,
       float *weight, double *summary, OutputPixelType &vOut)
   {
+    double avgsqdiff;
     for(int i = 0; i < nComp; i+=(1+ImageDimension))
       {
       double del = (*pFix++) - *(pMov++);
       double delw = (*weight++) * del;
-      *summary += delw * del;
+      avgsqdiff += delw * del;
       }
+    summary[0] += avgsqdiff;
+    summary[1] += 1.0;
   }
 };
 
@@ -443,19 +455,19 @@ protected:
     { return 0.0; }
     */
 
-  void OpticalFlowFastInterpolate(const Dispatch<3> &dispatch,
+  bool OpticalFlowFastInterpolate(const Dispatch<3> &dispatch,
                                   const InputComponentType *moving_ptr,
                                   int nComp, int stride, int *movSize,
                                   const InputComponentType *def_value,
                                   float *cix,
                                   InputComponentType *out);
 
-  void OpticalFlowFastInterpolate(const DispatchBase &base,
+  bool OpticalFlowFastInterpolate(const DispatchBase &base,
                                   const InputComponentType *moving_ptr,
                                   int nComp, int stride, int *movSize,
                                   const InputComponentType *def_value,
                                   float *cix,
-                                  InputComponentType *out) {  }
+                                  InputComponentType *out) { return true; }
 
 private:
   MultiImageOpticalFlowImageFilter(const Self&); //purposely not implemented
