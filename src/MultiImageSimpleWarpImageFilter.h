@@ -23,6 +23,7 @@
 #include "itkFixedArray.h"
 #include "itkVectorImage.h"
 #include "itkMatrixOffsetTransformBase.h"
+#include "itkInPlaceImageFilter.h"
 
 /**
  * This class is used to perform mean square intensity difference type
@@ -161,7 +162,7 @@ public:
   static void PostInterpolate(
       const itk::Index<ImageDimension> &pos,
       const InputPixelType *pFix, const InputPixelType *pMov, int nComp,
-      float *weight, double *summary, OutputPixelType &vOut)
+      float *weight, float mask, double *summary, OutputPixelType &vOut)
   {
     for(int i = 0; i < ImageDimension; i++)
       vOut[i] = 0;
@@ -214,31 +215,63 @@ public:
   static void PostInterpolate(
       const itk::Index<ImageDimension> &pos,
       const InputPixelType *pFix, const InputPixelType *pMov, int nComp,
-      float *weight, double *summary, OutputPixelType &vOut)
+      float *weight, float mask, double *summary, OutputPixelType &vOut)
   {
+    const InputPixelType *pMovEnd = pMov + nComp;
     for(int i = 0; i < ImageDimension; i++)
       vOut[i] = 0;
 
-    const InputPixelType *pMovEnd = pMov + nComp;
-    while(pMov < pMovEnd)
+    if(mask == 1.0)
       {
-      double del = (*pFix++) - *(pMov++);
-      double delw = (*weight++) * del;
-      for(int i = 0; i < ImageDimension; i++)
-        vOut[i] += delw * *(pMov++);
-      *summary += delw * del;
-      }
-
-    for(int i = 0; i < ImageDimension; i++)
-      {
-      *(++summary) += vOut[i];
-      for(int j = 0; j < ImageDimension; j++)
+      while(pMov < pMovEnd)
         {
-        *(++summary) += vOut[i] * pos[j];
+        double del = (*pFix++) - *(pMov++);
+        double delw = (*weight++) * del;
+        for(int i = 0; i < ImageDimension; i++)
+          vOut[i] += delw * *(pMov++);
+        *summary += delw * del;
+        }
+
+      for(int i = 0; i < ImageDimension; i++)
+        {
+        *(++summary) += vOut[i];
+        for(int j = 0; j < ImageDimension; j++)
+          {
+          *(++summary) += vOut[i] * pos[j];
+          }
         }
       }
+    else if(mask > 0.0)
+      {
+      while(pMov < pMovEnd)
+        {
+        double del = (*pFix++) - *(pMov++);
+        double delw = (*weight++) * del;
+        //for(int i = 0; i < ImageDimension; i++)
+        //  vOut[i] += delw * ( *(pMov++) * mask + del *
+        //*summary += delw * del;
+        }
+
+      for(int i = 0; i < ImageDimension; i++)
+        {
+        *(++summary) += vOut[i];
+        for(int j = 0; j < ImageDimension; j++)
+          {
+          *(++summary) += vOut[i] * pos[j];
+          }
+        }
+      }
+
+
+    /*
+      */
+
+
   }
 };
+
+
+
 
 template<class TInputImage, class TOutputImage>
 class MultiImageOpticalFlowAffineObjectiveTraits
@@ -256,7 +289,7 @@ public:
   static DataObject *AsDataObject(TransformType *t) { return NULL; }
   static ImageBase<ImageDimension> *AsImageBase(TransformType *t) { return NULL; }
 
-  static int GetResultAccumSize(int) { return 1; }
+  static int GetResultAccumSize(int) { return 2; }
 
   static int GetStride(int) { return 1 + ImageDimension; }
 
@@ -270,13 +303,21 @@ public:
   static void PostInterpolate(
       const itk::Index<ImageDimension> &pos,
       const InputPixelType *pFix, const InputPixelType *pMov, int nComp,
-      float *weight, double *summary, OutputPixelType &vOut)
+      float *weight, float mask, double *summary, OutputPixelType &vOut)
   {
-    for(int i = 0; i < nComp; i+=(1+ImageDimension))
+    double wdiff = 0.0;
+
+    if(mask > 0.0)
       {
-      double del = (*pFix++) - *(pMov++);
-      double delw = (*weight++) * del;
-      *summary += delw * del;
+      for(int i = 0; i < nComp; i+=(1+ImageDimension))
+        {
+        double del = (*pFix++) - *(pMov++);
+        double delw = (*weight++) * del;
+        wdiff += delw * del;
+        }
+
+      summary[0] += wdiff * mask;
+      summary[1] += mask;
       }
   }
 };
@@ -457,6 +498,20 @@ protected:
                                   float *cix,
                                   InputComponentType *out) {  }
 
+  void OpticalFlowFastInterpolateWithMask(const Dispatch<3> &dispatch,
+                                  const InputComponentType *moving_ptr,
+                                  int nComp, int stride, int *movSize,
+                                  const InputComponentType *def_value,
+                                  float *cix,
+                                  InputComponentType *out, float &outMask);
+
+  void OpticalFlowFastInterpolateWithMask(const DispatchBase &base,
+                                  const InputComponentType *moving_ptr,
+                                  int nComp, int stride, int *movSize,
+                                  const InputComponentType *def_value,
+                                  float *cix,
+                                  InputComponentType *out, float &outMask) {  }
+
 private:
   MultiImageOpticalFlowImageFilter(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
@@ -471,6 +526,163 @@ private:
   SummaryType                     m_SummaryResult;
   std::vector<SummaryType>        m_SummaryResultPerThread;
 };
+
+
+
+
+
+
+/**
+ * This filter computes the similarity between a set of moving images and a
+ * set of fixed images in a highly optimized way
+ */
+template <class TInputImage>
+class ITK_EXPORT MultiImageAffineMSDMetricFilter :
+    public ImageToImageFilter<TInputImage, TInputImage>
+{
+public:
+  /** Standard class typedefs. */
+  typedef MultiImageAffineMSDMetricFilter              Self;
+  typedef InPlaceImageFilter<TInputImage>              Superclass;
+  typedef SmartPointer<Self>                           Pointer;
+  typedef SmartPointer<const Self>                     ConstPointer;
+
+  /** Method for creation through the object factory. */
+  itkNewMacro(Self)
+
+  /** Run-time type information (and related methods) */
+  itkTypeMacro( MultiImageAffineMSDMetricFilter, ImageToImageFilter )
+
+  /** Determine the image dimension. */
+  itkStaticConstMacro(ImageDimension, unsigned int,
+                      TInputImage::ImageDimension );
+
+  /** Typedef to describe the output image region type. */
+  typedef typename TInputImage::RegionType OutputImageRegionType;
+
+  /** Inherit some types from the superclass. */
+  typedef TInputImage                                 InputImageType;
+  typedef ImageBase<ImageDimension>                   ImageBaseType;
+  typedef typename TInputImage::PixelType             InputPixelType;
+  typedef typename TInputImage::InternalPixelType     InputComponentType;
+  typedef typename InputImageType::IndexType          IndexType;
+  typedef typename InputImageType::IndexValueType     IndexValueType;
+  typedef typename InputImageType::SizeType           SizeType;
+  typedef typename InputImageType::SpacingType        SpacingType;
+  typedef typename InputImageType::DirectionType      DirectionType;
+
+  /** Information from the parent class */
+  typedef MatrixOffsetTransformBase<double, ImageDimension, ImageDimension> TransformType;
+  typedef typename TransformType::Pointer             TransformPointer;
+
+  /** Weight vector */
+  typedef vnl_vector<float>                           WeightVectorType;
+
+  /** Set the fixed image(s) */
+  void SetFixedImage(InputImageType *fixed)
+    { this->ProcessObject::SetInput("Primary", fixed); }
+
+  /** Set the moving image(s) and their gradients */
+  void SetMovingImageAndGradient(InputImageType *moving)
+    { this->ProcessObject::SetInput("moving", moving); }
+
+  /** Set the weight vector */
+  itkSetMacro(Weights, WeightVectorType)
+  itkGetConstMacro(Weights, WeightVectorType)
+
+  /** Whether to compute gradient */
+  itkSetMacro(ComputeGradient, bool)
+  itkGetConstMacro(ComputeGradient, bool)
+
+  /** Set the transform field. */
+  void SetTransform(TransformType *transform)
+    { m_Transform = transform; }
+
+  itkGetConstMacro(Transform, TransformType *)
+
+  /** Value of the similarity objective after running the filter */
+  itkGetConstMacro(MetricValue, double)
+
+  /** The gradient (in the form of a transform) after running the filter */
+  itkGetConstMacro(MetricGradient, TransformType *)
+
+
+
+protected:
+  MultiImageAffineMSDMetricFilter() : m_ComputeGradient(false) {}
+  ~MultiImageAffineMSDMetricFilter() {}
+
+  void PrintSelf(std::ostream& os, Indent indent) const
+    { this->PrintSelf(os, indent); }
+
+  /** SimpleWarpImageFilter is implemented as a multi-threaded filter.
+   * As such, it needs to provide and implementation for
+   * ThreadedGenerateData(). */
+  void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
+                            ThreadIdType threadId );
+
+  /** It is difficult to compute in advance the input image region
+   * required to compute the requested output region. Thus the safest
+   * thing to do is to request for the whole input image.
+   *
+   * For the deformation field, the input requested region
+   * set to be the same as that of the output requested region. */
+  virtual void GenerateInputRequestedRegion();
+
+  /** Override since input passed to output */
+  virtual void EnlargeOutputRequestedRegion(DataObject *data);
+
+  /** This method is used to set the state of the filter before
+   * multi-threading. */
+  virtual void BeforeThreadedGenerateData();
+
+  /** This method is used to set the state of the filter after
+   * multi-threading. */
+  virtual void AfterThreadedGenerateData();
+
+  /** Allocate outputs - just pass through the input */
+  virtual void AllocateOutputs();
+
+  void VerifyInputInformation() {}
+
+  // Object to assist specializaiton
+  struct DispatchBase {};
+  template <unsigned int VDim> struct Dispatch : public DispatchBase {};
+
+private:
+  MultiImageAffineMSDMetricFilter(const Self&); //purposely not implemented
+  void operator=(const Self&); //purposely not implemented
+
+  // Weight vector
+  WeightVectorType                m_Weights;
+
+  // Transform pointer
+  TransformPointer                m_Transform;
+
+  // Whether the gradient is computed
+  bool                            m_ComputeGradient;
+
+  // Data accumulated for each thread
+  struct ThreadData {
+    double metric, mask;
+    vnl_vector<double> gradient, grad_mask;
+    ThreadData() : metric(0.0), mask(0.0),
+      gradient(ImageDimension * (ImageDimension+1), 0.0),
+      grad_mask(ImageDimension * (ImageDimension+1), 0.0) {}
+  };
+
+  std::vector<ThreadData>         m_ThreadData;
+
+  // Vector of accumulated data (difference, gradient of affine transform, etc)
+  double                          m_MetricValue;
+
+  // Gradient
+  TransformPointer                m_MetricGradient;
+};
+
+
+
+
 
 
 

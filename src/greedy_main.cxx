@@ -16,6 +16,8 @@
 
 #include "MultiImageSimpleWarpImageFilter.h"
 #include <vnl/vnl_cost_function.h>
+#include <vnl/vnl_random.h>
+
 
 
 int usage()
@@ -123,6 +125,9 @@ protected:
                              std::vector<ImagePair> &img,
                              int level);
 
+  static vnl_matrix<double> MapAffineToPhysicalRASSpace(
+      OFHelperType &of_helper, int level,
+      typename OFHelperType::LinearTransformType *tran);
 
   /** Cost function used for conjugate gradient descent */
   class AffineCostFunction : public vnl_cost_function
@@ -220,6 +225,38 @@ void GreedyApproach<VDim, TReal>
 #include <vnl/algo/vnl_lbfgs.h>
 
 template <unsigned int VDim, typename TReal>
+vnl_matrix<double>
+GreedyApproach<VDim, TReal>
+::MapAffineToPhysicalRASSpace(
+    OFHelperType &of_helper, int level,
+    typename OFHelperType::LinearTransformType *tran)
+{
+  // Map the transform to NIFTI units
+  vnl_matrix<double> T_fix, T_mov, Q, A;
+  vnl_vector<double> s_fix, s_mov, p, b;
+
+  GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetReferenceSpace(level), T_fix, s_fix);
+  GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetMovingReferenceSpace(level), T_mov, s_mov);
+  A = tran->GetMatrix().GetVnlMatrix();
+  b = tran->GetOffset().GetVnlVector();
+
+  Q = T_mov * A * vnl_matrix_inverse<double>(T_fix);
+  p = T_mov * b + s_mov - Q * s_fix;
+
+  vnl_matrix<double> Qp(VDim+1, VDim+1);
+  Qp.set_identity();
+  for(int i = 0; i < VDim; i++)
+    {
+    Qp(i, VDim) = p(i);
+    for(int j = 0; j < VDim; j++)
+      Qp(i,j) = Q(i,j);
+    }
+
+  return Qp;
+}
+
+
+template <unsigned int VDim, typename TReal>
 int GreedyApproach<VDim, TReal>
 ::RunAffine(GreedyParameters &param)
 {
@@ -259,6 +296,19 @@ int GreedyApproach<VDim, TReal>
     typedef typename OFHelperType::LinearTransformType TransformType;
     typename TransformType::Pointer tInit = TransformType::New();
     tInit->SetIdentity();
+
+    typename TransformType::OffsetType offset = tInit->GetOffset();
+    typename TransformType::MatrixType matrix = tInit->GetMatrix();
+    vnl_random rndy;
+    for(int i = 0; i < VDim; i++)
+      {
+      offset[i] += rndy.drand32(-4.0, 4.0);
+      for(int j = 0; j < VDim; j++)
+        matrix(i,j) += rndy.drand32(-0.04, 0.04);
+      }
+    tInit->SetOffset(offset);
+    tInit->SetMatrix(matrix);
+
     vnl_vector<double> xInit(acf.get_number_of_unknowns(), 0.0);
     itk::flatten_affine_transform(tInit.GetPointer(), xInit.data_block());
 
@@ -271,7 +321,7 @@ int GreedyApproach<VDim, TReal>
     vnl_vector<double> xGradN(acf.get_number_of_unknowns(), 0.0);
     for(int i = 0; i < acf.get_number_of_unknowns(); i++)
       {
-      double eps = 1.0e-2, f1, f2;
+      double eps = 1.0e-4, f1, f2;
       vnl_vector<double> x1 = xInit, x2 = xInit;
       x1[i] -= eps; x2[i] += eps;
 
@@ -285,34 +335,18 @@ int GreedyApproach<VDim, TReal>
 
     std::cout << "f = " << f0 << std::endl;
 
+    vnl_matrix<double> Qi = MapAffineToPhysicalRASSpace(of_helper, level, tInit);
+    std::cout << "Initial RAS Transform: " << std::endl << Qi  << std::endl;
+
+
     optimizer.minimize(xInit);
 
     // Get the final transform
     typename TransformType::Pointer tFinal = TransformType::New();
     itk::unflatten_affine_transform(xInit.data_block(), tFinal.GetPointer());
 
-    // Map the transform to NIFTI units
-    vnl_matrix<double> T_fix, T_mov, Q, A;
-    vnl_vector<double> s_fix, s_mov, p, b;
-
-    GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetReferenceSpace(level), T_fix, s_fix);
-    GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetMovingReferenceSpace(level), T_mov, s_mov);
-    A = tFinal->GetMatrix().GetVnlMatrix();
-    b = tFinal->GetOffset().GetVnlVector();
-
-    Q = T_mov * A * vnl_matrix_inverse<double>(T_fix);
-    p = T_mov * b + s_mov - Q * s_fix;
-
-    vnl_matrix<double> Qp(VDim+1, VDim+1);
-    Qp.set_identity();
-    for(int i = 0; i < VDim; i++)
-      {
-      Qp(i, VDim) = p(i);
-      for(int j = 0; j < VDim; j++)
-        Qp(i,j) = Q(i,j);
-      }
-
-    std::cout << "Final Transform: " << std::endl << Qp << std::endl;
+    vnl_matrix<double> Qf = MapAffineToPhysicalRASSpace(of_helper, level, tFinal);
+    std::cout << "Final RAS Transform: " << std::endl << Qf << std::endl;
     }
 
   return 0;

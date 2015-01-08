@@ -25,6 +25,7 @@
 #include "itkContinuousIndex.h"
 #include "vnl/vnl_math.h"
 #include "lddmm_data.h"
+#include "FastLinearInterpolator.h"
 
 template <class TFloat, unsigned int VDim>
 void
@@ -255,6 +256,61 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   for(int i = 0; i < wscaled.size(); i++)
     wscaled[i] = m_Weights[i];
 
+  // Use finite differences
+  typedef itk::MultiImageAffineMSDMetricFilter<MultiComponentImageType> FilterType;
+  typename FilterType::Pointer filter = FilterType::New();
+
+  // Run the filter
+  filter->SetFixedImage(m_FixedComposite[level]);
+  filter->SetMovingImageAndGradient(m_MovingComposite[level]);
+  filter->SetTransform(tran);
+  filter->SetWeights(wscaled);
+  filter->SetComputeGradient(grad != NULL);
+  filter->Update();
+
+  // Process the results
+  if(grad)
+    {
+    grad->SetMatrix(filter->GetMetricGradient()->GetMatrix());
+    grad->SetOffset(filter->GetMetricGradient()->GetOffset());
+    }
+
+  return filter->GetMetricValue();
+
+/*
+  // Compute finite differences
+  if(grad)
+    {
+    vnl_vector<float> x(12), gradf(12);
+    itk::flatten_affine_transform(tran, x.data_block());
+    for(int k = 0; k < 12; k++)
+      {
+      double fk[2], eps = 1.0e-3;
+      for(int q = 0; q < 2; q++)
+        {
+        typename LinearTransformType::Pointer tranq = LinearTransformType::New();
+        vnl_vector<float> xq = x;
+        xq[k] += (q == 0 ? -1 : 1) * eps;
+        itk::unflatten_affine_transform(xq.data_block(), tranq.GetPointer());
+
+        filter = FilterType::New();
+        filter->SetFixedImage(m_FixedComposite[level]);
+        filter->SetMovingImageAndGradient(m_MovingComposite[level]);
+        filter->SetTransform(tranq);
+        filter->SetWeights(wscaled);
+        filter->Update();
+
+        fk[q] = filter->GetMetricValue();
+        }
+      gradf[k] = (fk[1]-fk[0]) / (2.0 * eps);
+      }
+    itk::unflatten_affine_transform(gradf.data_block(), grad);
+    }
+
+  return f0;
+  */
+
+  /*
   if(grad)
     {
     typedef itk::MultiImageOpticalFlowAffineGradientTraits<
@@ -302,6 +358,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     // Process the results
     return filter->GetSummaryResult()[0];
     }
+    */
 }
 
 
@@ -511,6 +568,106 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 template <class TInputImage, class TOutputImage, class TTransformTraits>
 void
 MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
+::OpticalFlowFastInterpolateWithMask(
+                             const Dispatch<3> &,
+                             const InputComponentType *moving_ptr,
+                             int nComp, int stride, int *movSize,
+                             const InputComponentType *def_value,
+                             float *cix,
+                             InputComponentType *out, float &outMask)
+{
+  int	x0, y0, z0, x1, y1, z1;
+  const InputComponentType *dp, *d000, *d001, *d010, *d011, *d100, *d101, *d110, *d111;
+
+  double fx, fy, fz;
+  double dx00, dx01, dx10, dx11, dxy0, dxy1, dxyz;
+
+  int xsize = movSize[0];
+  int ysize = movSize[1];
+  int zsize = movSize[2];
+
+  x0 = floor(cix[0]); fx = cix[0] - x0;
+  y0 = floor(cix[1]); fy = cix[1] - y0;
+  z0 = floor(cix[2]); fz = cix[2] - z0;
+
+  x1 = x0 + 1;
+  y1 = y0 + 1;
+  z1 = z0 + 1;
+
+  if (x0 >= 0 && x1 < xsize &&
+      y0 >= 0 && y1 < ysize &&
+      z0 >= 0 && z1 < zsize)
+    {
+    // The sample point is completely inside
+    dp = DENS(x0, y0, z0, moving_ptr, nComp);
+    d000 = dp;
+    d100 = dp+nComp;
+    dp += xsize*nComp;
+    d010 = dp;
+    d110 = dp+nComp;
+    dp += xsize*ysize*nComp;
+    d011 = dp;
+    d111 = dp+nComp;
+    dp -= xsize*nComp;
+    d001 = dp;
+    d101 = dp+nComp;
+
+    // The mask is one
+    outMask = 1.0;
+    }
+  else if (x0 >= -1 && x1 <= xsize &&
+           y0 >= -1 && y1 <= ysize &&
+           z0 >= -1 && z1 <= zsize)
+    {
+    // The sample point is on the border region
+    d000 = INRANGE(x0, y0, z0) ? DENS(x0, y0, z0, moving_ptr, nComp) : def_value;
+    d001 = INRANGE(x0, y0, z1) ? DENS(x0, y0, z1, moving_ptr, nComp) : def_value;
+    d010 = INRANGE(x0, y1, z0) ? DENS(x0, y1, z0, moving_ptr, nComp) : def_value;
+    d011 = INRANGE(x0, y1, z1) ? DENS(x0, y1, z1, moving_ptr, nComp) : def_value;
+    d100 = INRANGE(x1, y0, z0) ? DENS(x1, y0, z0, moving_ptr, nComp) : def_value;
+    d101 = INRANGE(x1, y0, z1) ? DENS(x1, y0, z1, moving_ptr, nComp) : def_value;
+    d110 = INRANGE(x1, y1, z0) ? DENS(x1, y1, z0, moving_ptr, nComp) : def_value;
+    d111 = INRANGE(x1, y1, z1) ? DENS(x1, y1, z1, moving_ptr, nComp) : def_value;
+
+    // Compute the mask value - TODO rewrite better
+    dx00 = LERP(fx, d000 == def_value ? 0.0 : 1.0, d100 == def_value ? 0.0 : 1.0);
+    dx01 = LERP(fx, d001 == def_value ? 0.0 : 1.0, d101 == def_value ? 0.0 : 1.0);
+    dx10 = LERP(fx, d010 == def_value ? 0.0 : 1.0, d110 == def_value ? 0.0 : 1.0);
+    dx11 = LERP(fx, d011 == def_value ? 0.0 : 1.0, d111 == def_value ? 0.0 : 1.0);
+    dxy0 = LERP(fy, dx00, dx10);
+    dxy1 = LERP(fy, dx01, dx11);
+    outMask = LERP(fz, dxy0, dxy1);
+    }
+  else
+    {
+    // The sample point is outside
+    for(int iComp = 0; iComp < nComp; iComp+=stride)
+      *(out++) = def_value[iComp];
+
+    // The mask is zero
+    outMask = 0.0;
+    return;
+    }
+
+  // Interpolate each component
+  for(int iComp = 0; iComp < nComp; iComp+=stride,
+      d000+=stride, d001+=stride, d010+=stride, d011+=stride,
+      d100+=stride, d101+=stride, d110+=stride, d111+=stride)
+    {
+    // Interpolate first component
+    dx00 = LERP(fx, *d000, *d100);
+    dx01 = LERP(fx, *d001, *d101);
+    dx10 = LERP(fx, *d010, *d110);
+    dx11 = LERP(fx, *d011, *d111);
+    dxy0 = LERP(fy, dx00, dx10);
+    dxy1 = LERP(fy, dx01, dx11);
+    *(out++) = LERP(fz, dxy0, dxy1);
+    }
+}
+
+template <class TInputImage, class TOutputImage, class TTransformTraits>
+void
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
 ::OpticalFlowFastInterpolate(const Dispatch<3> &,
                              const InputComponentType *moving_ptr,
                              int nComp, int stride, int *movSize,
@@ -566,13 +723,15 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
     }
 
   // Interpolate each component
-  for(int iComp = 0; iComp < nComp; iComp+=stride)
+  for(int iComp = 0; iComp < nComp; iComp+=stride,
+      d000+=stride, d001+=stride, d010+=stride, d011+=stride,
+      d100+=stride, d101+=stride, d110+=stride, d111+=stride)
     {
     // Interpolate first component
-    dx00 = LERP(fx, *d000++, *d100++);
-    dx01 = LERP(fx, *d001++, *d101++);
-    dx10 = LERP(fx, *d010++, *d110++);
-    dx11 = LERP(fx, *d011++, *d111++);
+    dx00 = LERP(fx, *d000, *d100);
+    dx01 = LERP(fx, *d001, *d101);
+    dx10 = LERP(fx, *d010, *d110);
+    dx11 = LERP(fx, *d011, *d111);
     dxy0 = LERP(fy, dx00, dx10);
     dxy1 = LERP(fy, dx01, dx11);
     *(out++) = LERP(fz, dxy0, dxy1);
@@ -660,16 +819,17 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
     TTransformTraits::TransformIndex(idx, m_Transform, offset, cix.data_block());
 
     // Perform the interpolation, put the results into interp_mov
-    this->OpticalFlowFastInterpolate(
+    float mask;
+    this->OpticalFlowFastInterpolateWithMask(
           Dispatch<ImageDimension>(),
           bMov, kMoving, stride, mov_size.data_block(), zeros.data_block(),
-          cix.data_block(), interp_mov.data_block());
+          cix.data_block(), interp_mov.data_block(), mask);
 
     // Perform the calculation of interest on the interpolated data
     TTransformTraits::PostInterpolate(
           idx, bFix + offset * kFixed,
           interp_mov.data_block(), kMoving, m_Weights.data_block(),
-          sum_res.data_block(), *ptrOut);
+          mask, sum_res.data_block(), *ptrOut);
     }
 
 }
@@ -836,6 +996,267 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
   outputPtr->SetDirection( fixed->GetDirection() );
   outputPtr->SetLargestPossibleRegion( fixed->GetLargestPossibleRegion() );
 }
+
+
+
+
+
+/* ================= AFFINE =================== */
+
+/**
+ * Setup state of filter before multi-threading.
+ * InterpolatorType::SetInputImage is not thread-safe and hence
+ * has to be setup before ThreadedGenerateData
+ */
+template <class TInputImage>
+void
+MultiImageAffineMSDMetricFilter<TInputImage>
+::BeforeThreadedGenerateData()
+{
+  // Initialize the per thread data
+  m_ThreadData.resize(this->GetNumberOfThreads(), ThreadData());
+}
+
+/**
+ * Setup state of filter after multi-threading.
+ */
+template <class TInputImage>
+void
+MultiImageAffineMSDMetricFilter<TInputImage>
+::AfterThreadedGenerateData()
+{
+  // Add up all the thread data
+  ThreadData summary;
+  for(int i = 0; i < m_ThreadData.size(); i++)
+    {
+    summary.metric += m_ThreadData[i].metric;
+    summary.mask += m_ThreadData[i].mask;
+    summary.gradient += m_ThreadData[i].gradient;
+    summary.grad_mask += m_ThreadData[i].grad_mask;
+    }
+
+  // Compute the objective value
+  /*
+  m_MetricValue = summary.metric / summary.mask;
+
+  // Compute the gradient
+  vnl_vector<double> grad_metric(summary.gradient.size());
+  for(int j = 0; j < summary.gradient.size(); j++)
+    {
+    grad_metric[j] =
+        (-2.0 * summary.gradient[j] - m_MetricValue * summary.grad_mask[j]) / summary.mask;
+    }
+
+  // Pack into the output
+  m_MetricGradient = TransformType::New();
+  itk::unflatten_affine_transform(grad_metric.data_block(), m_MetricGradient.GetPointer());
+  */
+
+  m_MetricValue = summary.mask;
+  m_MetricGradient = TransformType::New();
+  vnl_vector<double> grad_metric = -2.0 * summary.gradient;
+  itk::unflatten_affine_transform(summary.grad_mask.data_block(), m_MetricGradient.GetPointer());
+}
+
+template <class TInputImage>
+void
+MultiImageAffineMSDMetricFilter<TInputImage>
+::GenerateInputRequestedRegion()
+{
+  // Call the superclass's implementation
+  Superclass::GenerateInputRequestedRegion();
+
+  // Set regions to max
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
+  InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
+
+  if(moving)
+    moving->SetRequestedRegionToLargestPossibleRegion();
+
+  if(fixed)
+    fixed->SetRequestedRegionToLargestPossibleRegion();
+}
+
+template <class TInputImage>
+void
+MultiImageAffineMSDMetricFilter<TInputImage>
+::EnlargeOutputRequestedRegion(DataObject *data)
+{
+  Superclass::EnlargeOutputRequestedRegion(data);
+  data->SetRequestedRegionToLargestPossibleRegion();
+}
+
+
+template <class TInputImage>
+void
+MultiImageAffineMSDMetricFilter<TInputImage>
+::AllocateOutputs()
+{
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
+  this->GraftOutput(fixed);
+}
+
+
+template <class TInputImage>
+void
+MultiImageAffineMSDMetricFilter<TInputImage>
+::ThreadedGenerateData(
+  const OutputImageRegionType& outputRegionForThread,
+  ThreadIdType threadId )
+{
+  // Get the pointers to the input and output images
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
+  InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
+
+  // Get the number of components
+  int kFixed = fixed->GetNumberOfComponentsPerPixel();
+  int kMoving = moving->GetNumberOfComponentsPerPixel();
+
+  // Create an interpolator for the moving image
+  typedef FastLinearInterpolator<InputComponentType, ImageDimension> FastInterpolator;
+  FastInterpolator flint(moving);
+
+  // Iterate over the deformation field and the output image. In reality, we don't
+  // need to waste so much time on iteration, so we use a specialized iterator here
+  typedef ImageRegionConstIteratorWithIndexOverride<InputImageType> FixedIter;
+
+  // Location of the lookup
+  vnl_vector_fixed<float, ImageDimension> cix;
+
+  // Pointer to store interpolated moving data
+  vnl_vector<typename InputImageType::InternalPixelType> interp_mov(kMoving);
+
+  // The thread data to accumulate
+  ThreadData &td = m_ThreadData[threadId];
+
+  // Get the stride for interpolation (how many moving pixels to skip)
+  int stride = m_ComputeGradient ? 1 : ImageDimension + 3;
+
+  // Affine transform matrix and vector
+  vnl_matrix_fixed<double, ImageDimension, ImageDimension> M =
+      m_Transform->GetMatrix().GetVnlMatrix();
+  vnl_vector_fixed<double, ImageDimension> off =
+      m_Transform->GetOffset().GetVnlVector();
+
+  // Gradient accumulator
+  vnl_vector_fixed<double, ImageDimension> grad, gradM;
+
+  // Iterate over the fixed space region
+  for(FixedIter it(fixed, outputRegionForThread); !it.IsAtEnd(); ++it)
+    {
+    // Get the index at the current location
+    const IndexType &idx = it.GetIndex();
+
+    // Get the pointer to the fixed pixel
+    const InputComponentType *fix_ptr = it.GetPosition();
+
+    // Map to a position at which to interpolate
+    // TODO: all this can be done more efficiently!
+    for(int i = 0; i < ImageDimension; i++)
+      {
+      cix[i] = off[i];
+      for(int j = 0; j < ImageDimension; j++)
+        cix[i] += M(i,j) * idx[j];
+      }
+
+    // Perform the interpolation, put the results into interp_mov
+    typename FastInterpolator::InOut status =
+        flint.Interpolate(cix.data_block(), stride, interp_mov.data_block());
+
+    // Nothing to do for samples completely outside of the moving image domain
+    if(status == FastInterpolator::OUTSIDE)
+      continue;
+
+    // Do we need the gradient?
+    if(m_ComputeGradient)
+      {
+      // Initialize the gradient to zeros
+      grad.fill(0.0);
+
+      // Go through the array
+      const InputComponentType *pMov = interp_mov.data_block();
+      const InputComponentType *pMovEnd = pMov + kMoving;
+      float *weight = m_Weights.data_block();
+      double *out_grad = td.gradient.data_block();
+
+      double w_sq_diff = 0.0;
+      while(pMov < pMovEnd)
+        {
+        double del = (*fix_ptr++) - *(pMov++);
+        double delw = (*weight++) * del;
+        for(int i = 0; i < ImageDimension; i++)
+          grad[i] += delw * *(pMov++);
+        w_sq_diff += delw * del;
+        }
+
+      // Deal with the mask
+      if(status == FastInterpolator::BORDER)
+        {
+        // Border - compute the mask and its gradient
+        double mask = flint.GetMaskAndGradient(gradM.data_block());
+        double *out_grad_mask = td.grad_mask.data_block();
+
+        for(int i = 0; i < ImageDimension; i++)
+          {
+          double v = grad[i] * mask - 0.5 * gradM[i] * w_sq_diff;
+          *(out_grad++) += v;
+          *(out_grad_mask++) += gradM[i];
+          for(int j = 0; j < ImageDimension; j++)
+            {
+            *(out_grad++) += v * cix[j];
+            *(out_grad_mask++) += gradM[i] * cix[j];
+            }
+          }
+
+        td.metric += w_sq_diff * mask;
+        td.mask += mask;
+        }
+      else
+        {
+        // No border - means no dealing with the mask!
+        double *out_grad = td.gradient.data_block();
+        for(int i = 0; i < ImageDimension; i++)
+          {
+          *(out_grad++) += grad[i];
+          for(int j = 0; j < ImageDimension; j++)
+            {
+            *(out_grad++) += grad[i] * cix[j];
+            }
+          }
+
+        td.metric += w_sq_diff;
+        td.mask += 1.0;
+        }
+      }
+    else
+      {
+      // Compute the squared difference
+      double w_sq_diff = 0.0;
+      for(int i = 0; i < kFixed; i++)
+        {
+        double del = fix_ptr[i] - interp_mov[i];
+        double delw = m_Weights[i] * del;
+        w_sq_diff += del * delw;
+        }
+
+      // Get the mask
+      if(status == FastInterpolator::BORDER)
+        {
+        double mask = flint.GetMask();
+        td.metric += w_sq_diff * mask;
+        td.mask += mask;
+        }
+      else
+        {
+        td.metric += w_sq_diff;
+        td.mask += 1.0;
+        }
+      }
+    }
+
+}
+
+
 
 
 } // end namespace itk
