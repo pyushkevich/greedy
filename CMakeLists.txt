@@ -12,8 +12,14 @@ INCLUDE(CMake/FindFFTW.cmake)
 
 SET(HEADERS
   src/FastLinearInterpolator.h
-  src/MultiImageSimpleWarpImageFilter.h
+  src/MultiImageAffineMSDMetricFilter.h
+  src/MultiImageAffineMSDMetricFilter.txx
+  src/MultiImageOpticalFlowImageFilter.h
+  src/MultiImageOpticalFlowImageFilter.txx
+  src/MultiImageRegistrationHelper.h
+  src/MultiImageRegistrationHelper.txx
   src/SimpleWarpImageFilter.h
+  src/SimpleWarpImageFilter.txx
   src/itkGaussianInterpolateImageFunction.h
   src/itkOptLinearInterpolateImageFunction.h
   src/itkOptLinearInterpolateImageFunction.txx
@@ -21,8 +27,6 @@ SET(HEADERS
   src/itkOptVectorLinearInterpolateImageFunction.txx
   src/lddmm_common.h
   src/lddmm_data.h
-  src/MultiImageSimpleWarpImageFilter.txx
-  src/SimpleWarpImageFilter.txx
 )
 
 SET(LDDMM_SRC

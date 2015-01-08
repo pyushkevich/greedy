@@ -14,7 +14,7 @@
 #include <itkIdentityTransform.h>
 #include <itkShrinkImageFilter.h>
 
-#include "MultiImageSimpleWarpImageFilter.h"
+#include "MultiImageRegistrationHelper.h"
 #include <vnl/vnl_cost_function.h>
 #include <vnl/vnl_random.h>
 
@@ -179,7 +179,7 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
   typename TransformType::Pointer tran = TransformType::New();
 
   // Set the components of the transform
-  itk::unflatten_affine_transform(x.data_block(), tran.GetPointer());
+  unflatten_affine_transform(x.data_block(), tran.GetPointer());
 
   // Compute the gradient
   double val = 0.0;
@@ -187,7 +187,7 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
     {
     typename TransformType::Pointer grad = TransformType::New();
     val = m_OFHelper->ComputeAffineMatchAndGradient(m_Level, tran, grad);
-    itk::flatten_affine_transform(grad.GetPointer(), g->data_block());
+    flatten_affine_transform(grad.GetPointer(), g->data_block());
     }
   else
     {
@@ -310,7 +310,7 @@ int GreedyApproach<VDim, TReal>
     //tInit->SetMatrix(matrix);
 
     vnl_vector<double> xInit(acf.get_number_of_unknowns(), 0.0);
-    itk::flatten_affine_transform(tInit.GetPointer(), xInit.data_block());
+    flatten_affine_transform(tInit.GetPointer(), xInit.data_block());
 
     // Test the function
     vnl_vector<double> xGrad(acf.get_number_of_unknowns(), 0.0);
@@ -353,7 +353,7 @@ int GreedyApproach<VDim, TReal>
 
     // Get the final transform
     typename TransformType::Pointer tFinal = TransformType::New();
-    itk::unflatten_affine_transform(xInit.data_block(), tFinal.GetPointer());
+    unflatten_affine_transform(xInit.data_block(), tFinal.GetPointer());
 
     vnl_matrix<double> Qf = MapAffineToPhysicalRASSpace(of_helper, level, tFinal);
     std::cout << "Final RAS Transform: " << std::endl << Qf << std::endl;
