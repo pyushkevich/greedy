@@ -58,6 +58,8 @@ MultiImageAffineMSDMetricFilter<TInputImage>
     summary.grad_mask += m_ThreadData[i].grad_mask;
     }
 
+  m_MetricGradient = TransformType::New();
+
   // Compute the objective value
   m_MetricValue = summary.metric / summary.mask;
 
@@ -70,8 +72,14 @@ MultiImageAffineMSDMetricFilter<TInputImage>
     }
 
   // Pack into the output
-  m_MetricGradient = TransformType::New();
   unflatten_affine_transform(grad_metric.data_block(), m_MetricGradient.GetPointer());
+
+  /*
+  m_MetricValue = summary.mask;
+  vnl_vector<double> grad_metric(summary.gradient.size());
+  grad_metric = summary.grad_mask;
+  unflatten_affine_transform(grad_metric.data_block(), m_MetricGradient.GetPointer());
+  */
 }
 
 template <class TInputImage>

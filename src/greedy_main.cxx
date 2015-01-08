@@ -129,26 +129,49 @@ protected:
       OFHelperType &of_helper, int level,
       typename OFHelperType::LinearTransformType *tran);
 
+  static void MapPhysicalRASSpaceToAffine(
+      OFHelperType &of_helper, int level,
+      vnl_matrix<double> &Qp,
+      typename OFHelperType::LinearTransformType *tran);
+
   /** Cost function used for conjugate gradient descent */
   class AffineCostFunction : public vnl_cost_function
   {
   public:
+    typedef typename OFHelperType::LinearTransformType TransformType;
 
 
     // Construct the function
     AffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper);
 
+    // Get the parameters for the specified initial transform
+    vnl_vector<double> GetCoefficients(TransformType *tran)
+    {
+      vnl_vector<double> x_true(this->get_number_of_unknowns());
+      flatten_affine_transform(tran, x_true.data_block());
+      return element_product(x_true, scaling);
+    }
+
+    // Get the transform for the specificed coefficients
+    void GetTransform(const vnl_vector<double> &coeff, TransformType *tran)
+    {
+      vnl_vector<double> x_true = element_quotient(coeff, scaling);
+      unflatten_affine_transform(x_true.data_block(), tran);
+    }
+
     // Cost function computation
     virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
 
+    const vnl_vector<double> &GetScaling() { return scaling; }
+
   protected:
 
-    typedef typename OFHelperType::LinearTransformType TransformType;
 
     // Data needed to compute the cost function
     GreedyParameters *m_Param;
     OFHelperType *m_OFHelper;
     int m_Level;
+    vnl_vector<double> scaling;
 
     // Storage for the gradient of the similarity map
     VectorImagePointer *m_GradSim;
@@ -165,11 +188,62 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
   m_OFHelper = helper;
   m_Level = level;
 
-  // Initialize the image data
-  // m_GradSim = VectorImageType::New();
-  // LDDMMType::alloc_vimg(m_GradSim, helper->GetReferenceSpace(level));
+  // Set the scaling of the parameters based on image dimensions. This makes it
+  // possible to set tolerances in units of voxels. The order of change in the
+  // parameters is comparable to the displacement of any point inside the image
+  scaling.set_size(this->get_number_of_unknowns());
+
+  typename TransformType::MatrixType matrix;
+  typename TransformType::OffsetType offset;
+  for(int i = 0; i < VDim; i++)
+    {
+    offset[i] = 1.0;
+    for(int j = 0; j < VDim; j++)
+      matrix(i, j) = helper->GetReferenceSpace(level)->GetBufferedRegion().GetSize()[j];
+    }
+
+  typename TransformType::Pointer transform = TransformType::New();
+  transform->SetMatrix(matrix);
+  transform->SetOffset(offset);
+  flatten_affine_transform(transform.GetPointer(), scaling.data_block());
 }
 
+
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>::AffineCostFunction
+::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
+{
+  // Form a matrix/vector from x
+  typename TransformType::Pointer tran = TransformType::New();
+
+  // Divide x by the scaling
+  vnl_vector<double> x_scaled = element_quotient(x, scaling);
+
+  // Set the components of the transform
+  unflatten_affine_transform(x_scaled.data_block(), tran.GetPointer());
+
+  // Compute the gradient
+  double val = 0.0;
+  if(g)
+    {
+    vnl_vector<double> g_scaled(x_scaled.size());
+    typename TransformType::Pointer grad = TransformType::New();
+    val = m_OFHelper->ComputeAffineMatchAndGradient(m_Level, tran, grad);
+    flatten_affine_transform(grad.GetPointer(), g_scaled.data_block());
+    *g = element_quotient(g_scaled, scaling);
+    }
+  else
+    {
+    val = m_OFHelper->ComputeAffineMatchAndGradient(m_Level, tran, NULL);
+    }
+
+  if(f)
+    *f = val;
+}
+
+
+/*
 template <unsigned int VDim, typename TReal>
 void
 GreedyApproach<VDim, TReal>::AffineCostFunction
@@ -197,6 +271,7 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
   if(f)
     *f = val;
 }
+*/
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
@@ -255,6 +330,42 @@ GreedyApproach<VDim, TReal>
   return Qp;
 }
 
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>
+::MapPhysicalRASSpaceToAffine(
+    OFHelperType &of_helper, int level,
+    vnl_matrix<double> &Qp,
+    typename OFHelperType::LinearTransformType *tran)
+{
+  // Map the transform to NIFTI units
+  vnl_matrix<double> T_fix, T_mov, Q(VDim, VDim), A;
+  vnl_vector<double> s_fix, s_mov, p(VDim), b;
+
+  GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetReferenceSpace(level), T_fix, s_fix);
+  GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetMovingReferenceSpace(level), T_mov, s_mov);
+
+  for(int i = 0; i < VDim; i++)
+    {
+    p(i) = Qp(i, VDim);
+    for(int j = 0; j < VDim; j++)
+      Q(i,j) = Qp(i,j);
+    }
+
+  A = vnl_matrix_inverse<double>(T_mov) * Q * T_fix;
+  b = vnl_matrix_inverse<double>(T_mov) * (p - s_mov + Q * s_fix);
+
+  typename OFHelperType::LinearTransformType::MatrixType tran_A;
+  typename OFHelperType::LinearTransformType::OffsetType tran_b;
+
+  tran_A = A;
+  tran_b.SetVnlVector(b);
+
+  tran->SetMatrix(tran_A);
+  tran->SetOffset(tran_b);
+}
+
+
 
 template <unsigned int VDim, typename TReal>
 int GreedyApproach<VDim, TReal>
@@ -272,50 +383,60 @@ int GreedyApproach<VDim, TReal>
   // Generate the optimized composite images
   of_helper.BuildCompositeImages();
 
+  // Matrix describing current transform in physical space
+  vnl_matrix<double> Q_physical;
+
   // The number of resolution levels
   int nlevels = param.iter_per_level.size();
 
   // Iterate over the resolution levels
   for(unsigned int level = 0; level < nlevels; ++level)
     {
-    // Reference space
-    ImageBaseType *refspace = of_helper.GetReferenceSpace(level);
-
     // Define the affine cost function
     AffineCostFunction acf(&param, level, &of_helper);
 
-    // Perform the optimization
+    // Set up the optimizer
     vnl_lbfgs optimizer(acf);
-    optimizer.set_f_tolerance(1e-4);
-    optimizer.set_x_tolerance(1e-3);
-    optimizer.set_g_tolerance(1e-2);
+    optimizer.set_f_tolerance(1e-9);
+    optimizer.set_x_tolerance(1e-4);
+    optimizer.set_g_tolerance(1e-6);
     optimizer.set_trace(true);
-    //  optimizer.set_check_derivatives(1);
 
-    // Set the initial parameter vector
+    // Current transform
     typedef typename OFHelperType::LinearTransformType TransformType;
-    typename TransformType::Pointer tInit = TransformType::New();
-    tInit->SetIdentity();
+    typename TransformType::Pointer tLevel = TransformType::New();
 
-    typename TransformType::OffsetType offset = tInit->GetOffset();
-    typename TransformType::MatrixType matrix = tInit->GetMatrix();
-    vnl_random rndy(12345);
-    for(int i = 0; i < VDim; i++)
+    // Set up the initial transform
+    if(level == 0)
       {
-      offset[i] += rndy.drand32(-4.0, 4.0);
-      for(int j = 0; j < VDim; j++)
-        matrix(i,j) += rndy.drand32(-0.04, 0.04);
+      // Set the initial transform
+      tLevel->SetIdentity();
+
+      // Apply some random jitter to the initial transform
+      vnl_vector<double> xInit = acf.GetCoefficients(tLevel);
+
+      // Apply small amount of jitter to the vector
+      vnl_random rndy; // (12345);
+      for(int i = 0; i < xInit.size(); i++)
+        xInit[i] += rndy.drand32(-0.4, 0.4);
+
+      // Map back into transform format
+      acf.GetTransform(xInit, tLevel);
       }
-    //tInit->SetOffset(offset);
-    //tInit->SetMatrix(matrix);
+    else
+      {
+      // Update the transform from the last level
+      MapPhysicalRASSpaceToAffine(of_helper, level, Q_physical, tLevel);
+      }
 
-    vnl_vector<double> xInit(acf.get_number_of_unknowns(), 0.0);
-    flatten_affine_transform(tInit.GetPointer(), xInit.data_block());
+    // Test derivatives
+    // Convert to a parameter vector
+    vnl_vector<double> xLevel = acf.GetCoefficients(tLevel.GetPointer());
 
-    // Test the function
+    // Test the gradient computation
     vnl_vector<double> xGrad(acf.get_number_of_unknowns(), 0.0);
     double f0;
-    acf.compute(xInit, &f0, &xGrad);
+    acf.compute(xLevel, &f0, &xGrad);
 
     printf("ANL gradient: ");
     for(int i = 0; i < xGrad.size(); i++)
@@ -325,9 +446,10 @@ int GreedyApproach<VDim, TReal>
     vnl_vector<double> xGradN(acf.get_number_of_unknowns(), 0.0);
     for(int i = 0; i < acf.get_number_of_unknowns(); i++)
       {
-      double eps = (i % VDim == 0) ? 1.0e-2 : 1.0e-5;
+      // double eps = (i % VDim == 0) ? 1.0e-2 : 1.0e-5;
+      double eps = 1.0e-2;
       double f1, f2;
-      vnl_vector<double> x1 = xInit, x2 = xInit;
+      vnl_vector<double> x1 = xLevel, x2 = xLevel;
       x1[i] -= eps; x2[i] += eps;
 
       acf.compute(x1, &f1, NULL);
@@ -336,27 +458,26 @@ int GreedyApproach<VDim, TReal>
       xGradN[i] = (f2 - f1) / (2 * eps);
       }
 
-
     printf("NUM gradient: ");
     for(int i = 0; i < xGradN.size(); i++)
       printf("%11.2f ", xGradN[i]);
     printf("\n");
 
-
     std::cout << "f = " << f0 << std::endl;
 
-    vnl_matrix<double> Qi = MapAffineToPhysicalRASSpace(of_helper, level, tInit);
-    std::cout << "Initial RAS Transform: " << std::endl << Qi  << std::endl;
+    // Propagate the jitter to the transform
+    Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
+    std::cout << "Initial RAS Transform: " << std::endl << Q_physical  << std::endl;
 
-
-    optimizer.minimize(xInit);
+    // Run the minimization
+    optimizer.minimize(xLevel);
 
     // Get the final transform
     typename TransformType::Pointer tFinal = TransformType::New();
-    unflatten_affine_transform(xInit.data_block(), tFinal.GetPointer());
+    acf.GetTransform(xLevel, tFinal.GetPointer());
 
-    vnl_matrix<double> Qf = MapAffineToPhysicalRASSpace(of_helper, level, tFinal);
-    std::cout << "Final RAS Transform: " << std::endl << Qf << std::endl;
+    Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tFinal);
+    std::cout << "Final RAS Transform: " << std::endl << Q_physical << std::endl;
     }
 
   return 0;
