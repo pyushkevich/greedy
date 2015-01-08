@@ -190,12 +190,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       off_moving += (1 + VDim);
       }
     }
-
-  typedef itk::ImageFileWriter<MultiComponentImageType> Writer;
-  typename Writer::Pointer writer = Writer::New();
-  writer->SetInput(m_MovingComposite[0]);
-  writer->SetFileName("composite.nii.gz");
-  writer->Update();
 }
 
 template <class TFloat, unsigned int VDim>
@@ -251,7 +245,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     int level, LinearTransformType *tran,
     LinearTransformType *grad)
 {
-  /*
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
   for(int i = 0; i < wscaled.size(); i++)
@@ -277,8 +270,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 
   return filter->GetMetricValue();
-  */
 
+  /*
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
   for(int i = 0; i < wscaled.size(); i++)
@@ -329,6 +322,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 
   return f0;
+
+  */
 
   /*
   if(grad)
@@ -1134,6 +1129,9 @@ MultiImageAffineMSDMetricFilter<TInputImage>
   InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
   InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
 
+  // Get the pointer to the start of the fixed data
+  const InputComponentType *fix_buffer = fixed->GetBufferPointer();
+
   // Get the number of components
   int kFixed = fixed->GetNumberOfComponentsPerPixel();
   int kMoving = moving->GetNumberOfComponentsPerPixel();
@@ -1177,7 +1175,9 @@ MultiImageAffineMSDMetricFilter<TInputImage>
     const IndexType &idx = it.GetIndex();
 
     // Get the pointer to the fixed pixel
-    const InputComponentType *fix_ptr = it.GetPosition();
+    // TODO: WHY IS THIS RETURNING NONSENSE?
+    const InputComponentType *fix_ptr =
+        fix_buffer + (it.GetPosition() - fix_buffer) * kFixed;
 
     // Map to a position at which to interpolate
     // TODO: all this can be done more efficiently!
