@@ -251,6 +251,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     int level, LinearTransformType *tran,
     LinearTransformType *grad)
 {
+  /*
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
   for(int i = 0; i < wscaled.size(); i++)
@@ -276,8 +277,27 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 
   return filter->GetMetricValue();
+  */
 
-/*
+  // Scale the weights by epsilon
+  vnl_vector<float> wscaled(m_Weights.size());
+  for(int i = 0; i < wscaled.size(); i++)
+    wscaled[i] = m_Weights[i];
+
+  // Use finite differences
+  typedef itk::MultiImageAffineMSDMetricFilter<MultiComponentImageType> FilterType;
+  typename FilterType::Pointer filter = FilterType::New();
+
+  // Run the filter
+  filter->SetFixedImage(m_FixedComposite[level]);
+  filter->SetMovingImageAndGradient(m_MovingComposite[level]);
+  filter->SetTransform(tran);
+  filter->SetWeights(wscaled);
+  filter->SetComputeGradient(false);
+  filter->Update();
+
+  double f0 = filter->GetMetricValue();
+
   // Compute finite differences
   if(grad)
     {
@@ -298,6 +318,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         filter->SetMovingImageAndGradient(m_MovingComposite[level]);
         filter->SetTransform(tranq);
         filter->SetWeights(wscaled);
+        filter->SetComputeGradient(false);
         filter->Update();
 
         fk[q] = filter->GetMetricValue();
@@ -308,7 +329,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 
   return f0;
-  */
 
   /*
   if(grad)
@@ -1053,7 +1073,6 @@ MultiImageAffineMSDMetricFilter<TInputImage>
   /*
   m_MetricValue = summary.mask;
   m_MetricGradient = TransformType::New();
-  vnl_vector<double> grad_metric = -2.0 * summary.gradient;
   itk::unflatten_affine_transform(summary.grad_mask.data_block(), m_MetricGradient.GetPointer());
   */
 
@@ -1131,13 +1150,16 @@ MultiImageAffineMSDMetricFilter<TInputImage>
   vnl_vector_fixed<float, ImageDimension> cix;
 
   // Pointer to store interpolated moving data
-  vnl_vector<typename InputImageType::InternalPixelType> interp_mov(kMoving);
+  vnl_vector<typename InputImageType::InternalPixelType> interp_mov(kFixed);
+
+  // Pointer to store the gradient of the moving images
+  vnl_vector<typename InputImageType::InternalPixelType> interp_mov_grad(kFixed * ImageDimension);
 
   // The thread data to accumulate
   ThreadData &td = m_ThreadData[threadId];
 
   // Get the stride for interpolation (how many moving pixels to skip)
-  int stride = m_ComputeGradient ? 1 : ImageDimension + 3;
+  int stride = ImageDimension + 1;
 
   // Affine transform matrix and vector
   vnl_matrix_fixed<double, ImageDimension, ImageDimension> M =
@@ -1166,43 +1188,56 @@ MultiImageAffineMSDMetricFilter<TInputImage>
         cix[i] += M(i,j) * idx[j];
       }
 
-    // Perform the interpolation, put the results into interp_mov
-    typename FastInterpolator::InOut status =
-        flint.Interpolate(cix.data_block(), stride, interp_mov.data_block());
-
-    // Nothing to do for samples completely outside of the moving image domain
-    if(status == FastInterpolator::OUTSIDE)
-      continue;
-
     // Do we need the gradient?
     if(m_ComputeGradient)
       {
+      // Interpolate moving image with gradient
+      typename FastInterpolator::InOut status =
+          flint.InterpolateWithGradient(cix.data_block(), stride,
+                                        interp_mov.data_block(),
+                                        interp_mov_grad.data_block());
+
+      // Stop if the sample is outside
+      if(status == FastInterpolator::OUTSIDE)
+        continue;
+
       // Initialize the gradient to zeros
       grad.fill(0.0);
 
-      // Go through the array
-      const InputComponentType *pMov = interp_mov.data_block();
-      const InputComponentType *pMovEnd = pMov + kMoving;
-      float *weight = m_Weights.data_block();
-      double *out_grad = td.gradient.data_block();
-
+      // Iterate over the components
+      const InputComponentType *mov_ptr = interp_mov.data_block(), *mov_ptr_end = mov_ptr + kFixed;
+      const InputComponentType *mov_grad_ptr = interp_mov_grad.data_block();
+      float *wgt_ptr = m_Weights.data_block();
       double w_sq_diff = 0.0;
-      while(pMov < pMovEnd)
+
+      // Compute the gradient of the term contribution for this voxel
+      for( ;mov_ptr < mov_ptr_end; ++mov_ptr, ++fix_ptr, ++wgt_ptr)
         {
-        double del = (*fix_ptr++) - *(pMov++);
-        double delw = (*weight++) * del;
-        for(int i = 0; i < ImageDimension; i++)
-          grad[i] += delw * *(pMov++);
+        // Intensity difference for k-th component
+        double del = (*fix_ptr) - *(mov_ptr);
+
+        // Weighted intensity difference for k-th component
+        double delw = (*wgt_ptr) * del;
+
+        // Accumulate the weighted sum of squared differences
         w_sq_diff += delw * del;
+
+        // Accumulate the weighted gradient term
+        for(int i = 0; i < ImageDimension; i++)
+          grad[i] += delw * *(mov_grad_ptr++);
         }
 
-      // Deal with the mask
+      // Accumulators for the gradients
+      double *out_grad = td.gradient.data_block();
+      double *out_grad_mask = td.grad_mask.data_block();
+
+      // For border regions, we need to explicitly deal with the mask
       if(status == FastInterpolator::BORDER)
         {
         // Border - compute the mask and its gradient
         double mask = flint.GetMaskAndGradient(gradM.data_block());
-        double *out_grad_mask = td.grad_mask.data_block();
 
+        // Compute the mask and metric gradient contributions
         for(int i = 0; i < ImageDimension; i++)
           {
           double v = grad[i] * mask - 0.5 * gradM[i] * w_sq_diff;
@@ -1221,7 +1256,6 @@ MultiImageAffineMSDMetricFilter<TInputImage>
       else
         {
         // No border - means no dealing with the mask!
-        double *out_grad = td.gradient.data_block();
         for(int i = 0; i < ImageDimension; i++)
           {
           *(out_grad++) += grad[i];
@@ -1235,21 +1269,41 @@ MultiImageAffineMSDMetricFilter<TInputImage>
         td.mask += 1.0;
         }
       }
+
+    // No gradient requested
     else
       {
-      // Compute the squared difference
+      // Interpolate moving image with gradient
+      typename FastInterpolator::InOut status =
+          flint.Interpolate(cix.data_block(), stride, interp_mov.data_block());
+
+      // Stop if the sample is outside
+      if(status == FastInterpolator::OUTSIDE)
+        continue;
+
+      // Iterate over the components
+      const InputComponentType *mov_ptr = interp_mov.data_block(), *mov_ptr_end = mov_ptr + kFixed;
+      float *wgt_ptr = m_Weights.data_block();
       double w_sq_diff = 0.0;
-      for(int i = 0; i < kFixed; i++)
+
+      // Compute the gradient of the term contribution for this voxel
+      for( ;mov_ptr < mov_ptr_end; ++mov_ptr, ++fix_ptr, ++wgt_ptr)
         {
-        double del = fix_ptr[i] - interp_mov[i];
-        double delw = m_Weights[i] * del;
-        w_sq_diff += del * delw;
+        // Intensity difference for k-th component
+        double del = (*fix_ptr) - *(mov_ptr);
+
+        // Weighted intensity difference for k-th component
+        double delw = (*wgt_ptr) * del;
+
+        // Accumulate the weighted sum of squared differences
+        w_sq_diff += delw * del;
         }
 
-      // Get the mask
+      // For border regions, we need to explicitly deal with the mask
       if(status == FastInterpolator::BORDER)
         {
-        double mask = flint.GetMask();
+        // Border - compute the mask and its gradient
+        double mask = flint.GetMaskAndGradient(gradM.data_block());
         td.metric += w_sq_diff * mask;
         td.mask += mask;
         }
@@ -1260,7 +1314,6 @@ MultiImageAffineMSDMetricFilter<TInputImage>
         }
       }
     }
-
 }
 
 

@@ -306,8 +306,8 @@ int GreedyApproach<VDim, TReal>
       for(int j = 0; j < VDim; j++)
         matrix(i,j) += rndy.drand32(-0.04, 0.04);
       }
-    tInit->SetOffset(offset);
-    tInit->SetMatrix(matrix);
+    //tInit->SetOffset(offset);
+    //tInit->SetMatrix(matrix);
 
     vnl_vector<double> xInit(acf.get_number_of_unknowns(), 0.0);
     itk::flatten_affine_transform(tInit.GetPointer(), xInit.data_block());

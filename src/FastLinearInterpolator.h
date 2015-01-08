@@ -54,9 +54,15 @@ public:
 
   FastLinearInterpolator(ImageType *image) : Superclass(image) {}
 
+  InOut InterpolateWithGradient(float *cix, int stride,
+                                InputComponentType *out, InputComponentType *grad)
+    { return Superclass::INSIDE; }
+
   InOut Interpolate(float *cix, int stride, InputComponentType *out)
     { return Superclass::INSIDE; }
+
   TFloat GetMask() { return 0.0; }
+
   TFloat GetMaskAndGradient(TFloat *mask_gradient) { return 0.0; }
 
 
@@ -82,12 +88,12 @@ public:
     zsize = image->GetLargestPossibleRegion().GetSize()[2];
   }
 
-  InOut Interpolate(float *cix, int stride, InputComponentType *out)
+  /**
+   * Compute the pointers to the eight corners of the interpolating cube
+   */
+  InOut ComputeCorners(float *cix)
   {
-
     const InputComponentType *dp;
-
-    double dx00, dx01, dx10, dx11, dxy0, dxy1;
 
     x0 = floor(cix[0]); fx = cix[0] - x0;
     y0 = floor(cix[1]); fy = cix[1] - y0;
@@ -137,27 +143,88 @@ public:
       }
     else
       {
-      // The sample point is outside
-      for(int iComp = 0; iComp < this->nComp; iComp+=stride)
-        *(out++) = this->def_value[iComp];
-
       // The mask is zero
-      return Superclass::OUTSIDE;
+      this->status = Superclass::OUTSIDE;
       }
 
-    // Interpolate each component
-    for(int iComp = 0; iComp < this->nComp; iComp+=stride,
-        d000+=stride, d001+=stride, d010+=stride, d011+=stride,
-        d100+=stride, d101+=stride, d110+=stride, d111+=stride)
+    return this->status;
+  }
+
+  /**
+   * Interpolate at position cix, placing the intensity values in out and gradient
+   * values in grad (in strides of VDim)
+   */
+  InOut InterpolateWithGradient(float *cix, int stride,
+                                InputComponentType *out, InputComponentType *grad)
+  {
+    double dx00, dx01, dx10, dx11, dxy0, dxy1;
+    double dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
+    double dxy0_y, dxy1_y;
+
+    // Compute the corners
+    this->ComputeCorners(cix);
+
+    if(this->status != Superclass::OUTSIDE)
       {
-      // Interpolate first component
-      dx00 = Superclass::lerp(fx, *d000, *d100);
-      dx01 = Superclass::lerp(fx, *d001, *d101);
-      dx10 = Superclass::lerp(fx, *d010, *d110);
-      dx11 = Superclass::lerp(fx, *d011, *d111);
-      dxy0 = Superclass::lerp(fy, dx00, dx10);
-      dxy1 = Superclass::lerp(fy, dx01, dx11);
-      *(out++) = Superclass::lerp(fz, dxy0, dxy1);
+      // Loop over the components
+      for(int iComp = 0; iComp < this->nComp; iComp+=stride,
+          d000+=stride, d001+=stride, d010+=stride, d011+=stride,
+          d100+=stride, d101+=stride, d110+=stride, d111+=stride)
+        {
+        // Interpolate the image intensity
+        dx00 = Superclass::lerp(fx, *d000, *d100);
+        dx01 = Superclass::lerp(fx, *d001, *d101);
+        dx10 = Superclass::lerp(fx, *d010, *d110);
+        dx11 = Superclass::lerp(fx, *d011, *d111);
+        dxy0 = Superclass::lerp(fy, dx00, dx10);
+        dxy1 = Superclass::lerp(fy, dx01, dx11);
+        *(out++) = Superclass::lerp(fz, dxy0, dxy1);
+
+        // Interpolate the gradient in x
+        dx00_x = *d100 - *d000;
+        dx01_x = *d101 - *d001;
+        dx10_x = *d110 - *d010;
+        dx11_x = *d111 - *d011;
+        dxy0_x = this->lerp(fy, dx00_x, dx10_x);
+        dxy1_x = this->lerp(fy, dx01_x, dx11_x);
+        *(grad++) = this->lerp(fz, dxy0_x, dxy1_x);
+
+        // Interpolate the gradient in y
+        dxy0_y = dx10 - dx00;
+        dxy1_y = dx11 - dx01;
+        *(grad++) = this->lerp(fz, dxy0_y, dxy1_y);
+
+        // Interpolate the gradient in z
+        *(grad++) = dxy1 - dxy0;
+        }
+      }
+
+    return this->status;
+  }
+
+  InOut Interpolate(float *cix, int stride, InputComponentType *out)
+  {
+    double dx00, dx01, dx10, dx11, dxy0, dxy1;
+
+    // Compute the corners
+    this->ComputeCorners(cix);
+
+    if(this->status != Superclass::OUTSIDE)
+      {
+      // Loop over the components
+      for(int iComp = 0; iComp < this->nComp; iComp+=stride,
+          d000+=stride, d001+=stride, d010+=stride, d011+=stride,
+          d100+=stride, d101+=stride, d110+=stride, d111+=stride)
+        {
+        // Interpolate the image intensity
+        dx00 = Superclass::lerp(fx, *d000, *d100);
+        dx01 = Superclass::lerp(fx, *d001, *d101);
+        dx10 = Superclass::lerp(fx, *d010, *d110);
+        dx11 = Superclass::lerp(fx, *d011, *d111);
+        dxy0 = Superclass::lerp(fy, dx00, dx10);
+        dxy1 = Superclass::lerp(fy, dx01, dx11);
+        *(out++) = Superclass::lerp(fz, dxy0, dxy1);
+        }
       }
 
     return this->status;

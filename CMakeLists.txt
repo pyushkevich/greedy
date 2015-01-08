@@ -11,6 +11,7 @@ SET(ITK_USE_FFTWF ON)
 INCLUDE(CMake/FindFFTW.cmake)
 
 SET(HEADERS
+  src/FastLinearInterpolator.h
   src/MultiImageSimpleWarpImageFilter.h
   src/SimpleWarpImageFilter.h
   src/itkGaussianInterpolateImageFunction.h
