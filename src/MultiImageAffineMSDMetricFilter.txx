@@ -151,9 +151,6 @@ MultiImageAffineMSDMetricFilter<TInputImage>
   // The thread data to accumulate
   ThreadData &td = m_ThreadData[threadId];
 
-  // Get the stride for interpolation (how many moving pixels to skip)
-  int stride = ImageDimension + 1;
-
   // Affine transform matrix and vector
   vnl_matrix_fixed<double, ImageDimension, ImageDimension> M =
       m_Transform->GetMatrix().GetVnlMatrix();
@@ -188,7 +185,7 @@ MultiImageAffineMSDMetricFilter<TInputImage>
       {
       // Interpolate moving image with gradient
       typename FastInterpolator::InOut status =
-          flint.InterpolateWithGradient(cix.data_block(), stride,
+          flint.InterpolateWithGradient(cix.data_block(),
                                         interp_mov.data_block(),
                                         interp_mov_grad.data_block());
 
@@ -270,7 +267,7 @@ MultiImageAffineMSDMetricFilter<TInputImage>
       {
       // Interpolate moving image with gradient
       typename FastInterpolator::InOut status =
-          flint.Interpolate(cix.data_block(), stride, interp_mov.data_block());
+          flint.Interpolate(cix.data_block(), interp_mov.data_block());
 
       // Stop if the sample is outside
       if(status == FastInterpolator::OUTSIDE)

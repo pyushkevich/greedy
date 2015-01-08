@@ -54,11 +54,10 @@ public:
 
   FastLinearInterpolator(ImageType *image) : Superclass(image) {}
 
-  InOut InterpolateWithGradient(float *cix, int stride,
-                                InputComponentType *out, InputComponentType *grad)
+  InOut InterpolateWithGradient(float *cix, InputComponentType *out, InputComponentType *grad)
     { return Superclass::INSIDE; }
 
-  InOut Interpolate(float *cix, int stride, InputComponentType *out)
+  InOut Interpolate(float *cix, InputComponentType *out)
     { return Superclass::INSIDE; }
 
   TFloat GetMask() { return 0.0; }
@@ -154,8 +153,7 @@ public:
    * Interpolate at position cix, placing the intensity values in out and gradient
    * values in grad (in strides of VDim)
    */
-  InOut InterpolateWithGradient(float *cix, int stride,
-                                InputComponentType *out, InputComponentType *grad)
+  InOut InterpolateWithGradient(float *cix, InputComponentType *out, InputComponentType *grad)
   {
     double dx00, dx01, dx10, dx11, dxy0, dxy1;
     double dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
@@ -167,9 +165,9 @@ public:
     if(this->status != Superclass::OUTSIDE)
       {
       // Loop over the components
-      for(int iComp = 0; iComp < this->nComp; iComp+=stride,
-          d000+=stride, d001+=stride, d010+=stride, d011+=stride,
-          d100+=stride, d101+=stride, d110+=stride, d111+=stride)
+      for(int iComp = 0; iComp < this->nComp; iComp++,
+          d000++, d001++, d010++, d011++,
+          d100++, d101++, d110++, d111++)
         {
         // Interpolate the image intensity
         dx00 = Superclass::lerp(fx, *d000, *d100);
@@ -202,7 +200,7 @@ public:
     return this->status;
   }
 
-  InOut Interpolate(float *cix, int stride, InputComponentType *out)
+  InOut Interpolate(float *cix, InputComponentType *out)
   {
     double dx00, dx01, dx10, dx11, dxy0, dxy1;
 
@@ -212,9 +210,9 @@ public:
     if(this->status != Superclass::OUTSIDE)
       {
       // Loop over the components
-      for(int iComp = 0; iComp < this->nComp; iComp+=stride,
-          d000+=stride, d001+=stride, d010+=stride, d011+=stride,
-          d100+=stride, d101+=stride, d110+=stride, d111+=stride)
+      for(int iComp = 0; iComp < this->nComp; iComp++,
+          d000++, d001++, d010++, d011++,
+          d100++, d101++, d110++, d111++)
         {
         // Interpolate the image intensity
         dx00 = Superclass::lerp(fx, *d000, *d100);

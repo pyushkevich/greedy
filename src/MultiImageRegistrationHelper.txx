@@ -157,9 +157,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
           }
 
         // Compute the gradient of the moving image
-        typename VectorImageType::Pointer gradMoving = VectorImageType::New();
-        LDDMMType::alloc_vimg(gradMoving, lMoving);
-        LDDMMType::image_gradient(lMoving, gradMoving);
+        //typename VectorImageType::Pointer gradMoving = VectorImageType::New();
+        //LDDMMType::alloc_vimg(gradMoving, lMoving);
+        //LDDMMType::image_gradient(lMoving, gradMoving);
 
         // Allocate the composite images if they have not been allocated
         if(j == 0 && k == 0)
@@ -172,7 +172,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
           m_MovingComposite[i] = MultiComponentImageType::New();
           m_MovingComposite[i]->CopyInformation(lMoving);
-          m_MovingComposite[i]->SetNumberOfComponentsPerPixel(m_Weights.size() * (1 + VDim));
+          m_MovingComposite[i]->SetNumberOfComponentsPerPixel(m_Weights.size());
           m_MovingComposite[i]->SetRegions(lMoving->GetBufferedRegion());
           m_MovingComposite[i]->Allocate();
           }
@@ -180,12 +180,11 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         // Pack the data into the fixed and moving composite images
         this->PlaceIntoComposite(lFixed, m_FixedComposite[i], off_fixed);
         this->PlaceIntoComposite(lMoving, m_MovingComposite[i], off_moving);
-        this->PlaceIntoComposite(gradMoving, m_MovingComposite[i], off_moving + 1);
         }
 
       // Update the offsets
       off_fixed++;
-      off_moving += (1 + VDim);
+      off_moving++;
       }
     }
 }

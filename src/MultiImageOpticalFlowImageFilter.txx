@@ -118,9 +118,6 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
   // Our component of the metric computation
   double &metric = m_MetricPerThread[threadId];
 
-  // Get the stride for interpolation (how many moving pixels to skip)
-  int stride = 1 + ImageDimension;
-
   // Create an interpolator for the moving image
   typedef FastLinearInterpolator<InputComponentType, ImageDimension> FastInterpolator;
   FastInterpolator flint(moving);
@@ -143,9 +140,17 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
       cix[i] = idx[i] + def[i];
 
     // Perform the interpolation, put the results into interp_mov
-    flint.InterpolateWithGradient(cix.data_block(), stride,
-                                  interp_mov.data_block(),
-                                  interp_mov_grad.data_block());
+    typename FastInterpolator::InOut status =
+        flint.InterpolateWithGradient(cix.data_block(),
+                                      interp_mov.data_block(),
+                                      interp_mov_grad.data_block());
+
+    // Handle outside values
+    if(status == FastInterpolator::OUTSIDE)
+      {
+      interp_mov.fill(0.0);
+      interp_mov_grad.fill(0.0);
+      }
 
     // Compute the optical flow gradient field
     OutputPixelType &vOut = *ptrOut;
