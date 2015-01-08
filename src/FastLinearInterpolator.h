@@ -87,7 +87,6 @@ public:
 
     const InputComponentType *dp;
 
-    double fx, fy, fz;
     double dx00, dx01, dx10, dx11, dxy0, dxy1;
 
     x0 = floor(cix[0]); fx = cix[0] - x0;
@@ -124,14 +123,14 @@ public:
              z0 >= -1 && z1 <= zsize)
       {
       // The sample point is on the border region
-      d000 = inrange(x0, y0, z0) ? dens(x0, y0, z0) : this->def_value;
-      d001 = inrange(x0, y0, z1) ? dens(x0, y0, z1) : this->def_value;
-      d010 = inrange(x0, y1, z0) ? dens(x0, y1, z0) : this->def_value;
-      d011 = inrange(x0, y1, z1) ? dens(x0, y1, z1) : this->def_value;
-      d100 = inrange(x1, y0, z0) ? dens(x1, y0, z0) : this->def_value;
-      d101 = inrange(x1, y0, z1) ? dens(x1, y0, z1) : this->def_value;
-      d110 = inrange(x1, y1, z0) ? dens(x1, y1, z0) : this->def_value;
-      d111 = inrange(x1, y1, z1) ? dens(x1, y1, z1) : this->def_value;
+      d000 = border_check(x0, y0, z0, m000);
+      d001 = border_check(x0, y0, z1, m001);
+      d010 = border_check(x0, y1, z0, m010);
+      d011 = border_check(x0, y1, z1, m011);
+      d100 = border_check(x1, y0, z0, m100);
+      d101 = border_check(x1, y0, z1, m101);
+      d110 = border_check(x1, y1, z0, m110);
+      d111 = border_check(x1, y1, z1, m111);
 
       // The mask is between 0 and 1
       this->status = Superclass::BORDER;
@@ -168,10 +167,10 @@ public:
   {
     // Interpolate the mask
     double dx00, dx01, dx10, dx11, dxy0, dxy1;
-    dx00 = this->lerp(fx, d000 == this->def_value ? 0.0 : 1.0, d100 == this->def_value ? 0.0 : 1.0);
-    dx01 = this->lerp(fx, d001 == this->def_value ? 0.0 : 1.0, d101 == this->def_value ? 0.0 : 1.0);
-    dx10 = this->lerp(fx, d010 == this->def_value ? 0.0 : 1.0, d110 == this->def_value ? 0.0 : 1.0);
-    dx11 = this->lerp(fx, d011 == this->def_value ? 0.0 : 1.0, d111 == this->def_value ? 0.0 : 1.0);
+    dx00 = this->lerp(fx, m000, m100);
+    dx01 = this->lerp(fx, m001, m101);
+    dx10 = this->lerp(fx, m010, m110);
+    dx11 = this->lerp(fx, m011, m111);
     dxy0 = this->lerp(fy, dx00, dx10);
     dxy1 = this->lerp(fy, dx01, dx11);
     return this->lerp(fz, dxy0, dxy1);
@@ -179,31 +178,51 @@ public:
 
   TFloat GetMaskAndGradient(TFloat *mask_gradient)
   {
-    // Compute the gradient of the mask
-    mask_gradient[0] = (x0 == 0) ? 1.0 : ((x1 == xsize) ? -1.0 : 0.0);
-    mask_gradient[1] = (y0 == 0) ? 1.0 : ((y1 == ysize) ? -1.0 : 0.0);
-    mask_gradient[2] = (z0 == 0) ? 1.0 : ((z1 == zsize) ? -1.0 : 0.0);
-
     // Interpolate the mask
     double dx00, dx01, dx10, dx11, dxy0, dxy1;
-    dx00 = this->lerp(fx, d000 == this->def_value ? 0.0 : 1.0, d100 == this->def_value ? 0.0 : 1.0);
-    dx01 = this->lerp(fx, d001 == this->def_value ? 0.0 : 1.0, d101 == this->def_value ? 0.0 : 1.0);
-    dx10 = this->lerp(fx, d010 == this->def_value ? 0.0 : 1.0, d110 == this->def_value ? 0.0 : 1.0);
-    dx11 = this->lerp(fx, d011 == this->def_value ? 0.0 : 1.0, d111 == this->def_value ? 0.0 : 1.0);
+    dx00 = this->lerp(fx, m000, m100);
+    dx01 = this->lerp(fx, m001, m101);
+    dx10 = this->lerp(fx, m010, m110);
+    dx11 = this->lerp(fx, m011, m111);
     dxy0 = this->lerp(fy, dx00, dx10);
     dxy1 = this->lerp(fy, dx01, dx11);
-    return this->lerp(fz, dxy0, dxy1);
+    double mask = this->lerp(fz, dxy0, dxy1);
+
+    // Compute the gradient of the mask
+    double dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
+    dx00_x = m100 - m000;
+    dx01_x = m101 - m001;
+    dx10_x = m110 - m010;
+    dx11_x = m111 - m011;
+    dxy0_x = this->lerp(fy, dx00_x, dx10_x);
+    dxy1_x = this->lerp(fy, dx01_x, dx11_x);
+    mask_gradient[0] = this->lerp(fz, dxy0_x, dxy1_x);
+
+    double dxy0_y, dxy1_y;
+    dxy0_y = dx10 - dx00;
+    dxy1_y = dx11 - dx01;
+    mask_gradient[1] = this->lerp(fz, dxy0_y, dxy1_y);
+
+    mask_gradient[2] = dxy1 - dxy0;
+
+    return mask;
   }
 
 protected:
 
-  inline bool inrange(int X, int Y, int Z)
+  inline const InputComponentType *border_check(int X, int Y, int Z, InputComponentType &mask)
   {
-    return
-        X >= 0 && X < xsize &&
-        Y >= 0 && Y < ysize &&
-        Z >= 0 && Z < zsize;
-  }
+    if(X >= 0 && X < xsize && Y >= 0 && Y < ysize && Z >= 0 && Z < zsize)
+      {
+      mask = 1.0;
+      return dens(X,Y,Z);
+      }
+    else
+      {
+      mask = 0.0;
+      return this->def_value;
+      }
+   }
 
   inline const InputComponentType *dens(int X, int Y, int Z)
   {
@@ -215,6 +234,8 @@ protected:
 
   // State of current interpolation
   const InputComponentType *d000, *d001, *d010, *d011, *d100, *d101, *d110, *d111;
+  InputComponentType m000, m001, m010, m011, m100, m101, m110, m111;
+
   double fx, fy, fz;
   int	 x0, y0, z0, x1, y1, z1;
 

@@ -299,7 +299,7 @@ int GreedyApproach<VDim, TReal>
 
     typename TransformType::OffsetType offset = tInit->GetOffset();
     typename TransformType::MatrixType matrix = tInit->GetMatrix();
-    vnl_random rndy;
+    vnl_random rndy(12345);
     for(int i = 0; i < VDim; i++)
       {
       offset[i] += rndy.drand32(-4.0, 4.0);
@@ -316,12 +316,17 @@ int GreedyApproach<VDim, TReal>
     vnl_vector<double> xGrad(acf.get_number_of_unknowns(), 0.0);
     double f0;
     acf.compute(xInit, &f0, &xGrad);
-    std::cout << "Analytic gradient: " << xGrad << std::endl;
+
+    printf("ANL gradient: ");
+    for(int i = 0; i < xGrad.size(); i++)
+      printf("%11.2f ", xGrad[i]);
+    printf("\n");
 
     vnl_vector<double> xGradN(acf.get_number_of_unknowns(), 0.0);
     for(int i = 0; i < acf.get_number_of_unknowns(); i++)
       {
-      double eps = 1.0e-4, f1, f2;
+      double eps = (i % VDim == 0) ? 1.0e-2 : 1.0e-5;
+      double f1, f2;
       vnl_vector<double> x1 = xInit, x2 = xInit;
       x1[i] -= eps; x2[i] += eps;
 
@@ -331,7 +336,12 @@ int GreedyApproach<VDim, TReal>
       xGradN[i] = (f2 - f1) / (2 * eps);
       }
 
-    std::cout << "Numeric gradient: " << xGradN << std::endl;
+
+    printf("NUM gradient: ");
+    for(int i = 0; i < xGradN.size(); i++)
+      printf("%11.2f ", xGradN[i]);
+    printf("\n");
+
 
     std::cout << "f = " << f0 << std::endl;
 

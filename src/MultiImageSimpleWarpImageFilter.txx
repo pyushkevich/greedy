@@ -1036,7 +1036,6 @@ MultiImageAffineMSDMetricFilter<TInputImage>
     }
 
   // Compute the objective value
-  /*
   m_MetricValue = summary.metric / summary.mask;
 
   // Compute the gradient
@@ -1050,12 +1049,20 @@ MultiImageAffineMSDMetricFilter<TInputImage>
   // Pack into the output
   m_MetricGradient = TransformType::New();
   itk::unflatten_affine_transform(grad_metric.data_block(), m_MetricGradient.GetPointer());
-  */
 
+  /*
   m_MetricValue = summary.mask;
   m_MetricGradient = TransformType::New();
   vnl_vector<double> grad_metric = -2.0 * summary.gradient;
   itk::unflatten_affine_transform(summary.grad_mask.data_block(), m_MetricGradient.GetPointer());
+  */
+
+  /*
+  m_MetricValue = summary.metric;
+  m_MetricGradient = TransformType::New();
+  vnl_vector<double> grad_metric = -2.0 * summary.gradient;
+  itk::unflatten_affine_transform(grad_metric.data_block(), m_MetricGradient.GetPointer());
+  */
 }
 
 template <class TInputImage>
@@ -1203,8 +1210,8 @@ MultiImageAffineMSDMetricFilter<TInputImage>
           *(out_grad_mask++) += gradM[i];
           for(int j = 0; j < ImageDimension; j++)
             {
-            *(out_grad++) += v * cix[j];
-            *(out_grad_mask++) += gradM[i] * cix[j];
+            *(out_grad++) += v * idx[j];
+            *(out_grad_mask++) += gradM[i] * idx[j];
             }
           }
 
@@ -1220,7 +1227,7 @@ MultiImageAffineMSDMetricFilter<TInputImage>
           *(out_grad++) += grad[i];
           for(int j = 0; j < ImageDimension; j++)
             {
-            *(out_grad++) += grad[i] * cix[j];
+            *(out_grad++) += grad[i] * idx[j];
             }
           }
 
