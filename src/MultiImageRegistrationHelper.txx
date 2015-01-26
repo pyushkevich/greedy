@@ -351,12 +351,12 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   // return postFilter->GetMetricValue();
 
-  // return metric;
+  return metric;
 
-  itk::Index<VDim> test; test.Fill(24);
+  //itk::Index<VDim> test; test.Fill(24);
   // std::cout << "image at 24: " << m_NCCWorkingImage->GetPixel(test) << std::endl;
-  std::cout << "metric at 24: " << postFilter->GetMetricImage()->GetPixel(test) << std::endl;
-  return postFilter->GetMetricImage()->GetPixel(test);
+  //std::cout << "metric at 24: " << postFilter->GetMetricImage()->GetPixel(test) << std::endl;
+  //return postFilter->GetMetricImage()->GetPixel(test);
 }
 
 template <class TFloat, unsigned int VDim>

@@ -317,11 +317,13 @@ MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
         }
 
       // Fake a function
+      /*
       double a = 0.01, b = 0.005, c = 0.008, d = 0.004;
       interp_mov[0] = sin(a * x * y + b * z) + cos(c * x + d * y * z);
       interp_mov_grad[0] = cos(a * x * y + b * z) * a * y - sin(c * x + d * y * z) * c;
       interp_mov_grad[1] = cos(a * x * y + b * z) * a * x - sin(c * x + d * y * z) * d * z;
       interp_mov_grad[2] = cos(a * x * y + b * z) * b     - sin(c * x + d * y * z) * d * y;
+      */
 
       // Fixed image pointer
       const InputComponentType *mov_ptr = interp_mov.data_block();
@@ -432,7 +434,7 @@ MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage>
 
       // Loop over components
       int i_wgt = 0;
-      const InputComponentType eps = 1e-6;
+      const InputComponentType eps = 1e-4;
       while(ptr < ptr_end)
         {
         // Compute sigma_I, sigma_J, sigma_IJ
@@ -470,12 +472,14 @@ MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage>
 
           // (*ptr_gradient)[i] += m_Weights[i_wgt] * grad_ncc_fix_mov_i;
           (*ptr_gradient)[i] = grad_ncc_fix_mov_i;
-          // (*ptr_gradient)[i] += x_grad_mov_i; // grad_cov_fix_mov_i;
+
+
+          // (*ptr_gradient)[i] = x_grad_mov_i; // grad_cov_fix_mov_i;
           }
 
         *ptr_metric = ncc_fix_mov;
         // *ptr_metric += m_Weights[i_wgt] * ncc_fix_mov;
-        // *ptr_metric += x_mov; // cov_fix_mov;
+        // *ptr_metric = x_mov; // cov_fix_mov;
 
         ++i_wgt;
         }

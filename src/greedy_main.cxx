@@ -584,17 +584,17 @@ int GreedyApproach<VDim, TReal>
         double eps = param.epsilon;
         for(int d = 0; d < VDim; d++)
           {
-          vv.Fill(0.0); vv[d] -= eps; uk->FillBuffer(vv);
+          vv.Fill(0.5); vv[d] -= eps; uk->FillBuffer(vv);
           double a1 = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
 
-          vv.Fill(0.0); vv[d] += eps; uk->FillBuffer(vv);
+          vv.Fill(0.5); vv[d] += eps; uk->FillBuffer(vv);
           double a2 = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
 
           std::cout << "NUM:" << (a2 - a1) / (2*eps) << std::endl;
 
           }
 
-        vv.Fill(0.0); uk->FillBuffer(vv);
+        vv.Fill(0.5); uk->FillBuffer(vv);
         total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
         for(int d = 0; d < VDim; d++)
           {
@@ -608,10 +608,10 @@ int GreedyApproach<VDim, TReal>
             ader += it.Get()[d];
             }
 
-          itk::Index<VDim> test; test.Fill(24);
-          std::cout << "ANA:" << uk1->GetPixel(test) << std::endl;
+          // itk::Index<VDim> test; test.Fill(24);
+          // std::cout << "ANA:" << uk1->GetPixel(test) << std::endl;
 
-          //std::cout << "ANA:" << ader << std::endl;
+          std::cout << "ANA:" << ader << std::endl;
           }
 
 
