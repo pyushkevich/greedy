@@ -145,7 +145,8 @@ MultiImageAffineMSDMetricFilter<TInputImage>
 
   // Iterate over the deformation field and the output image. In reality, we don't
   // need to waste so much time on iteration, so we use a specialized iterator here
-  typedef ImageRegionConstIteratorWithIndexOverride<InputImageType> FixedIter;
+  typedef itk::ImageRegionConstIteratorWithIndex<InputImageType> FixedIterBase;
+  typedef IteratorExtender<FixedIterBase> FixedIter;
 
   // Location of the lookup
   vnl_vector_fixed<float, ImageDimension> cix;

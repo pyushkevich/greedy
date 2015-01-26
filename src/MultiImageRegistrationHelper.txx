@@ -27,6 +27,10 @@
 #include "MultiImageAffineMSDMetricFilter.h"
 #include "MultiImageOpticalFlowImageFilter.h"
 #include "itkVectorIndexSelectionCastImageFilter.h"
+#include "OneDimensionalInPlaceAccumulateFilter.h"
+#include "itkUnaryFunctorImageFilter.h"
+
+#include "itkImageFileWriter.h"
 
 template <class TFloat, unsigned int VDim>
 void
@@ -222,7 +226,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   // Run the filter
   filter->SetFixedImage(m_FixedComposite[level]);
-  filter->SetMovingImageAndGradient(m_MovingComposite[level]);
+  filter->SetMovingImage(m_MovingComposite[level]);
   filter->SetDeformationField(def);
   filter->SetWeights(wscaled);
   filter->GraftOutput(result);
@@ -230,6 +234,129 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   // Get the total energy
   return filter->GetMetricValue();
+}
+
+template <class TFloat, unsigned int VDim>
+double
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeNCCMetricAndGradient(
+    int level,
+    VectorImageType *def,
+    VectorImageType *result,
+    const SizeType &radius,
+    double result_scaling)
+{
+  // Get the reference image
+  ImageBaseType *ref = this->GetReferenceSpace(level);
+
+  // Allocate the working image
+  if(m_NCCWorkingImage.IsNull() || m_NCCWorkingImage->GetBufferedRegion() != ref->GetBufferedRegion())
+    {
+    m_NCCWorkingImage = MultiComponentImageType::New();
+    m_NCCWorkingImage->CopyInformation(ref);
+    m_NCCWorkingImage->SetNumberOfComponentsPerPixel(
+          1 + ref->GetNumberOfComponentsPerPixel() * (5 + 3 * VDim));
+    m_NCCWorkingImage->SetRegions(ref->GetBufferedRegion());
+    m_NCCWorkingImage->Allocate();
+    }
+
+  // Create the filter
+  typedef MultiImageNCCPrecomputeFilter<
+      MultiComponentImageType, MultiComponentImageType, VectorImageType> PreFilterType;
+
+  typename PreFilterType::Pointer filter = PreFilterType::New();
+
+  // Run the filter
+  filter->SetFixedImage(m_FixedComposite[level]);
+  filter->SetMovingImage(m_MovingComposite[level]);
+  filter->SetDeformationField(def);
+  filter->GraftOutput(m_NCCWorkingImage);
+  filter->Update();
+
+  // Currently, we have all the stuff we need to compute the metric in the working
+  // image. Next, we run the fast sum computation to give us the local average of
+  // intensities, products, gradients in the working image
+  typedef OneDimensionalInPlaceAccumulateFilter<MultiComponentImageType> AccumFilterType;
+
+
+
+  // Create a chain of separable 1-D filters
+
+  typename itk::ImageSource<MultiComponentImageType>::Pointer pipeTail;
+  for(int dir = 0; dir < VDim; dir++)
+    {
+    typename AccumFilterType::Pointer accum = AccumFilterType::New();
+    if(pipeTail.IsNull())
+      accum->SetInput(m_NCCWorkingImage);
+    else
+      accum->SetInput(pipeTail->GetOutput());
+    accum->SetDimension(dir);
+    accum->SetRadius(radius[dir]);
+    pipeTail = accum;
+    accum->Update();
+
+    }
+
+  // Now pipetail has the mean filtering of the different components in m_NCCWorkingImage.
+  // Last piece is to perform a calculation that will convert all this information into a
+  // metric value and a gradient value. For the time being, we will use the unary functor
+  // image filter to compute this, but a slightly more efficient implementation might be
+  // possible that accumulates the metric on the fly ...
+
+
+  typedef MultiImageNCCPostcomputeFilter<
+      MultiComponentImageType, FloatImageType, VectorImageType> PostFilterType;
+
+  typename PostFilterType::Pointer postFilter = PostFilterType::New();
+  postFilter->SetInput(pipeTail->GetOutput());
+  postFilter->GraftOutput(result);
+
+  // Scale the weights by epsilon
+  vnl_vector<float> wscaled(m_Weights.size());
+  for(int i = 0; i < wscaled.size(); i++)
+    wscaled[i] = m_Weights[i] * result_scaling;
+
+  postFilter->SetWeights(wscaled);
+
+  postFilter->Update();
+
+  /*
+  itk::Index<VDim> test; test.Fill(24);
+  std::cout << postFilter->GetMetricImage()->GetPixel(test) << " : " << result->GetPixel(test) << std::endl;
+
+  // TODO: trash this code!!!!
+  // Get and save the metric image
+  typename itk::ImageFileWriter<FloatImageType>::Pointer writer = itk::ImageFileWriter<FloatImageType>::New();
+  writer->SetInput(postFilter->GetMetricImage());
+  writer->SetFileName("nccmap.nii.gz");
+  writer->Update();
+
+  typename itk::ImageFileWriter<VectorImageType>::Pointer qwriter = itk::ImageFileWriter<VectorImageType>::New();
+  qwriter->SetInput(result);
+  qwriter->SetFileName("nccgrad.mha");
+  qwriter->Update();
+  */
+
+  // Compute metric just over an interior region (for derivative computations)
+  itk::ImageRegion<VDim> region = postFilter->GetMetricImage()->GetBufferedRegion();
+  region.ShrinkByRadius(16);
+  double metric = 0.0;
+
+  typedef itk::ImageRegionConstIterator<FloatImageType> Iter;
+  for(Iter it(postFilter->GetMetricImage(), region); !it.IsAtEnd(); ++it)
+    {
+    metric += it.Get();
+    }
+
+
+  // return postFilter->GetMetricValue();
+
+  // return metric;
+
+  itk::Index<VDim> test; test.Fill(24);
+  // std::cout << "image at 24: " << m_NCCWorkingImage->GetPixel(test) << std::endl;
+  std::cout << "metric at 24: " << postFilter->GetMetricImage()->GetPixel(test) << std::endl;
+  return postFilter->GetMetricImage()->GetPixel(test);
 }
 
 template <class TFloat, unsigned int VDim>

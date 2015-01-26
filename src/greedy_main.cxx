@@ -32,6 +32,7 @@ int usage()
   printf("Optional: \n");
   printf("  -a                          : Perform affine registration and save to output (-o)\n");
   printf("  -w weight                   : weight of the next -i pair\n");
+  printf("  -m metric                   : metric for the registration (SSD or NCC 3x3x3)");
   printf("  -e epsilon                  : step size (default = 1.0)\n");
   printf("  -s sigma1 sigma2            : smoothing for the greedy update step (3.0, 1.0)\n");
   printf("  -n NxNxN                    : number of iterations per level of multi-res (100x100) \n");
@@ -50,6 +51,8 @@ struct ImagePairSpec
 
 struct GreedyParameters
 {
+  enum MetricType { SSD = 0, NCC };
+
   std::vector<ImagePairSpec> inputs;
   std::string output;
   unsigned int dim; 
@@ -59,8 +62,12 @@ struct GreedyParameters
   int dump_frequency, threads;
   double epsilon, sigma_pre, sigma_post;
 
+  MetricType metric;
+
   // Iterations per level (i.e., 40x40x100)
   std::vector<int> iter_per_level;
+
+  std::vector<int> metric_radius;
 };
 
 
@@ -434,6 +441,7 @@ int GreedyApproach<VDim, TReal>
     vnl_vector<double> xLevel = acf.GetCoefficients(tLevel.GetPointer());
 
     // Test the gradient computation
+    /*
     vnl_vector<double> xGrad(acf.get_number_of_unknowns(), 0.0);
     double f0;
     acf.compute(xLevel, &f0, &xGrad);
@@ -464,6 +472,7 @@ int GreedyApproach<VDim, TReal>
     printf("\n");
 
     std::cout << "f = " << f0 << std::endl;
+    */
 
     // Propagate the jitter to the transform
     Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
@@ -480,8 +489,17 @@ int GreedyApproach<VDim, TReal>
     std::cout << "Final RAS Transform: " << std::endl << Q_physical << std::endl;
     }
 
+  // Write the final affine transform
+  std::ofstream matrixFile;
+  matrixFile.open(param.output.c_str());
+  matrixFile << Q_physical;
+  matrixFile.close();
+
+
   return 0;
 }
+
+#include "itkStatisticsImageFilter.h"
 
 /**
  * This is the main function of the GreedyApproach algorithm
@@ -507,6 +525,8 @@ int GreedyApproach<VDim, TReal>
 
   // The number of resolution levels
   int nlevels = param.iter_per_level.size();
+
+  std::cout << "SIGMAS: " << param.sigma_pre << ", " << param.sigma_post << std::endl;
 
   // Iterate over the resolution levels
   for(unsigned int level = 0; level < nlevels; ++level)
@@ -540,7 +560,62 @@ int GreedyApproach<VDim, TReal>
       {
 
       // Compute the gradient of objective
-      double total_energy = of_helper.ComputeOpticalFlowField(level, uk, uk1, param.epsilon);
+      double total_energy;
+
+      if(param.metric == GreedyParameters::SSD)
+        {
+        total_energy = of_helper.ComputeOpticalFlowField(level, uk, uk1, param.epsilon);
+        }
+
+      else
+        {
+        itk::Size<VDim> radius;
+        for(int k = 0; k < VDim; k++)
+          radius[k] = param.metric_radius[k];
+
+        // Test derivative
+//        total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, param.epsilon);
+
+
+
+        itk::Index<VDim> test; test.Fill(24);
+        typename VectorImageType::PixelType vtest = uk->GetPixel(test), vv;
+
+        double eps = param.epsilon;
+        for(int d = 0; d < VDim; d++)
+          {
+          vv.Fill(0.0); vv[d] -= eps; uk->FillBuffer(vv);
+          double a1 = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
+
+          vv.Fill(0.0); vv[d] += eps; uk->FillBuffer(vv);
+          double a2 = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
+
+          std::cout << "NUM:" << (a2 - a1) / (2*eps) << std::endl;
+
+          }
+
+        vv.Fill(0.0); uk->FillBuffer(vv);
+        total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
+        for(int d = 0; d < VDim; d++)
+          {
+          itk::ImageRegion<VDim> region = uk1->GetBufferedRegion();
+          region.ShrinkByRadius(16);
+
+          double ader = 0.0;
+          typedef itk::ImageRegionConstIterator<VectorImageType> Iter;
+          for(Iter it(uk1, region); !it.IsAtEnd(); ++it)
+            {
+            ader += it.Get()[d];
+            }
+
+          itk::Index<VDim> test; test.Fill(24);
+          std::cout << "ANA:" << uk1->GetPixel(test) << std::endl;
+
+          //std::cout << "ANA:" << ader << std::endl;
+          }
+
+
+        }
 
       // Dump the gradient image if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
@@ -627,6 +702,7 @@ int main(int argc, char *argv[])
   param.sigma_pre = 3.0;
   param.sigma_post = 1.0;
   param.threads = 0;
+  param.metric = GreedyParameters::SSD;
 
   param.iter_per_level.push_back(100);
   param.iter_per_level.push_back(100);
@@ -656,6 +732,19 @@ int main(int argc, char *argv[])
     else if(arg == "-e")
       {
       param.epsilon = atof(argv[++i]);
+      }
+    else if(arg == "-m")
+      {
+      std::string metric_name = argv[++i];
+      if(metric_name == "NCC" || metric_name == "ncc")
+        {
+        param.metric = GreedyParameters::NCC;
+        std::istringstream f(argv[++i]);
+        std::string s;
+        param.metric_radius.clear();
+        while (getline(f, s, 'x'))
+          param.metric_radius.push_back(atoi(s.c_str()));
+        }
       }
     else if(arg == "-s")
       {

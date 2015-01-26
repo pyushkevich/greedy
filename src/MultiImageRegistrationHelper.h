@@ -38,6 +38,7 @@ public:
   typedef itk::ImageBase<VDim> ImageBaseType;
 
   typedef std::vector<int> PyramidFactorsType;
+  typedef itk::Size<VDim> SizeType;
 
   typedef itk::MatrixOffsetTransformBase<double, VDim, VDim> LinearTransformType;
 
@@ -63,6 +64,10 @@ public:
   double ComputeOpticalFlowField(int level, VectorImageType *def, VectorImageType *result,
                                  double result_scaling = 1.0);
 
+  /** Compute normalized cross-correlation metric and gradient */
+  double ComputeNCCMetricAndGradient(int level, VectorImageType *def, VectorImageType *result,
+                                     const SizeType &radius, double result_scaling = 1.0);
+
   double ComputeAffineMatchAndGradient(int level, LinearTransformType *tran,
                                        LinearTransformType *grad = NULL);
 
@@ -83,6 +88,9 @@ protected:
 
   // Composite image at each resolution level
   MultiCompImageSet m_FixedComposite, m_MovingComposite;
+
+  // Working memory image for NCC computation
+  typename MultiComponentImageType::Pointer m_NCCWorkingImage;
 
   void PlaceIntoComposite(FloatImageType *src, MultiComponentImageType *target, int offset);
   void PlaceIntoComposite(VectorImageType *src, MultiComponentImageType *target, int offset);

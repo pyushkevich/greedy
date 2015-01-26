@@ -18,6 +18,8 @@ SET(HEADERS
   src/MultiImageOpticalFlowImageFilter.txx
   src/MultiImageRegistrationHelper.h
   src/MultiImageRegistrationHelper.txx
+  src/OneDimensionalInPlaceAccumulateFilter.h
+  src/OneDimensionalInPlaceAccumulateFilter.txx
   src/SimpleWarpImageFilter.h
   src/SimpleWarpImageFilter.txx
   src/itkGaussianInterpolateImageFunction.h
