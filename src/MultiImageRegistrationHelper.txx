@@ -278,10 +278,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   // intensities, products, gradients in the working image
   typedef OneDimensionalInPlaceAccumulateFilter<MultiComponentImageType> AccumFilterType;
 
-
-
   // Create a chain of separable 1-D filters
-
   typename itk::ImageSource<MultiComponentImageType>::Pointer pipeTail;
   for(int dir = 0; dir < VDim; dir++)
     {
@@ -294,16 +291,14 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     accum->SetRadius(radius[dir]);
     pipeTail = accum;
     accum->Update();
-
     }
+
 
   // Now pipetail has the mean filtering of the different components in m_NCCWorkingImage.
   // Last piece is to perform a calculation that will convert all this information into a
   // metric value and a gradient value. For the time being, we will use the unary functor
   // image filter to compute this, but a slightly more efficient implementation might be
   // possible that accumulates the metric on the fly ...
-
-
   typedef MultiImageNCCPostcomputeFilter<
       MultiComponentImageType, FloatImageType, VectorImageType> PostFilterType;
 
@@ -321,9 +316,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   postFilter->Update();
 
   /*
-  itk::Index<VDim> test; test.Fill(24);
-  std::cout << postFilter->GetMetricImage()->GetPixel(test) << " : " << result->GetPixel(test) << std::endl;
-
   // TODO: trash this code!!!!
   // Get and save the metric image
   typename itk::ImageFileWriter<FloatImageType>::Pointer writer = itk::ImageFileWriter<FloatImageType>::New();

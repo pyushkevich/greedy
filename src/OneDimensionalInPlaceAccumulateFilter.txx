@@ -76,7 +76,7 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
     OutputImageComponentType *p_line = line, *p_tail = line;
 
     // Pointer to the beginning of the scan line
-    long offset_in_pixels = itLine.GetPosition() - itLine.GetBeginPosition();
+    long offset_in_pixels = itLine.GetPosition() - image->GetBufferPointer();
     long offset_in_comp = offset_in_pixels * nc;
     const OutputImageComponentType *p_scan_pixel = image->GetBufferPointer() + offset_in_comp, *p_scan;
 

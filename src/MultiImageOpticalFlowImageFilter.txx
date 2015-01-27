@@ -401,7 +401,8 @@ MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage>
   typedef itk::ImageRegionIterator<TMetricImage> MetricIteratorType;
   typedef itk::ImageRegionIterator<TGradientImage> GradientIteratorType;
 
-  InputIteratorType it_input(const_cast<InputImageType *>(this->GetInput()), outputRegionForThread);
+  InputImageType *image = const_cast<InputImageType *>(this->GetInput());
+  InputIteratorType it_input(image, outputRegionForThread);
 
   // Number of input components
   int nc = this->GetInput()->GetNumberOfComponentsPerPixel();
@@ -413,8 +414,8 @@ MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage>
   for(; !it_input.IsAtEnd(); it_input.NextLine())
     {
     // Get the pointer to the start of the current line
-    long offset_in_pixels = it_input.GetPosition() - it_input.GetBeginPosition();
-    const InputComponentType *ptr = it_input.GetBeginPosition() + offset_in_pixels * nc;
+    long offset_in_pixels = it_input.GetPosition() - image->GetBufferPointer();
+    const InputComponentType *ptr = image->GetBufferPointer() + offset_in_pixels * nc;
     const InputComponentType *line_end = ptr + outputRegionForThread.GetSize(0) * nc;
 
     // Get the offset into the metric and gradient images
