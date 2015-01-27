@@ -555,6 +555,7 @@ LDDMMData<TFloat, VDim>
 
 #include "itkVectorIndexSelectionCastImageFilter.h"
 #include "itkComposeImageFilter.h"
+#include "itkMinimumMaximumImageFilter.h"
 
 template <class TFloat, uint VDim>
 void
@@ -569,7 +570,41 @@ LDDMMData<TFloat, VDim>
   fltSmooth->Update();
 }
 
+template <class TFloat, unsigned int VDim>
+struct VectorSquareNormFunctor
+{
+  template <class TVector> TFloat operator() (const TVector &v)
+  {
+    TFloat norm_sqr = 0.0;
+    for(int i = 0; i < VDim; i++)
+      norm_sqr += v[i] * v[i];
+    return norm_sqr;
+  }
+};
 
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::vimg_normalize_to_fixed_max_length(VectorImagePointer &trg, ImagePointer &normsqr, double max_displacement)
+{
+  // Compute the squared norm of the displacement
+  typedef VectorSquareNormFunctor<TFloat, VDim> NormFunctor;
+  typedef itk::UnaryFunctorImageFilter<VectorImageType, ImageType, NormFunctor> NormFilter;
+  typename NormFilter::Pointer fltNorm = NormFilter::New();
+  fltNorm->SetInput(trg);
+  fltNorm->GraftOutput(normsqr);
+  fltNorm->Update();
+
+  // Compute the maximum squared norm of the displacement
+  TFloat nsq_min, nsq_max;
+  img_min_max(normsqr, nsq_min, nsq_max);
+
+  // Compute the scale functor
+  TFloat scale = max_displacement / sqrt(nsq_max);
+
+  // Apply the scale
+  vimg_scale_in_place(trg, scale);
+}
 
 
 template <class TFloat, uint VDim>

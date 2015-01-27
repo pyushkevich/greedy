@@ -97,6 +97,12 @@ public:
   static void vimg_euclidean_inner_product(ImagePointer &trg, VectorImageType *a, VectorImageType *b);
   static TFloat vimg_euclidean_norm_sq(VectorImageType *trg);
 
+  // Update a vector image to make its maxumum length equal to given value. The
+  // second parameter is a working image that will return unnormalized lengths squared
+  static void vimg_normalize_to_fixed_max_length(VectorImagePointer &trg,
+                                                 ImagePointer &normsqr,
+                                                 double max_displacement);
+
   // Scalar math
   static void img_subtract_in_place(ImagePointer &trg, ImageType *a);
   static void img_multiply_in_place(ImagePointer &trg, ImageType *a);

@@ -576,45 +576,49 @@ int GreedyApproach<VDim, TReal>
         // Test derivative
 //        total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, param.epsilon);
 
-
-
-        itk::Index<VDim> test; test.Fill(24);
-        typename VectorImageType::PixelType vtest = uk->GetPixel(test), vv;
-
-        double eps = param.epsilon;
-        for(int d = 0; d < VDim; d++)
+        /*
+        if(iter == 0)
           {
-          vv.Fill(0.5); vv[d] -= eps; uk->FillBuffer(vv);
-          double a1 = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
+          // Perform a derivative check!
 
-          vv.Fill(0.5); vv[d] += eps; uk->FillBuffer(vv);
-          double a2 = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
+          itk::Index<VDim> test; test.Fill(24);
+          typename VectorImageType::PixelType vtest = uk->GetPixel(test), vv;
 
-          std::cout << "NUM:" << (a2 - a1) / (2*eps) << std::endl;
-
-          }
-
-        vv.Fill(0.5); uk->FillBuffer(vv);
-        total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
-        for(int d = 0; d < VDim; d++)
-          {
-          itk::ImageRegion<VDim> region = uk1->GetBufferedRegion();
-          region.ShrinkByRadius(16);
-
-          double ader = 0.0;
-          typedef itk::ImageRegionConstIterator<VectorImageType> Iter;
-          for(Iter it(uk1, region); !it.IsAtEnd(); ++it)
+          double eps = param.epsilon;
+          for(int d = 0; d < VDim; d++)
             {
-            ader += it.Get()[d];
+            vv.Fill(0.5); vv[d] -= eps; uk->FillBuffer(vv);
+            double a1 = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
+
+            vv.Fill(0.5); vv[d] += eps; uk->FillBuffer(vv);
+            double a2 = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
+
+            std::cout << "NUM:" << (a2 - a1) / (2*eps) << std::endl;
+
             }
 
-          // itk::Index<VDim> test; test.Fill(24);
-          // std::cout << "ANA:" << uk1->GetPixel(test) << std::endl;
+          vv.Fill(0.5); uk->FillBuffer(vv);
+          total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
+          for(int d = 0; d < VDim; d++)
+            {
+            itk::ImageRegion<VDim> region = uk1->GetBufferedRegion();
+            region.ShrinkByRadius(16);
 
-          std::cout << "ANA:" << ader << std::endl;
-          }
+            double ader = 0.0;
+            typedef itk::ImageRegionConstIterator<VectorImageType> Iter;
+            for(Iter it(uk1, region); !it.IsAtEnd(); ++it)
+              {
+              ader += it.Get()[d];
+              }
 
+            // itk::Index<VDim> test; test.Fill(24);
+            // std::cout << "ANA:" << uk1->GetPixel(test) << std::endl;
 
+            std::cout << "ANA:" << ader << std::endl;
+            }
+          } */
+
+        total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, param.epsilon);
         }
 
       // Dump the gradient image if requested
@@ -627,6 +631,10 @@ int GreedyApproach<VDim, TReal>
 
       // We have now computed the gradient vector field. Next, we smooth it
       LDDMMType::vimg_smooth(uk1, viTemp, param.sigma_pre * shrink_factor);
+
+      // After smoothing, compute the maximum vector norm and use it as a normalizing
+      // factor for the displacement field
+      // LDDMMType::vimg_normalize_to_fixed_max_length(uk1, iTemp, param.epsilon);
 
       // Dump the smoothed gradient image if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
