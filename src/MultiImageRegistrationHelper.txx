@@ -329,26 +329,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   qwriter->Update();
   */
 
-  // Compute metric just over an interior region (for derivative computations)
-  itk::ImageRegion<VDim> region = postFilter->GetMetricImage()->GetBufferedRegion();
-  region.ShrinkByRadius(16);
-  double metric = 0.0;
-
-  typedef itk::ImageRegionConstIterator<FloatImageType> Iter;
-  for(Iter it(postFilter->GetMetricImage(), region); !it.IsAtEnd(); ++it)
-    {
-    metric += it.Get();
-    }
-
-
-  // return postFilter->GetMetricValue();
-
-  return metric;
-
-  //itk::Index<VDim> test; test.Fill(24);
-  // std::cout << "image at 24: " << m_NCCWorkingImage->GetPixel(test) << std::endl;
-  //std::cout << "metric at 24: " << postFilter->GetMetricImage()->GetPixel(test) << std::endl;
-  //return postFilter->GetMetricImage()->GetPixel(test);
+  // Get the metric
+  return postFilter->GetMetricValue();
 }
 
 template <class TFloat, unsigned int VDim>

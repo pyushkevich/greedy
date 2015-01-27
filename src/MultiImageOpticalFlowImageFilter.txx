@@ -471,15 +471,15 @@ MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage>
           InputComponentType grad_ncc_fix_mov_i =
               2 * cov_fix_mov_over_denom * (grad_cov_fix_mov_i - var_fix * half_grad_var_mov_i * cov_fix_mov_over_denom);
 
-          // (*ptr_gradient)[i] += m_Weights[i_wgt] * grad_ncc_fix_mov_i;
-          (*ptr_gradient)[i] = grad_ncc_fix_mov_i;
+          (*ptr_gradient)[i] += m_Weights[i_wgt] * grad_ncc_fix_mov_i;
+          // (*ptr_gradient)[i] = grad_ncc_fix_mov_i;
 
 
           // (*ptr_gradient)[i] = x_grad_mov_i; // grad_cov_fix_mov_i;
           }
 
-        *ptr_metric = ncc_fix_mov;
-        // *ptr_metric += m_Weights[i_wgt] * ncc_fix_mov;
+        // *ptr_metric = ncc_fix_mov;
+        *ptr_metric += m_Weights[i_wgt] * ncc_fix_mov;
         // *ptr_metric = x_mov; // cov_fix_mov;
 
         ++i_wgt;
