@@ -112,11 +112,11 @@ public:
 
   /** Set the fixed image(s) */
   void SetFixedImage(InputImageType *fixed)
-    { this->ProcessObject::SetInput("Primary", fixed); }
+    { this->itk::ProcessObject::SetInput("Primary", fixed); }
 
   /** Set the moving image(s) and their gradients */
   void SetMovingImageAndGradient(InputImageType *moving)
-    { this->ProcessObject::SetInput("moving", moving); }
+    { this->itk::ProcessObject::SetInput("moving", moving); }
 
   /** Set the weight vector */
   itkSetMacro(Weights, WeightVectorType)

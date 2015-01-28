@@ -37,9 +37,9 @@ MultiImageOpticalFlowImageFilterBase<TInputImage,TOutputImage,TDeformationField>
   Superclass::GenerateInputRequestedRegion();
 
   // Different behavior for fixed and moving images
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
-  InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
-  DeformationFieldType *phi = dynamic_cast<DeformationFieldType *>(this->ProcessObject::GetInput("phi"));
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
+  InputImageType *moving = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("moving"));
+  DeformationFieldType *phi = dynamic_cast<DeformationFieldType *>(this->itk::ProcessObject::GetInput("phi"));
 
   if(moving)
     moving->SetRequestedRegionToLargestPossibleRegion();
@@ -69,7 +69,7 @@ MultiImageOpticalFlowImageFilterBase<TInputImage,TOutputImage,TDeformationField>
   Superclass::GenerateOutputInformation();
 
   OutputImageType *outputPtr = this->GetOutput();
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
   outputPtr->SetSpacing( fixed->GetSpacing() );
   outputPtr->SetOrigin( fixed->GetOrigin() );
   outputPtr->SetDirection( fixed->GetDirection() );
@@ -116,9 +116,9 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
   itk::ThreadIdType threadId )
 {
   // Get the pointers to the input and output images
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
-  InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
-  DeformationFieldType *phi = dynamic_cast<DeformationFieldType *>(this->ProcessObject::GetInput("phi"));
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
+  InputImageType *moving = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("moving"));
+  DeformationFieldType *phi = dynamic_cast<DeformationFieldType *>(this->itk::ProcessObject::GetInput("phi"));
   OutputImageType *out = this->GetOutput();
 
   // Get the number of components
@@ -242,9 +242,9 @@ MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
   itk::ThreadIdType threadId )
 {
   // Get the pointers to the input and output images
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
-  InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
-  DeformationFieldType *phi = dynamic_cast<DeformationFieldType *>(this->ProcessObject::GetInput("phi"));
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
+  InputImageType *moving = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("moving"));
+  DeformationFieldType *phi = dynamic_cast<DeformationFieldType *>(this->itk::ProcessObject::GetInput("phi"));
   OutputImageType *out = this->GetOutput();
 
   // Get the number of components

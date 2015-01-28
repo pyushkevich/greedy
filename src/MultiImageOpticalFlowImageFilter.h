@@ -82,11 +82,11 @@ public:
 
   /** Set the fixed image(s) */
   void SetFixedImage(InputImageType *fixed)
-    { this->ProcessObject::SetInput("Primary", fixed); }
+    { this->itk::ProcessObject::SetInput("Primary", fixed); }
 
   /** Set the moving image(s) and their gradients */
   void SetMovingImage(InputImageType *moving)
-    { this->ProcessObject::SetInput("moving", moving); }
+    { this->itk::ProcessObject::SetInput("moving", moving); }
 
   /** Set the weight vector */
   itkSetMacro(Weights, WeightVectorType)
@@ -96,7 +96,7 @@ public:
   void SetDeformationField(DeformationFieldType *phi)
     {
     m_Deformation = phi;
-    this->ProcessObject::SetInput("phi", m_Deformation);
+    this->itk::ProcessObject::SetInput("phi", m_Deformation);
     }
 
   /** This filter produces an image which is a different

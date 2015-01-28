@@ -91,8 +91,8 @@ MultiImageAffineMSDMetricFilter<TInputImage>
   Superclass::GenerateInputRequestedRegion();
 
   // Set regions to max
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
-  InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
+  InputImageType *moving = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("moving"));
 
   if(moving)
     moving->SetRequestedRegionToLargestPossibleRegion();
@@ -116,7 +116,7 @@ void
 MultiImageAffineMSDMetricFilter<TInputImage>
 ::AllocateOutputs()
 {
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
   this->GraftOutput(fixed);
 }
 
@@ -129,8 +129,8 @@ MultiImageAffineMSDMetricFilter<TInputImage>
   itk::ThreadIdType threadId )
 {
   // Get the pointers to the input and output images
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary"));
-  InputImageType *moving = dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving"));
+  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
+  InputImageType *moving = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("moving"));
 
   // Get the pointer to the start of the fixed data
   const InputComponentType *fix_buffer = fixed->GetBufferPointer();

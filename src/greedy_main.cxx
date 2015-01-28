@@ -366,8 +366,10 @@ GreedyApproach<VDim, TReal>
       Q(i,j) = Qp(i,j);
     }
 
-  A = vnl_matrix_inverse<double>(T_mov) * Q * T_fix;
-  b = vnl_matrix_inverse<double>(T_mov) * (p - s_mov + Q * s_fix);
+  // A = vnl_matrix_inverse<double>(T_mov) * (Q * T_fix);
+  // b = vnl_matrix_inverse<double>(T_mov) * (p - s_mov + Q * s_fix);
+  A=vnl_svd<double>(T_mov).solve(Q * T_fix);
+  b=vnl_svd<double>(T_mov).solve(p - s_mov + Q * s_fix);
 
   typename OFHelperType::LinearTransformType::MatrixType tran_A;
   typename OFHelperType::LinearTransformType::OffsetType tran_b;
