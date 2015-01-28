@@ -371,7 +371,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     filter->Update();
 
     // Process the results
-    return filter->GetSummaryResult()[0];
+    return filter->GetSummaryResult()[0]; // / filter->GetSummaryResult()[1];
     }
     */
 }
@@ -580,8 +580,9 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 }
 */
 
+/*
 template <class TInputImage, class TOutputImage, class TTransformTraits>
-void
+bool
 MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
 ::OpticalFlowFastInterpolateWithMask(
                              const Dispatch<3> &,
@@ -688,6 +689,95 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
                              int nComp, int stride, int *movSize,
                              const InputComponentType *def_value,
                              float *cix,
+                             InputComponentType *out, float &mask_val)
+{
+  int	x0, y0, z0, x1, y1, z1;
+  const InputComponentType *dp, *d000, *d001, *d010, *d011, *d100, *d101, *d110, *d111;
+
+  double fx, fy, fz;
+  double dx00, dx01, dx10, dx11, dxy0, dxy1, dxyz;
+
+  int xsize = movSize[0];
+  int ysize = movSize[1];
+  int zsize = movSize[2];
+
+  x0 = floor(cix[0]); fx = cix[0] - x0;
+  y0 = floor(cix[1]); fy = cix[1] - y0;
+  z0 = floor(cix[2]); fz = cix[2] - z0;
+
+  x1 = x0 + 1;
+  y1 = y0 + 1;
+  z1 = z0 + 1;
+
+  // Fully inside border region?
+  if (x0 >= 0 && x1 < xsize &&
+      y0 >= 0 && y1 < ysize &&
+      z0 >= 0 && z1 < zsize)
+    {
+    dp = DENS(x0, y0, z0, moving_ptr, nComp);
+    d000 = dp;
+    d100 = dp+nComp;
+    dp += xsize*nComp;
+    d010 = dp;
+    d110 = dp+nComp;
+    dp += xsize*ysize*nComp;
+    d011 = dp;
+    d111 = dp+nComp;
+    dp -= xsize*nComp;
+    d001 = dp;
+    d101 = dp+nComp;
+    }
+
+  // Partially inside border region
+  else if(x0 >= -1 && x1 <= xsize &&
+          y0 >= -1 && y1 <= ysize &&
+          z0 >= -1 && z1 <= zsize)
+    {
+    d000 = INRANGE(x0, y0, z0) ? DENS(x0, y0, z0, moving_ptr, nComp) : def_value;
+    d001 = INRANGE(x0, y0, z1) ? DENS(x0, y0, z1, moving_ptr, nComp) : def_value;
+    d010 = INRANGE(x0, y1, z0) ? DENS(x0, y1, z0, moving_ptr, nComp) : def_value;
+    d011 = INRANGE(x0, y1, z1) ? DENS(x0, y1, z1, moving_ptr, nComp) : def_value;
+    d100 = INRANGE(x1, y0, z0) ? DENS(x1, y0, z0, moving_ptr, nComp) : def_value;
+    d101 = INRANGE(x1, y0, z1) ? DENS(x1, y0, z1, moving_ptr, nComp) : def_value;
+    d110 = INRANGE(x1, y1, z0) ? DENS(x1, y1, z0, moving_ptr, nComp) : def_value;
+    d111 = INRANGE(x1, y1, z1) ? DENS(x1, y1, z1, moving_ptr, nComp) : def_value;
+
+    }
+
+  // Outside border region
+  else
+    {
+    for(int iComp = 0; iComp < nComp; iComp+=stride)
+      *(out++) = def_value[iComp]
+    }
+
+  // Interpolate each component
+  for(int iComp = 0; iComp < nComp; iComp+=stride,
+      d000+=stride, d001+=stride, d010+=stride, d011+=stride,
+      d100+=stride, d101+=stride, d110+=stride, d111+=stride)
+    {
+    // Interpolate first component
+    dx00 = LERP(fx, *d000, *d100);
+    dx01 = LERP(fx, *d001, *d101);
+    dx10 = LERP(fx, *d010, *d110);
+    dx11 = LERP(fx, *d011, *d111);
+    dxy0 = LERP(fy, dx00, dx10);
+    dxy1 = LERP(fy, dx01, dx11);
+    *(out++) = LERP(fz, dxy0, dxy1);
+    }
+
+  return true;
+}
+*/
+
+template <class TInputImage, class TOutputImage, class TTransformTraits>
+bool
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
+::OpticalFlowFastInterpolate(const Dispatch<3> &,
+                             const InputComponentType *moving_ptr,
+                             int nComp, int stride, int *movSize,
+                             const InputComponentType *def_value,
+                             float *cix,
                              InputComponentType *out)
 {
   int	x0, y0, z0, x1, y1, z1;
@@ -725,7 +815,7 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
     d001 = dp;
     d101 = dp+nComp;
     }
-  else
+  else if(def_value)
     {
     d000 = INRANGE(x0, y0, z0) ? DENS(x0, y0, z0, moving_ptr, nComp) : def_value;
     d001 = INRANGE(x0, y0, z1) ? DENS(x0, y0, z1, moving_ptr, nComp) : def_value;
@@ -736,11 +826,13 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
     d110 = INRANGE(x1, y1, z0) ? DENS(x1, y1, z0, moving_ptr, nComp) : def_value;
     d111 = INRANGE(x1, y1, z1) ? DENS(x1, y1, z1, moving_ptr, nComp) : def_value;
     }
+  else
+    {
+    return false;
+    }
 
   // Interpolate each component
-  for(int iComp = 0; iComp < nComp; iComp+=stride,
-      d000+=stride, d001+=stride, d010+=stride, d011+=stride,
-      d100+=stride, d101+=stride, d110+=stride, d111+=stride)
+  for(int iComp = 0; iComp < nComp; iComp+=stride)
     {
     // Interpolate first component
     dx00 = LERP(fx, *d000, *d100);
@@ -750,7 +842,13 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
     dxy0 = LERP(fy, dx00, dx10);
     dxy1 = LERP(fy, dx01, dx11);
     *(out++) = LERP(fz, dxy0, dxy1);
+
+    // TODO: unnecessary on last pass!
+    d000 += stride; d001 += stride; d010 += stride; d011 += stride;
+    d100 += stride; d101 += stride; d110 += stride; d111 += stride;
     }
+
+  return true;
 }
 
 template <typename TImage>
@@ -814,8 +912,10 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
   for(unsigned int j = 0; j < ImageDimension; j++ )
     mov_size[j] = moving->GetBufferedRegion().GetSize()[j];
 
-  // Array of zeros - default value
+  // Array of zeros - default value, if used
   vnl_vector<InputComponentType> zeros(kMoving, 0.0);
+  InputComponentType *zeroPtr =
+      TTransformTraits::InterpolateOutsideOverlapRegion() ? zeros.data_block() : NULL;
 
   // Iterate over the fixed space region
   for(OutputIter it(out, outputRegionForThread); !it.IsAtEnd(); ++it)
@@ -837,8 +937,13 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TTransformTraits>
     float mask;
     this->OpticalFlowFastInterpolateWithMask(
           Dispatch<ImageDimension>(),
+//<<<<<<< HEAD
           bMov, kMoving, stride, mov_size.data_block(), zeros.data_block(),
           cix.data_block(), interp_mov.data_block(), mask);
+//=======
+//          bMov, kMoving, stride, mov_size.data_block(), zeroPtr,
+//          cix.data_block(), interp_mov.data_block());
+//>>>>>>> 43ef7496f075d647d8e516d0c8c81fc86f04a1ae
 
     // Perform the calculation of interest on the interpolated data
     TTransformTraits::PostInterpolate(
