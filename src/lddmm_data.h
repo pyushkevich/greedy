@@ -101,7 +101,8 @@ public:
   // second parameter is a working image that will return unnormalized lengths squared
   static void vimg_normalize_to_fixed_max_length(VectorImagePointer &trg,
                                                  ImagePointer &normsqr,
-                                                 double max_displacement);
+                                                 double max_displacement,
+                                                 bool scale_down_only);
 
   // Scalar math
   static void img_subtract_in_place(ImagePointer &trg, ImageType *a);
@@ -120,7 +121,7 @@ public:
   static void vimg_resample_identity(VectorImageType *src, ImageBaseType *ref, VectorImageType *trg);
 
   // Convert voxel-space warp to a physical space warp
-  static void warp_voxel_to_physical(VectorImageType *src, VectorImageType *trg);
+  static void warp_voxel_to_physical(VectorImageType *src, ImageBaseType *ref_space, VectorImageType *trg);
   
   // Some IO methods
   static void img_read(const char *fn, ImagePointer &trg);

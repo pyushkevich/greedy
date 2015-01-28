@@ -585,7 +585,8 @@ struct VectorSquareNormFunctor
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::vimg_normalize_to_fixed_max_length(VectorImagePointer &trg, ImagePointer &normsqr, double max_displacement)
+::vimg_normalize_to_fixed_max_length(VectorImagePointer &trg, ImagePointer &normsqr,
+                                     double max_displacement, bool scale_down_only)
 {
   // Compute the squared norm of the displacement
   typedef VectorSquareNormFunctor<TFloat, VDim> NormFunctor;
@@ -603,7 +604,10 @@ LDDMMData<TFloat, VDim>
   TFloat scale = max_displacement / sqrt(nsq_max);
 
   // Apply the scale
-  vimg_scale_in_place(trg, scale);
+  if(scale_down_only && scale >= 1.0)
+    return;
+  else
+    vimg_scale_in_place(trg, scale);
 }
 
 
@@ -810,6 +814,7 @@ struct VoxelToPhysicalFunctor
 {
 
   typedef typename TImage::PixelType PixelType;
+  typedef itk::ImageBase<TImage::ImageDimension> ImageBaseType;
 
   PixelType operator() (const PixelType &x)
   {
@@ -838,18 +843,18 @@ struct VoxelToPhysicalFunctor
   bool operator != (const VoxelToPhysicalFunctor<TImage> &other)
     { return other.m_Image != m_Image; }
 
-  TImage *m_Image;
+  ImageBaseType *m_Image;
 };
 
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::warp_voxel_to_physical(VectorImageType *src, VectorImageType *trg)
+::warp_voxel_to_physical(VectorImageType *src, ImageBaseType *ref_space, VectorImageType *trg)
 {
   // Set up functor
   typedef VoxelToPhysicalFunctor<VectorImageType> FunctorType;
   FunctorType fnk;
-  fnk.m_Image = src;
+  fnk.m_Image = ref_space;
 
   // Set up filter
   typedef itk::UnaryFunctorImageFilter<VectorImageType, VectorImageType, FunctorType> FilterType;

@@ -273,6 +273,13 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->GraftOutput(m_NCCWorkingImage);
   filter->Update();
 
+  /*
+  typename itk::ImageFileWriter<MultiComponentImageType>::Pointer pwriter = itk::ImageFileWriter<MultiComponentImageType>::New();
+  pwriter->SetInput(m_NCCWorkingImage);
+  pwriter->SetFileName("nccpre.nii.gz");
+  pwriter->Update();
+  */
+
   // Currently, we have all the stuff we need to compute the metric in the working
   // image. Next, we run the fast sum computation to give us the local average of
   // intensities, products, gradients in the working image
@@ -315,8 +322,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   postFilter->Update();
 
-  /*
   // TODO: trash this code!!!!
+  /*
   // Get and save the metric image
   typename itk::ImageFileWriter<FloatImageType>::Pointer writer = itk::ImageFileWriter<FloatImageType>::New();
   writer->SetInput(postFilter->GetMetricImage());
@@ -421,5 +428,136 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   */
 }
 
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::AffineToField(LinearTransformType *tran, VectorImageType *def)
+{
+  // TODO: convert this to a filter
+  typedef itk::ImageLinearIteratorWithIndex<VectorImageType> IterBase;
+  typedef IteratorExtender<IterBase> Iter;
+  Iter it(def, def->GetBufferedRegion());
+  it.SetDirection(0);
+
+  for(; !it.IsAtEnd(); it.NextLine())
+    {
+    // Get the pointer to the begin of line
+    VectorType *ptr = const_cast<VectorType *>(it.GetPosition());
+    VectorType *ptr_end = ptr + def->GetBufferedRegion().GetSize(0);
+
+    // Get the initial index
+    typename LinearTransformType::InputPointType pt;
+    for(int k = 0; k < VDim; k++)
+      pt[k] = it.GetIndex()[k];
+
+    for(; ptr < ptr_end; ++ptr, ++pt[0])
+      {
+      // Apply transform to the index. TODO: this is stupid, just use an offset
+      typename LinearTransformType::OutputPointType pp = tran->TransformPoint(pt);
+      for(int k = 0; k < VDim; k++)
+        (*ptr)[k] = pp[k] - pt[k];
+      }
+    }
+}
+
+
+template <class TInputImage, class TOutputImage, class TFunctor>
+class UnaryPositionBasedFunctorImageFilter : public itk::ImageToImageFilter<TInputImage, TOutputImage>
+{
+public:
+
+  typedef UnaryPositionBasedFunctorImageFilter<TInputImage,TOutputImage,TFunctor> Self;
+  typedef itk::ImageToImageFilter<TInputImage, TOutputImage> Superclass;
+  typedef itk::SmartPointer<Self>                           Pointer;
+  typedef itk::SmartPointer<const Self>                     ConstPointer;
+  typedef typename Superclass::OutputImageRegionType         OutputImageRegionType;
+
+  /** Method for creation through the object factory. */
+  itkNewMacro(Self)
+
+  /** Run-time type information (and related methods) */
+  itkTypeMacro( UnaryPositionBasedFunctorImageFilter, itk::ImageToImageFilter )
+
+  /** Determine the image dimension. */
+  itkStaticConstMacro(ImageDimension, unsigned int, TOutputImage::ImageDimension );
+
+  void SetFunctor(const TFunctor &f) { this->m_Functor = f; }
+
+protected:
+  UnaryPositionBasedFunctorImageFilter() {}
+  ~UnaryPositionBasedFunctorImageFilter() {}
+
+  virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
+                                    itk::ThreadIdType threadId)
+  {
+    typedef itk::ImageRegionConstIteratorWithIndex<TInputImage> InputIter;
+    InputIter it_in(this->GetInput(), outputRegionForThread);
+
+    typedef itk::ImageRegionIterator<TOutputImage> OutputIter;
+    OutputIter it_out(this->GetOutput(), outputRegionForThread);
+
+    for(; !it_out.IsAtEnd(); ++it_out, ++it_in)
+      {
+      it_out.Set(m_Functor(it_in.Get(), it_in.GetIndex()));
+      }
+  }
+
+  TFunctor m_Functor;
+};
+
+template <class TWarpImage>
+struct VoxelToPhysicalWarpFunctor
+{
+  typedef itk::ImageBase<TWarpImage::ImageDimension> ImageBaseType;
+  typedef typename TWarpImage::PixelType VectorType;
+  typedef itk::Index<TWarpImage::ImageDimension> IndexType;
+
+  VectorType operator()(const VectorType &v, const IndexType &pos)
+  {
+    // Get the physical point for the tail of the arrow
+    typedef itk::ContinuousIndex<double, TWarpImage::ImageDimension> CIType;
+    typedef typename TWarpImage::PointType PtType;
+
+    CIType ia, ib;
+    PtType pa, pb;
+    for(int i = 0; i < TWarpImage::ImageDimension; i++)
+      {
+      ia[i] = pos[i];
+      ib[i] = pos[i] + v[i];
+      }
+
+    m_Warp->TransformContinuousIndexToPhysicalPoint(ia, pa);
+    m_MovingSpace->TransformContinuousIndexToPhysicalPoint(ib, pb);
+
+    VectorType y;
+    for(int i = 0; i < TWarpImage::ImageDimension; i++)
+      y[i] = pb[i] - pa[i];
+
+    return y;
+  }
+
+
+  TWarpImage *m_Warp;
+  ImageBaseType *m_MovingSpace;
+};
+
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::VoxelWarpToPhysicalWarp(int level, VectorImageType *warp, VectorImageType *result)
+{
+  typedef VoxelToPhysicalWarpFunctor<VectorImageType> Functor;
+  typedef UnaryPositionBasedFunctorImageFilter<VectorImageType,VectorImageType,Functor> Filter;
+  Functor functor;
+  functor.m_Warp = warp;
+  functor.m_MovingSpace = this->GetMovingReferenceSpace(level);
+
+  typename Filter::Pointer filter = Filter::New();
+  filter->SetFunctor(functor);
+  filter->SetInput(warp);
+  filter->GraftOutput(result);
+  filter->Update();
+}
 
 #endif

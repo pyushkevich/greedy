@@ -34,11 +34,13 @@ int usage()
   printf("  -w weight                   : weight of the next -i pair\n");
   printf("  -m metric                   : metric for the registration (SSD or NCC 3x3x3)");
   printf("  -e epsilon                  : step size (default = 1.0)\n");
+  printf("  -tscale MODE                : time step behavior mode: CONST [def], SCALE, SCALEDOWN");
   printf("  -s sigma1 sigma2            : smoothing for the greedy update step (3.0, 1.0)\n");
   printf("  -n NxNxN                    : number of iterations per level of multi-res (100x100) \n");
   printf("  -dump-moving                : dump moving image at each iter\n");
   printf("  -dump-freq N                : dump frequency\n");
   printf("  -threads N                  : set the number of allowed concurrent threads\n");
+  printf("  -ia filename                : initial affine transform (c3d format)");
   return -1;
 }
 
@@ -52,6 +54,7 @@ struct ImagePairSpec
 struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC };
+  enum TimeStepMode { CONST=0, SCALE, SCALEDOWN };
 
   std::vector<ImagePairSpec> inputs;
   std::string output;
@@ -63,11 +66,15 @@ struct GreedyParameters
   double epsilon, sigma_pre, sigma_post;
 
   MetricType metric;
+  TimeStepMode time_step_mode;
 
   // Iterations per level (i.e., 40x40x100)
   std::vector<int> iter_per_level;
 
   std::vector<int> metric_radius;
+
+  // Initial affine transform
+  std::string initial_affine;
 };
 
 
@@ -553,6 +560,32 @@ int GreedyApproach<VDim, TReal>
     if(uLevel.IsNotNull())
       {
       LDDMMType::vimg_resample_identity(uLevel, refspace, uk);
+      LDDMMType::vimg_scale_in_place(uk, 2.0);
+      uLevel = uk;
+      }
+    else if(param.initial_affine.length())
+      {
+      // Read the initial affine transform from a file
+      vnl_matrix<double> Qp(VDim+1, VDim+1);
+      std::ifstream fin(param.initial_affine.c_str());
+      for(size_t i = 0; i < VDim+1; i++)
+        for(size_t j = 0; j < VDim+1; j++)
+          if(fin.good())
+            {
+            fin >> Qp[i][j];
+            }
+      fin.close();
+
+      // Convert the transform to voxel units
+      typename OFHelperType::LinearTransformType::Pointer tran = OFHelperType::LinearTransformType::New();
+      MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tran);
+
+      // Create an initial warp
+      OFHelperType::AffineToField(tran, uk);
+      uLevel = uk;
+
+      itk::Index<VDim> test; test.Fill(24);
+      std::cout << "Index 24x24x24 maps to " << uk->GetPixel(test) << std::endl;
       }
 
     // Iterate for this level
@@ -634,7 +667,11 @@ int GreedyApproach<VDim, TReal>
 
       // After smoothing, compute the maximum vector norm and use it as a normalizing
       // factor for the displacement field
-      // LDDMMType::vimg_normalize_to_fixed_max_length(uk1, iTemp, param.epsilon);
+      if(param.time_step_mode == GreedyParameters::SCALE)
+        LDDMMType::vimg_normalize_to_fixed_max_length(viTemp, iTemp, param.epsilon, false);
+      else if (param.time_step_mode == GreedyParameters::SCALEDOWN)
+        LDDMMType::vimg_normalize_to_fixed_max_length(viTemp, iTemp, param.epsilon, true);
+
 
       // Dump the smoothed gradient image if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
@@ -688,7 +725,7 @@ int GreedyApproach<VDim, TReal>
   // Write the resulting transformation field
   VectorImagePointer uPhys = VectorImageType::New();
   LDDMMType::alloc_vimg(uPhys, uLevel);
-  LDDMMType::warp_voxel_to_physical(uLevel, uPhys);
+  of_helper.VoxelWarpToPhysicalWarp(nlevels - 1, uLevel, uPhys);
   LDDMMType::vimg_write(uPhys, param.output.c_str());
 
   return 0;
@@ -711,6 +748,7 @@ int main(int argc, char *argv[])
   param.sigma_post = 1.0;
   param.threads = 0;
   param.metric = GreedyParameters::SSD;
+  param.time_step_mode = GreedyParameters::CONST;
 
   param.iter_per_level.push_back(100);
   param.iter_per_level.push_back(100);
@@ -754,6 +792,14 @@ int main(int argc, char *argv[])
           param.metric_radius.push_back(atoi(s.c_str()));
         }
       }
+    else if(arg == "-tscale")
+      {
+      std::string mode = argv[++i];
+      if(mode == "SCALE" || mode == "scale")
+        param.time_step_mode = GreedyParameters::SCALE;
+      else if(mode == "SCALEDOWN" || mode == "scaledown")
+        param.time_step_mode = GreedyParameters::SCALEDOWN;
+      }
     else if(arg == "-s")
       {
       param.sigma_pre = atof(argv[++i]);
@@ -766,6 +812,10 @@ int main(int argc, char *argv[])
       ip.fixed = argv[++i];
       ip.moving = argv[++i];
       param.inputs.push_back(ip);
+      }
+    else if(arg == "-ia")
+      {
+      param.initial_affine = argv[++i];
       }
     else if(arg == "-o")
       {

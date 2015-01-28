@@ -21,6 +21,8 @@
 #include "itkVectorImage.h"
 #include "itkMatrixOffsetTransformBase.h"
 
+
+
 /**
  * This class is used to perform mean square intensity difference type
  * registration with multiple images. The filter is designed for speed
@@ -71,6 +73,9 @@ public:
   double ComputeAffineMatchAndGradient(int level, LinearTransformType *tran,
                                        LinearTransformType *grad = NULL);
 
+  static void AffineToField(LinearTransformType *tran, VectorImageType *def);
+
+  void VoxelWarpToPhysicalWarp(int level, VectorImageType *warp, VectorImageType *result);
 
 protected:
 

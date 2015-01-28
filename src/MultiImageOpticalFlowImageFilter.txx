@@ -415,7 +415,8 @@ MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage>
     {
     // Get the pointer to the start of the current line
     long offset_in_pixels = it_input.GetPosition() - image->GetBufferPointer();
-    const InputComponentType *ptr = image->GetBufferPointer() + offset_in_pixels * nc;
+    const InputComponentType *line_begin = image->GetBufferPointer() + offset_in_pixels * nc,
+        *ptr = line_begin;
     const InputComponentType *line_end = ptr + outputRegionForThread.GetSize(0) * nc;
 
     // Get the offset into the metric and gradient images
@@ -435,10 +436,13 @@ MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage>
 
       // Loop over components
       int i_wgt = 0;
-      const InputComponentType eps = 1e-4;
+      const InputComponentType eps = 1e-8;
       while(ptr < ptr_end)
         {
         // Compute sigma_I, sigma_J, sigma_IJ
+        /*
+         * COMPUTATION WITH EPSILON IN DENOM
+         *
         InputComponentType x_fix = *ptr++;
         InputComponentType x_mov = *ptr++;
         InputComponentType x_fix_sq = *ptr++;
@@ -480,6 +484,79 @@ MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage>
 
         // *ptr_metric = ncc_fix_mov;
         *ptr_metric += m_Weights[i_wgt] * ncc_fix_mov;
+        // *ptr_metric = x_mov; // cov_fix_mov;
+
+        ++i_wgt;
+        */
+
+        /*
+         * Computation with < epsilon check
+         */
+        itk::Index<ImageDimension> idx = it_input.GetIndex();
+        idx[0] += (ptr - line_begin) / nc;
+
+        /*
+        if(idx[0] == 87 && idx[1] == 76 && idx[2] == 39)
+          std::cout << "Test voxel 1" << std::endl;
+
+        if(idx[0] == 86 && idx[1] == 39 && idx[2] == 39)
+          std::cout << "Test voxel 2" << std::endl;
+*/
+
+        InputComponentType x_fix = *ptr++;
+        InputComponentType x_mov = *ptr++;
+        InputComponentType x_fix_sq = *ptr++;
+        InputComponentType x_mov_sq = *ptr++;
+        InputComponentType x_fix_mov = *ptr++;
+
+        InputComponentType x_fix_over_n = x_fix * one_over_n;
+        InputComponentType x_mov_over_n = x_mov * one_over_n;
+
+        InputComponentType var_fix = x_fix_sq - x_fix * x_fix_over_n;
+        InputComponentType var_mov = x_mov_sq - x_mov * x_mov_over_n;
+
+
+        if(var_fix < eps || var_mov < eps)
+          {
+          ptr += 3 * ImageDimension;
+          continue;
+          }
+
+        InputComponentType cov_fix_mov = x_fix_mov - x_fix * x_mov_over_n;
+
+        InputComponentType one_over_denom = 1.0 / (var_fix * var_mov);
+        InputComponentType cov_fix_mov_over_denom = cov_fix_mov * one_over_denom;
+        InputComponentType ncc_fix_mov = cov_fix_mov * cov_fix_mov_over_denom;
+
+        float w = m_Weights[i_wgt];
+        if(cov_fix_mov < 0)
+          w = -w;
+
+        for(int i = 0; i < ImageDimension; i++)
+          {
+          InputComponentType x_grad_mov_i = *ptr++;
+          InputComponentType x_fix_grad_mov_i = *ptr++;
+          InputComponentType x_mov_grad_mov_i = *ptr++;
+
+          // Derivative of cov_fix_mov
+          InputComponentType grad_cov_fix_mov_i = x_fix_grad_mov_i - x_fix_over_n * x_grad_mov_i;
+
+          // One half derivative of var_mov
+          InputComponentType half_grad_var_mov_i = x_mov_grad_mov_i - x_mov_over_n * x_grad_mov_i;
+
+          InputComponentType grad_ncc_fix_mov_i =
+              2 * cov_fix_mov_over_denom * (grad_cov_fix_mov_i - var_fix * half_grad_var_mov_i * cov_fix_mov_over_denom);
+
+          (*ptr_gradient)[i] += w * grad_ncc_fix_mov_i;
+          // (*ptr_gradient)[i] = grad_ncc_fix_mov_i;
+
+
+          // (*ptr_gradient)[i] = x_grad_mov_i; // grad_cov_fix_mov_i;
+          }
+
+        // *ptr_metric = ncc_fix_mov;
+
+        *ptr_metric += w * ncc_fix_mov;
         // *ptr_metric = x_mov; // cov_fix_mov;
 
         ++i_wgt;
