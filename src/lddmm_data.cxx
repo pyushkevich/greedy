@@ -145,7 +145,10 @@ LDDMMData<TFloat, VDim>
   // Set inputs
   flt->SetInput(data);
   if(use_nn)
+    {
+
     flt->SetInterpolator(funcNN);
+    }
   else
     flt->SetInterpolator(func);
   flt->SetDeformationField(field);
@@ -566,8 +569,12 @@ LDDMMData<TFloat, VDim>
   typename Filter::Pointer fltSmooth = Filter::New();
   fltSmooth->SetInput(src);
   fltSmooth->SetSigma(sigma);
-  fltSmooth->GraftOutput(trg);
+  // fltSmooth->GraftOutput(trg);
   fltSmooth->Update();
+
+  // TODO: this is a work-around for a stupid bug with this recursive filter. When the data
+  // type is float, the filter does not allow me to graft an output
+  LDDMMData<TFloat, VDim>::vimg_copy(fltSmooth->GetOutput(), trg);
 }
 
 template <class TFloat, unsigned int VDim>
@@ -690,6 +697,19 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::vimg_copy(const LDDMMData::VectorImageType *src, LDDMMData::VectorImageType *trg)
+{
+  typedef itk::CastImageFilter<VectorImageType, VectorImageType> CastFilter;
+  typename CastFilter::Pointer fltCast = CastFilter::New();
+  fltCast->SetInput(src);
+  fltCast->InPlaceOff();
+  fltCast->GraftOutput(trg);
+  fltCast->Update();
+}
+
+template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
 ::img_shrink(ImageType *src, ImageType *trg, int factor)
@@ -707,7 +727,7 @@ void
 LDDMMData<TFloat, VDim>
 ::img_resample_identity(ImageType *src, ImageBaseType *ref, ImageType *trg)
 {
-  typedef itk::ResampleImageFilter<ImageType, ImageType> ResampleFilter;
+  typedef itk::ResampleImageFilter<ImageType, ImageType, TFloat> ResampleFilter;
   typedef itk::IdentityTransform<TFloat, VDim> TranType;
   typedef itk::LinearInterpolateImageFunction<ImageType, TFloat> InterpType;
 
@@ -737,7 +757,7 @@ LDDMMData<TFloat, VDim>
   fltSmooth->SetSigmaArray(0.5 * factor * src->GetSpacing());
 
   // Now resample the image to occupy the same physical space
-  typedef itk::ResampleImageFilter<ImageType, ImageType> ResampleFilter;
+  typedef itk::ResampleImageFilter<ImageType, ImageType, TFloat> ResampleFilter;
   typedef itk::IdentityTransform<TFloat, VDim> TranType;
   typedef itk::LinearInterpolateImageFunction<ImageType, TFloat> InterpType;
 
@@ -790,7 +810,7 @@ void
 LDDMMData<TFloat, VDim>
 ::vimg_resample_identity(VectorImageType *src, ImageBaseType *ref, VectorImageType *trg)
 {
-  typedef itk::VectorResampleImageFilter<VectorImageType, VectorImageType> ResampleFilter;
+  typedef itk::VectorResampleImageFilter<VectorImageType, VectorImageType, TFloat> ResampleFilter;
   typedef itk::IdentityTransform<TFloat, VDim> TranType;
   typedef itk::OptVectorLinearInterpolateImageFunction<VectorImageType, TFloat> InterpType;
 
@@ -1102,9 +1122,11 @@ LDDMMImageMatchingObjective<TFloat, VDim>
 }
 
 
-/*
 template class LDDMMData<float, 2>;
 template class LDDMMData<float, 3>;
+template class LDDMMData<float, 4>;
+
+/*
 template class LDDMMFFTInterface<float, 2>;
 template class LDDMMFFTInterface<float, 3>;
 */

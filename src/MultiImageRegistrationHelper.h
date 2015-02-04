@@ -54,7 +54,7 @@ public:
   void AddImagePair(MultiComponentImageType *fixed, MultiComponentImageType *moving, double weight);
 
   /** Compute the composite image - must be run before any sampling is done */
-  void BuildCompositeImages();
+  void BuildCompositeImages(bool add_noise);
 
   /** Get the reference image for level k */
   ImageBaseType *GetReferenceSpace(int level);

@@ -107,11 +107,12 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 }
 
+#include <vnl/vnl_random.h>
 
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::BuildCompositeImages()
+::BuildCompositeImages(bool add_noise)
 {
   typedef LDDMMData<TFloat, VDim> LDDMMType;
 
@@ -159,6 +160,18 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
           LDDMMType::img_downsample(fltExtractFixed->GetOutput(), lFixed, m_PyramidFactors[i]);
           LDDMMType::img_downsample(fltExtractMoving->GetOutput(), lMoving, m_PyramidFactors[i]);
           }
+
+        // Add some noise to the images
+        if(add_noise)
+          {
+          // TODO: remove this or make it optional
+          vnl_random randy;
+          for(long i = 0; i < lFixed->GetPixelContainer()->Size(); i++)
+            lFixed->GetBufferPointer()[i] += randy.normal();
+          for(long i = 0; i < lMoving->GetPixelContainer()->Size(); i++)
+            lMoving->GetBufferPointer()[i] += randy.normal();
+          }
+
 
         // Compute the gradient of the moving image
         //typename VectorImageType::Pointer gradMoving = VectorImageType::New();
@@ -236,6 +249,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   return filter->GetMetricValue();
 }
 
+#undef DUMP_NCC
+// #define DUMP_NCC 1
+
 template <class TFloat, unsigned int VDim>
 double
 MultiImageOpticalFlowHelper<TFloat, VDim>
@@ -273,17 +289,21 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->GraftOutput(m_NCCWorkingImage);
   filter->Update();
 
-  /*
+#ifdef DUMP_NCC
   typename itk::ImageFileWriter<MultiComponentImageType>::Pointer pwriter = itk::ImageFileWriter<MultiComponentImageType>::New();
   pwriter->SetInput(m_NCCWorkingImage);
   pwriter->SetFileName("nccpre.nii.gz");
   pwriter->Update();
-  */
+#endif
 
   // Currently, we have all the stuff we need to compute the metric in the working
   // image. Next, we run the fast sum computation to give us the local average of
   // intensities, products, gradients in the working image
   typedef OneDimensionalInPlaceAccumulateFilter<MultiComponentImageType> AccumFilterType;
+
+  // TRASH ME
+  itk::Index<VDim> testIndex;
+  testIndex[0] = 66; testIndex[1] = 49; testIndex[2] = 26;
 
   // Create a chain of separable 1-D filters
   typename itk::ImageSource<MultiComponentImageType>::Pointer pipeTail;
@@ -297,9 +317,15 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     accum->SetDimension(dir);
     accum->SetRadius(radius[dir]);
     pipeTail = accum;
+
     accum->Update();
     }
 
+#ifdef DUMP_NCC
+  pwriter->SetInput(pipeTail->GetOutput());
+  pwriter->SetFileName("nccaccum.nii.gz");
+  pwriter->Update();
+#endif
 
   // Now pipetail has the mean filtering of the different components in m_NCCWorkingImage.
   // Last piece is to perform a calculation that will convert all this information into a
@@ -322,8 +348,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   postFilter->Update();
 
+#ifdef DUMP_NCC
   // TODO: trash this code!!!!
-  /*
   // Get and save the metric image
   typename itk::ImageFileWriter<FloatImageType>::Pointer writer = itk::ImageFileWriter<FloatImageType>::New();
   writer->SetInput(postFilter->GetMetricImage());
@@ -334,7 +360,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   qwriter->SetInput(result);
   qwriter->SetFileName("nccgrad.mha");
   qwriter->Update();
-  */
+#endif
 
   // Get the metric
   return postFilter->GetMetricValue();

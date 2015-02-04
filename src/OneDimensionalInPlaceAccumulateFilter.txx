@@ -59,6 +59,8 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
 
   // Allocate an array of the length of the line in components
   OutputImageComponentType *line = new OutputImageComponentType[line_length_comp];
+  // double *line = new double[line_length_comp];
+  // double *sum = new double[nc], *sum_end = sum + nc, *p_sum;
 
   // Allocate an array to hold the current running sum
   OutputImageComponentType *sum = new OutputImageComponentType[nc], *sum_end = sum + nc, *p_sum;
@@ -74,6 +76,7 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
 
     // Pointer to the current position in the line
     OutputImageComponentType *p_line = line, *p_tail = line;
+    // double *p_line = line, *p_tail = line;
 
     // Pointer to the beginning of the scan line
     long offset_in_pixels = itLine.GetPosition() - image->GetBufferPointer();

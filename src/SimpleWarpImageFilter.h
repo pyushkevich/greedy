@@ -158,7 +158,10 @@ public:
   virtual void AfterThreadedGenerateData();
 
   typedef itk::ImageFunction<
-    TInputImage, typename TOutputImage::PixelType, TFloat> InterpolatorType;
+    TInputImage,
+    typename itk::NumericTraits< typename TInputImage::PixelType >::RealType,
+    TFloat> InterpolatorType;
+
   itkSetObjectMacro(Interpolator, InterpolatorType);
   itkGetObjectMacro(Interpolator, InterpolatorType);
 

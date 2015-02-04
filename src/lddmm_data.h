@@ -131,6 +131,8 @@ public:
 
   static void vfield_read(uint nt, const char *fnpat, VelocityField &v);
 
+  static void vimg_copy(const VectorImageType *src, VectorImageType *trg);
+
   // Compute a array from v
   void compute_semi_lagrangean_a();
 

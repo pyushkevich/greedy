@@ -397,7 +397,7 @@ int GreedyApproach<VDim, TReal>
   ReadImages(param, of_helper);
 
   // Generate the optimized composite images
-  of_helper.BuildCompositeImages();
+  of_helper.BuildCompositeImages(param.metric == GreedyParameters::NCC);
 
   // Matrix describing current transform in physical space
   vnl_matrix<double> Q_physical;
@@ -537,7 +537,7 @@ int GreedyApproach<VDim, TReal>
   ReadImages(param, of_helper);
 
   // Generate the optimized composite images
-  of_helper.BuildCompositeImages();
+  of_helper.BuildCompositeImages(param.metric == GreedyParameters::NCC);
 
   // An image pointer desribing the current estimate of the deformation
   VectorImagePointer uLevel = NULL;
@@ -691,6 +691,7 @@ int GreedyApproach<VDim, TReal>
         char fname[256];
         sprintf(fname, "dump_optflow_lev%02d_iter%04d.nii.gz", level, iter);
         LDDMMType::vimg_write(viTemp, fname);
+        // LDDMMType::vimg_write(uk1, fname);
         }
 
       // Compute the updated deformation field - in uk1
@@ -884,9 +885,9 @@ int main(int argc, char *argv[])
     {
     switch(param.dim)
       {
-      case 2: return GreedyApproach<2>::Run(param); break;
-      case 3: return GreedyApproach<3>::Run(param); break;
-      case 4: return GreedyApproach<4>::Run(param); break;
+      case 2: return GreedyApproach<2, float>::Run(param); break;
+      case 3: return GreedyApproach<3, double>::Run(param); break;
+      case 4: return GreedyApproach<4, float>::Run(param); break;
       default:
             std::cerr << "Wrong dimensionality" << std::endl;
             return -1;
