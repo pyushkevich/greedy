@@ -63,7 +63,7 @@ public:
   ImageBaseType *GetMovingReferenceSpace(int level);
 
   /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
-  double ComputeOpticalFlowField(int level, VectorImageType *def, VectorImageType *result,
+  vnl_vector<double> ComputeOpticalFlowField(int level, VectorImageType *def, VectorImageType *result,
                                  double result_scaling = 1.0);
 
   /** Compute normalized cross-correlation metric and gradient */

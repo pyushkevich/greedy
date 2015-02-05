@@ -210,6 +210,9 @@ public:
   /** Summary results after running the filter */
   itkGetConstMacro(MetricValue, double)
 
+  /** Get the metric values per component (each component weighted) */
+  vnl_vector<double> GetAllMetricValues() const;
+
 protected:
   MultiImageOpticalFlowImageFilter() {}
   ~MultiImageOpticalFlowImageFilter() {}
@@ -232,9 +235,16 @@ private:
   MultiImageOpticalFlowImageFilter(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
 
+  // Structure describing the summary metric statistics
+  struct MetricStats {
+    vnl_vector<double> metric_values;
+    double num_voxels;
+  };
+
   // Vector of accumulated data (difference, gradient of affine transform, etc)
   double                          m_MetricValue;
-  std::vector<double>             m_MetricPerThread;
+  std::vector<MetricStats>        m_MetricStatsPerThread;
+  MetricStats                     m_MetricStats;
 };
 
 

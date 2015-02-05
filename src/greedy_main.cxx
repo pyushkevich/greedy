@@ -609,7 +609,16 @@ int GreedyApproach<VDim, TReal>
 
       if(param.metric == GreedyParameters::SSD)
         {
-        total_energy = of_helper.ComputeOpticalFlowField(level, uk, uk1, param.epsilon);
+        vnl_vector<double> all_metrics = of_helper.ComputeOpticalFlowField(level, uk, uk1, param.epsilon);
+
+        printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
+        total_energy = 0.0;
+        for(int i = 0;  i < all_metrics.size(); i++)
+          {
+          printf("  %8.6f", all_metrics[i]);
+          total_energy += all_metrics[i];
+          }
+        printf("]  Tot: %8.6f\n", total_energy);
         }
 
       else
@@ -664,6 +673,7 @@ int GreedyApproach<VDim, TReal>
           } */
 
         total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, param.epsilon);
+        printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
         }
 
       // Dump the gradient image if requested
@@ -718,7 +728,7 @@ int GreedyApproach<VDim, TReal>
 
       // Report the energy
       // printf("Iter %5d:    Energy = %8.4f     DetJac Range: %8.4f  to %8.4f \n", iter, total_energy, jac_min, jac_max);
-      printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
+      // printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
       }
 
     // Store the end result

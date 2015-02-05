@@ -223,7 +223,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 }
 
 template <class TFloat, unsigned int VDim>
-double
+vnl_vector<double>
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeOpticalFlowField(int level, VectorImageType *def, VectorImageType *result, double result_scaling)
 {
@@ -245,8 +245,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->GraftOutput(result);
   filter->Update();
 
-  // Get the total energy
-  return filter->GetMetricValue();
+  // Get the vector of the normalized metrics
+  return filter->GetAllMetricValues();
 }
 
 #undef DUMP_NCC

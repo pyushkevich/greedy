@@ -87,8 +87,19 @@ void
 MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 ::BeforeThreadedGenerateData()
 {
+  const InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
+
   // Create the prototype results vector
-  m_MetricPerThread.resize(this->GetNumberOfThreads(), 0.0);
+  m_MetricStatsPerThread.clear();
+  for(int i = 0; i < this->GetNumberOfThreads(); i++)
+    {
+    MetricStats ms;
+    ms.metric_values.set_size(fixed->GetNumberOfComponentsPerPixel());
+    ms.metric_values.fill(0.0);
+    ms.num_voxels = 0;
+    m_MetricStatsPerThread.push_back(ms);
+    }
+
 }
 
 /**
@@ -99,11 +110,37 @@ void
 MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 ::AfterThreadedGenerateData()
 {
+  const InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
+
+  // Allocate the final result vector
+  m_MetricStats.metric_values.set_size(fixed->GetNumberOfComponentsPerPixel());
+  m_MetricStats.metric_values.fill(0.0);
+  m_MetricStats.num_voxels = 0.0;
+
+  for(int i = 0; i < m_MetricStatsPerThread.size(); i++)
+    {
+    m_MetricStats.metric_values += m_MetricStatsPerThread[i].metric_values;
+    m_MetricStats.num_voxels += m_MetricStatsPerThread[i].num_voxels;
+    }
+
+  // Compute overall metric value
   m_MetricValue = 0.0;
-  for(int i = 0; i < m_MetricPerThread.size(); i++)
-    m_MetricValue += m_MetricPerThread[i];
+  for(int j = 0; j < fixed->GetNumberOfComponentsPerPixel(); j++)
+    m_MetricValue += m_MetricStats.metric_values[j];
+
+  // Metric value normalized by the number of voxels - to make comparisons simpler
+  m_MetricValue /= m_MetricStats.num_voxels;
 }
 
+template <class TInputImage, class TOutputImage, class TDeformationField>
+vnl_vector<double>
+MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
+::GetAllMetricValues() const
+{
+  vnl_vector<double> result;
+  result = m_MetricStats.metric_values / m_MetricStats.num_voxels;
+  return result;
+}
 
 /**
  * Compute the output for the region specified by outputRegionForThread.
@@ -146,7 +183,8 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
   vnl_vector<InputComponentType> interp_mov_grad(kFixed * ImageDimension);
 
   // Our component of the metric computation
-  double &metric = m_MetricPerThread[threadId];
+  MetricStats &metric_stats = m_MetricStatsPerThread[threadId];
+  double *metric_accum_ptr = metric_stats.metric_values.data_block();
 
   // Create an interpolator for the moving image
   typedef FastLinearInterpolator<InputComponentType, ImageDimension> FastInterpolator;
@@ -193,10 +231,10 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
     const InputComponentType *mov_grad_ptr = interp_mov_grad.data_block();
     const InputComponentType *fix_ptr = bFix + offset * kFixed;
     float *wgt_ptr = this->m_Weights.data_block();
-    double w_sq_diff = 0.0;
+    double *met_ptr = metric_accum_ptr;
 
     // Compute the gradient of the term contribution for this voxel
-    for( ;mov_ptr < mov_ptr_end; ++mov_ptr, ++fix_ptr, ++wgt_ptr)
+    for( ;mov_ptr < mov_ptr_end; ++mov_ptr, ++fix_ptr, ++wgt_ptr, ++met_ptr)
       {
       // Intensity difference for k-th component
       double del = (*fix_ptr) - *(mov_ptr);
@@ -205,14 +243,14 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
       double delw = (*wgt_ptr) * del;
 
       // Accumulate the weighted sum of squared differences
-      w_sq_diff += delw * del;
+      *met_ptr += delw * del;
 
       // Accumulate the weighted gradient term
       for(int i = 0; i < ImageDimension; i++)
         vOut[i] += delw * *(mov_grad_ptr++);
       }
 
-    metric += w_sq_diff;
+    metric_stats.num_voxels++;
     }
 }
 
