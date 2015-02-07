@@ -40,7 +40,8 @@ int usage()
   printf("  -dump-moving                : dump moving image at each iter\n");
   printf("  -dump-freq N                : dump frequency\n");
   printf("  -threads N                  : set the number of allowed concurrent threads\n");
-  printf("  -ia filename                : initial affine transform (c3d format)");
+  printf("  -ia filename                : initial affine transform (c3d format)\n");
+  printf("  -gm mask.nii                : mask for gradient computation\n");
   return -1;
 }
 
@@ -75,6 +76,9 @@ struct GreedyParameters
 
   // Initial affine transform
   std::string initial_affine;
+
+  // Mask for gradient
+  std::string gradient_mask;
 };
 
 
@@ -308,6 +312,18 @@ void GreedyApproach<VDim, TReal>
 
     // Add to the helper object
     ofhelper.AddImagePair(readfix->GetOutput(), readmov->GetOutput(), param.inputs[i].weight);
+    }
+
+  // Read the masks
+  if(param.gradient_mask.size())
+    {
+    // Read gradient mask
+    typedef itk::ImageFileReader<typename OFHelperType::FloatImageType> ReaderType;
+    typename ReaderType::Pointer readmask = ReaderType::New();
+    readmask->SetFileName(param.gradient_mask);
+    readmask->Update();
+
+    ofhelper.SetGradientMask(readmask->GetOutput());
     }
 }
 
@@ -627,10 +643,10 @@ int GreedyApproach<VDim, TReal>
         for(int k = 0; k < VDim; k++)
           radius[k] = param.metric_radius[k];
 
-        // Test derivative
-//        total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, param.epsilon);
-
         /*
+        // Test derivative
+        // total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, param.epsilon);
+
         if(iter == 0)
           {
           // Perform a derivative check!
@@ -675,6 +691,10 @@ int GreedyApproach<VDim, TReal>
         total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, param.epsilon);
         printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
         }
+
+      // If there is a mask, multiply the gradient by the mask
+      if(param.gradient_mask.size())
+        LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask());
 
       // Dump the gradient image if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
@@ -839,6 +859,10 @@ int main(int argc, char *argv[])
     else if(arg == "-ia")
       {
       param.initial_affine = argv[++i];
+      }
+    else if(arg == "-gm")
+      {
+      param.gradient_mask = argv[++i];
       }
     else if(arg == "-o")
       {

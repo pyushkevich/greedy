@@ -53,6 +53,10 @@ public:
   /** Add a pair of multi-component images to the class - same weight for each component */
   void AddImagePair(MultiComponentImageType *fixed, MultiComponentImageType *moving, double weight);
 
+  /** Set the gradient image mask */
+  void SetGradientMask(FloatImageType *maskImage) { m_GradientMaskImage = maskImage; }
+  FloatImageType *GetGradientMask() { return m_GradientMaskImage; }
+
   /** Compute the composite image - must be run before any sampling is done */
   void BuildCompositeImages(bool add_noise);
 
@@ -96,6 +100,9 @@ protected:
 
   // Working memory image for NCC computation
   typename MultiComponentImageType::Pointer m_NCCWorkingImage;
+
+  // Gradient mask image - used to multiply the gradient
+  typename FloatImageType::Pointer m_GradientMaskImage;
 
   void PlaceIntoComposite(FloatImageType *src, MultiComponentImageType *target, int offset);
   void PlaceIntoComposite(VectorImageType *src, MultiComponentImageType *target, int offset);
