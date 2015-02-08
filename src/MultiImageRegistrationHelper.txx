@@ -204,6 +204,26 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       off_moving++;
       }
     }
+
+  // Set up the mask pyramid
+  m_GradientMaskComposite.resize(m_PyramidFactors.size(), NULL);
+  if(m_GradientMaskImage)
+    {
+    for(int i = 0; i < m_PyramidFactors.size(); i++)
+      {
+      // Downsample the image to the right pyramid level
+      if (m_PyramidFactors[i] == 1)
+        {
+        m_GradientMaskComposite[i] = m_GradientMaskImage;
+        }
+      else
+        {
+        m_GradientMaskComposite[i] = FloatImageType::New();
+        LDDMMType::img_downsample(m_GradientMaskImage, m_GradientMaskComposite[i], m_PyramidFactors[i]);
+        }
+      }
+    }
+
 }
 
 template <class TFloat, unsigned int VDim>
@@ -333,7 +353,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   // image filter to compute this, but a slightly more efficient implementation might be
   // possible that accumulates the metric on the fly ...
   typedef MultiImageNCCPostcomputeFilter<
-      MultiComponentImageType, FloatImageType, VectorImageType> PostFilterType;
+      MultiComponentImageType, FloatImageType, VectorImageType, FloatImageType> PostFilterType;
 
   typename PostFilterType::Pointer postFilter = PostFilterType::New();
   postFilter->SetInput(pipeTail->GetOutput());
@@ -345,6 +365,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     wscaled[i] = m_Weights[i] * result_scaling;
 
   postFilter->SetWeights(wscaled);
+
+  // Set the mask on the post filter
+  if(m_GradientMaskComposite[level])
+    postFilter->SetMaskImage(m_GradientMaskComposite[level]);
 
   postFilter->Update();
 

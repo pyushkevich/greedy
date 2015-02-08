@@ -331,7 +331,7 @@ private:
 
 
 
-template <class TInputImage, class TMetricImage, class TGradientImage>
+template <class TInputImage, class TMetricImage, class TGradientImage, class TMaskImage>
 class MultiImageNCCPostcomputeFilter : public itk::ImageToImageFilter<TInputImage, TGradientImage>
 {
 public:
@@ -362,6 +362,8 @@ public:
   typedef typename MetricImageType::PixelType         MetricPixelType;
   typedef TGradientImage                              GradientImageType;
   typedef typename GradientImageType::PixelType       GradientPixelType;
+  typedef TMaskImage                                  MaskImageType;
+  typedef typename MaskImageType::PixelType           MaskPixelType;
   typedef typename InputImageType::IndexType          IndexType;
   typedef typename InputImageType::SizeType           SizeType;
 
@@ -371,6 +373,10 @@ public:
   /** Set the weight vector */
   itkSetMacro(Weights, WeightVectorType)
   itkGetConstMacro(Weights, WeightVectorType)
+
+  /** Set the mask image */
+  void SetMaskImage(MaskImageType *mask)
+    { this->itk::ProcessObject::SetInput("mask", mask); }
 
   /** Get the metric image */
   itkGetObjectMacro(MetricImage, MetricImageType)

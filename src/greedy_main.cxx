@@ -694,7 +694,7 @@ int GreedyApproach<VDim, TReal>
 
       // If there is a mask, multiply the gradient by the mask
       if(param.gradient_mask.size())
-        LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask());
+        LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask(level));
 
       // Dump the gradient image if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)

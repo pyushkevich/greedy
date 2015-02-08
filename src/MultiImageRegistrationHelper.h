@@ -55,7 +55,6 @@ public:
 
   /** Set the gradient image mask */
   void SetGradientMask(FloatImageType *maskImage) { m_GradientMaskImage = maskImage; }
-  FloatImageType *GetGradientMask() { return m_GradientMaskImage; }
 
   /** Compute the composite image - must be run before any sampling is done */
   void BuildCompositeImages(bool add_noise);
@@ -65,6 +64,9 @@ public:
 
   /** Get the reference image for level k */
   ImageBaseType *GetMovingReferenceSpace(int level);
+
+  /** Get the gradient mask at a pyramid level */
+  FloatImageType *GetGradientMask(int level) { return m_GradientMaskComposite[level]; }
 
   /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
   vnl_vector<double> ComputeOpticalFlowField(int level, VectorImageType *def, VectorImageType *result,
@@ -91,6 +93,7 @@ protected:
 
   // Vector of images
   typedef std::vector<typename MultiComponentImageType::Pointer> MultiCompImageSet;
+  typedef std::vector<typename FloatImageType::Pointer> FloatImageSet;
 
   // Fixed and moving images
   MultiCompImageSet m_Fixed, m_Moving;
@@ -103,6 +106,9 @@ protected:
 
   // Gradient mask image - used to multiply the gradient
   typename FloatImageType::Pointer m_GradientMaskImage;
+
+  // Gradient mask composite
+  FloatImageSet m_GradientMaskComposite;
 
   void PlaceIntoComposite(FloatImageType *src, MultiComponentImageType *target, int offset);
   void PlaceIntoComposite(VectorImageType *src, MultiComponentImageType *target, int offset);
