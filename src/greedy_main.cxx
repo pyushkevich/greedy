@@ -18,7 +18,19 @@
 #include <vnl/vnl_cost_function.h>
 #include <vnl/vnl_random.h>
 
+// Little helper functions
+template <unsigned int VDim> class array_caster
+{
+public:
+  template <class T> static itk::Size<VDim> to_itkSize(const T &t)
+  {
+    itk::Size<VDim> sz;
+    for(int i = 0; i < VDim; i++)
+      sz[i] = t[i];
+    return sz;
+  }
 
+};
 
 int usage()
 {
@@ -31,6 +43,7 @@ int usage()
   printf("  -o output.nii               : Output file\n");
   printf("Optional: \n");
   printf("  -a                          : Perform affine registration and save to output (-o)\n");
+  printf("  -brute radius               : Perform a brute force search around each voxel \n");
   printf("  -w weight                   : weight of the next -i pair\n");
   printf("  -m metric                   : metric for the registration (SSD or NCC 3x3x3)");
   printf("  -e epsilon                  : step size (default = 1.0)\n");
@@ -56,12 +69,17 @@ struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC };
   enum TimeStepMode { CONST=0, SCALE, SCALEDOWN };
+  enum Mode { GREEDY=0, AFFINE, BRUTE };
+
+
 
   std::vector<ImagePairSpec> inputs;
   std::string output;
   unsigned int dim; 
 
-  bool flag_optimize_affine;
+  // Registration mode
+  Mode mode;
+
   bool flag_dump_moving;
   int dump_frequency, threads;
   double epsilon, sigma_pre, sigma_post;
@@ -73,6 +91,8 @@ struct GreedyParameters
   std::vector<int> iter_per_level;
 
   std::vector<int> metric_radius;
+
+  std::vector<int> brute_search_radius;
 
   // Initial affine transform
   std::string initial_affine;
@@ -133,6 +153,10 @@ public:
   static int Run(GreedyParameters &param);
 
   static int RunAffine(GreedyParameters &param);
+
+  static int RunBrute(GreedyParameters &param);
+
+
 
 protected:
 
@@ -639,9 +663,7 @@ int GreedyApproach<VDim, TReal>
 
       else
         {
-        itk::Size<VDim> radius;
-        for(int k = 0; k < VDim; k++)
-          radius[k] = param.metric_radius[k];
+        itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
 
         /*
         // Test derivative
@@ -688,7 +710,7 @@ int GreedyApproach<VDim, TReal>
             }
           } */
 
-        total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, param.epsilon);
+        total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, param.epsilon);
         printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
         }
 
@@ -774,8 +796,118 @@ int GreedyApproach<VDim, TReal>
   return 0;
 }
 
+/**
+ * This function performs brute force search for similar patches. It generates a discrete displacement
+ * field where every pixel in the fixed image is matched to the most similar pixel in the moving image
+ * within a certain radius
+ */
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::RunBrute(GreedyParameters &param)
+{
+  // Check for valid parameters
+  if(param.metric != GreedyParameters::NCC)
+    {
+    std::cerr << "Brute force search requires NCC metric only" << std::endl;
+    return -1;
+    }
+
+  if(param.brute_search_radius.size() != VDim)
+    {
+    std::cerr << "Brute force search radius must be same dimension as the images" << std::endl;
+    return -1;
+    }
+
+  // Create an optical flow helper object
+  OFHelperType of_helper;
+
+  // No multi-resolution
+  of_helper.SetDefaultPyramidFactors(1);
+
+  // Read the image pairs to register
+  ReadImages(param, of_helper);
+
+  // Generate the optimized composite images
+  of_helper.BuildCompositeImages(true);
+
+  // Reference space
+  ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
+
+  // Intermediate images
+  VectorImagePointer u_best = VectorImageType::New();
+  VectorImagePointer u_curr = VectorImageType::New();
+  ImagePointer m_curr = ImageType::New();
+  ImagePointer m_best = ImageType::New();
+
+  // Allocate the intermediate data
+  LDDMMType::alloc_vimg(u_best, refspace);
+  LDDMMType::alloc_vimg(u_curr, refspace);
+  LDDMMType::alloc_img(m_best, refspace);
+  LDDMMType::alloc_img(m_curr, refspace);
+
+  // Allocate m_best to a negative value
+  m_best->FillBuffer(-100.0);
+
+  // Create a neighborhood for computing offsets
+  itk::Neighborhood<float, VDim> dummy_nbr;
+  itk::Size<VDim> search_rad = array_caster<VDim>::to_itkSize(param.brute_search_radius);
+  itk::Size<VDim> metric_rad = array_caster<VDim>::to_itkSize(param.metric_radius);
+  dummy_nbr.SetRadius(search_rad);
+
+  // Iterate over all offsets
+  for(int k = 0; k < dummy_nbr.Size(); k++)
+    {
+    // Get the offset corresponding to this iteration
+    itk::Offset<VDim> offset = dummy_nbr.GetOffset(k);
+
+    // Fill the deformation field with this offset
+    typename LDDMMType::Vec vec_offset;
+    for(int i = 0; i < VDim; i++)
+      vec_offset[i] = offset[i];
+    u_curr->FillBuffer(vec_offset);
+
+    // Perform interpolation and metric computation
+    of_helper.ComputeNCCMetricImage(0, u_curr, metric_rad, m_curr);
+
+    // Temp: keep track of number of updates
+    unsigned long n_updates = 0;
+
+    // Out of laziness, just take a quick pass over the images
+    typename VectorImageType::RegionType rgn = refspace->GetBufferedRegion();
+    itk::ImageRegionIterator<VectorImageType> it_u(u_best, rgn);
+    itk::ImageRegionConstIterator<ImageType> it_m_curr(m_curr, rgn);
+    itk::ImageRegionIterator<ImageType> it_m_best(m_best, rgn);
+    for(; !it_m_best.IsAtEnd(); ++it_m_best, ++it_m_curr, ++it_u)
+      {
+      float v_curr = it_m_curr.Value();
+      if(v_curr > it_m_best.Value())
+        {
+        it_m_best.Set(v_curr);
+        it_u.Set(vec_offset);
+        ++n_updates;
+        }
+      }
+
+    std::cout << "offset: " << offset << "     updates: " << n_updates << std::endl;
+    }
+
+  LDDMMType::vimg_write(u_best, param.output.c_str());
+  LDDMMType::img_write(m_best, "mbest.nii.gz");
+
+  return 0;
+}
 
 
+
+template<class TVector>
+void read_cmdl_vector(char *arg, TVector &vector)
+{
+  std::istringstream f(arg);
+  std::string s;
+  vector.clear();
+  while (getline(f, s, 'x'))
+    vector.push_back(atoi(s.c_str()));
+}
 
 int main(int argc, char *argv[])
 {
@@ -783,8 +915,8 @@ int main(int argc, char *argv[])
   double current_weight = 1.0;
 
   param.dim = 2;
+  param.mode = GreedyParameters::GREEDY;
   param.flag_dump_moving = false;
-  param.flag_optimize_affine = false;
   param.dump_frequency = 1;
   param.epsilon = 1.0;
   param.sigma_pre = 3.0;
@@ -808,11 +940,7 @@ int main(int argc, char *argv[])
       }
     else if(arg == "-n")
       {
-      std::istringstream f(argv[++i]);
-      std::string s;
-      param.iter_per_level.clear();
-      while (getline(f, s, 'x'))
-        param.iter_per_level.push_back(atoi(s.c_str()));
+      read_cmdl_vector(argv[++i], param.iter_per_level);
       }
     else if(arg == "-w")
       {
@@ -828,11 +956,7 @@ int main(int argc, char *argv[])
       if(metric_name == "NCC" || metric_name == "ncc")
         {
         param.metric = GreedyParameters::NCC;
-        std::istringstream f(argv[++i]);
-        std::string s;
-        param.metric_radius.clear();
-        while (getline(f, s, 'x'))
-          param.metric_radius.push_back(atoi(s.c_str()));
+        read_cmdl_vector(argv[++i], param.metric_radius);
         }
       }
     else if(arg == "-tscale")
@@ -882,7 +1006,12 @@ int main(int argc, char *argv[])
       }
     else if(arg == "-a")
       {
-      param.flag_optimize_affine = true;
+      param.mode = GreedyParameters::AFFINE;
+      }
+    else if(arg == "-brute")
+      {
+      param.mode = GreedyParameters::BRUTE;
+      read_cmdl_vector(argv[++i], param.brute_search_radius);
       }
     else
       {
@@ -903,7 +1032,7 @@ int main(int argc, char *argv[])
 
     }
 
-  if(param.flag_optimize_affine)
+  if(param.mode == GreedyParameters::AFFINE)
     {
     switch(param.dim)
       {
@@ -915,7 +1044,7 @@ int main(int argc, char *argv[])
             return -1;
       }
     }
-  else
+  else if(param.mode == GreedyParameters::GREEDY)
     {
     switch(param.dim)
       {
@@ -926,5 +1055,21 @@ int main(int argc, char *argv[])
             std::cerr << "Wrong dimensionality" << std::endl;
             return -1;
       }
+    }
+  else if(param.mode == GreedyParameters::BRUTE)
+    {
+    switch(param.dim)
+      {
+      case 2: return GreedyApproach<2, float>::RunBrute(param); break;
+      case 3: return GreedyApproach<3, double>::RunBrute(param); break;
+      case 4: return GreedyApproach<4, float>::RunBrute(param); break;
+      default:
+            std::cerr << "Wrong dimensionality" << std::endl;
+            return -1;
+      }
+    }
+  else
+    {
+    return -1;
     }
 }

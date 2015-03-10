@@ -264,8 +264,12 @@ MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
 ::GenerateOutputInformation()
 {
   this->GetOutput()->CopyInformation(this->GetInput());
-  this->GetOutput()->SetNumberOfComponentsPerPixel(
-        1 + this->GetInput()->GetNumberOfComponentsPerPixel() * (5 + ImageDimension * 3));
+
+  int ncomp = (m_ComputeGradient)
+              ? 1 + this->GetInput()->GetNumberOfComponentsPerPixel() * (5 + ImageDimension * 3)
+              : 1 + this->GetInput()->GetNumberOfComponentsPerPixel() * 5;
+
+  this->GetOutput()->SetNumberOfComponentsPerPixel(ncomp);
 }
 
 
@@ -300,7 +304,6 @@ MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
 
   // Pointer to the fixed image data
   const InputComponentType *bFix = fixed->GetBufferPointer();
-  const InputComponentType *bMov = moving->GetBufferPointer();
   const DeformationVectorType *bPhi = phi->GetBufferPointer();
   OutputComponentType *bOut = out->GetBufferPointer();
 
@@ -383,12 +386,15 @@ MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
         *ptrOut++ = x_mov * x_mov;
         *ptrOut++ = x_fix * x_mov;
 
-        for(int i = 0; i < ImageDimension; i++, mov_grad_ptr++)
+        if(m_ComputeGradient)
           {
-          InputComponentType x_grad_mov_i = *mov_grad_ptr;
-          *ptrOut++ = x_grad_mov_i;
-          *ptrOut++ = x_fix * x_grad_mov_i;
-          *ptrOut++ = x_mov * x_grad_mov_i;
+          for(int i = 0; i < ImageDimension; i++, mov_grad_ptr++)
+            {
+            InputComponentType x_grad_mov_i = *mov_grad_ptr;
+            *ptrOut++ = x_grad_mov_i;
+            *ptrOut++ = x_fix * x_grad_mov_i;
+            *ptrOut++ = x_mov * x_grad_mov_i;
+            }
           }
         }
       }
@@ -396,17 +402,52 @@ MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
 }
 
 template <class TInputImage, class TMetricImage, class TGradientImage, class TMaskImage>
+MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage,TMaskImage>
+::MultiImageNCCPostcomputeFilter()
+{
+  // Set the number of outputs
+  this->SetNumberOfRequiredOutputs(2);
+  this->SetNthOutput(0, this->MakeOutput(0));
+  this->SetNthOutput(1, this->MakeOutput(1));
+
+  // We are not computing the gradient by default
+  m_ComputeGradient = false;
+}
+
+template <class TInputImage, class TMetricImage, class TGradientImage, class TMaskImage>
+typename itk::DataObject::Pointer
+MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage,TMaskImage>
+::MakeOutput(DataObjectPointerArraySizeType idx)
+{
+  if(idx == 0)
+    return (MetricImageType::New()).GetPointer();
+  else if(idx == 1)
+    return (GradientImageType::New()).GetPointer();
+  else
+    return NULL;
+}
+
+template <class TInputImage, class TMetricImage, class TGradientImage, class TMaskImage>
+typename MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage,TMaskImage>::MetricImageType *
+MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage,TMaskImage>
+::GetMetricOutput()
+{
+  return dynamic_cast<MetricImageType *>(this->ProcessObject::GetOutput(0));
+}
+
+template <class TInputImage, class TMetricImage, class TGradientImage, class TMaskImage>
+typename MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage,TMaskImage>::GradientImageType *
+MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage,TMaskImage>
+::GetGradientOutput()
+{
+  return dynamic_cast<GradientImageType *>(this->ProcessObject::GetOutput(1));
+}
+
+template <class TInputImage, class TMetricImage, class TGradientImage, class TMaskImage>
 void
 MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage,TMaskImage>
 ::BeforeThreadedGenerateData()
 {
-  // TODO: REMOVE THIS ALLOCATION! INSTEAD THE USER SHOULD HAVE OPTION TO PROVIDE
-  // THE METRIC IMAGE
-  m_MetricImage = MetricImageType::New();
-  m_MetricImage->CopyInformation(this->GetInput());
-  m_MetricImage->SetRegions(this->GetInput()->GetBufferedRegion());
-  m_MetricImage->Allocate();
-
   // Create the prototype results vector
   m_MetricPerThread.resize(this->GetNumberOfThreads(), 0.0);
 }
@@ -545,7 +586,10 @@ MultiImageNNCPostComputeFunction(
   int i_wgt = 0;
   const TPixel eps = 1e-8;
 
-  while(ptr < ptr_end)
+  // Initialize metric to zero
+  *ptr_metric = 0;
+
+  for(; ptr < ptr_end; ++i_wgt)
     {
     TPixel x_fix = *ptr++;
     TPixel x_mov = *ptr++;
@@ -561,7 +605,8 @@ MultiImageNNCPostComputeFunction(
 
     if(var_fix < eps || var_mov < eps)
       {
-      ptr += 3 * ImageDimension;
+      if(ptr_gradient)
+        ptr += 3 * ImageDimension;
       continue;
       }
 
@@ -573,27 +618,29 @@ MultiImageNNCPostComputeFunction(
     // Weight - includes scaling of squared covariance by direction
     TWeight w = (cov_fix_mov < 0) ? -weights[i_wgt] : weights[i_wgt];
 
-    for(int i = 0; i < ImageDimension; i++)
+    if(ptr_gradient)
       {
-      TPixel x_grad_mov_i = *ptr++;
-      TPixel x_fix_grad_mov_i = *ptr++;
-      TPixel x_mov_grad_mov_i = *ptr++;
+      for(int i = 0; i < ImageDimension; i++)
+        {
+        TPixel x_grad_mov_i = *ptr++;
+        TPixel x_fix_grad_mov_i = *ptr++;
+        TPixel x_mov_grad_mov_i = *ptr++;
 
-      // Derivative of cov_fix_mov
-      TPixel grad_cov_fix_mov_i = x_fix_grad_mov_i - x_fix_over_n * x_grad_mov_i;
+        // Derivative of cov_fix_mov
+        TPixel grad_cov_fix_mov_i = x_fix_grad_mov_i - x_fix_over_n * x_grad_mov_i;
 
-      // One half derivative of var_mov
-      TPixel half_grad_var_mov_i = x_mov_grad_mov_i - x_mov_over_n * x_grad_mov_i;
+        // One half derivative of var_mov
+        TPixel half_grad_var_mov_i = x_mov_grad_mov_i - x_mov_over_n * x_grad_mov_i;
 
-      TPixel grad_ncc_fix_mov_i =
-          2 * cov_fix_mov_over_denom * (grad_cov_fix_mov_i - var_fix * half_grad_var_mov_i * cov_fix_mov_over_denom);
+        TPixel grad_ncc_fix_mov_i =
+            2 * cov_fix_mov_over_denom * (grad_cov_fix_mov_i - var_fix * half_grad_var_mov_i * cov_fix_mov_over_denom);
 
-      (*ptr_gradient)[i] += w * grad_ncc_fix_mov_i;
+        (*ptr_gradient)[i] += w * grad_ncc_fix_mov_i;
+        }
       }
 
     // Accumulate the metric
     *ptr_metric += w * ncc_fix_mov;
-    ++i_wgt;
     }
 
   return ptr;
@@ -606,7 +653,7 @@ MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage,TMaskImag
 ::ThreadedGenerateData(
   const OutputImageRegionType& outputRegionForThread,
   itk::ThreadIdType threadId )
-{
+{  
   // Set up the iterators for the three images. In the future, check if the
   // iteration contributes in any way to the filter cost, and consider more
   // direct, faster approaches
@@ -637,58 +684,115 @@ MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage,TMaskImag
     const InputComponentType *line_end = ptr + outputRegionForThread.GetSize(0) * nc;
 
     // Get the offset into the metric and gradient images
-    MetricPixelType *ptr_metric = m_MetricImage->GetBufferPointer() + offset_in_pixels;
-    GradientPixelType *ptr_gradient = this->GetOutput()->GetBufferPointer() + offset_in_pixels;
+    MetricPixelType *ptr_metric = this->GetMetricOutput()->GetBufferPointer() + offset_in_pixels;
 
-    // Two version of the code - depending on the mask
+    // The gradient output is optional
+    GradientPixelType *ptr_gradient = (this->m_ComputeGradient)
+                                      ? this->GetGradientOutput()->GetBufferPointer() + offset_in_pixels
+                                      : NULL;
+
+    // Four versions of the code - depending on the mask and gradient
     if(mask)
       {
-      // Get the offset into the mask, if a mask exists
-      const MaskPixelType *ptr_mask = mask->GetBufferPointer() + offset_in_pixels;
-
-      for(; ptr < line_end; ++ptr_metric, ++ptr_gradient, ++ptr_mask)
+      if(ptr_gradient)
         {
-        *ptr_metric = itk::NumericTraits<MetricPixelType>::Zero;
-        *ptr_gradient = itk::NumericTraits<GradientPixelType>::Zero;
+        // Get the offset into the mask, if a mask exists
+        const MaskPixelType *ptr_mask = mask->GetBufferPointer() + offset_in_pixels;
 
-        // Should we skip this pixel?
-        MaskPixelType mask_val = *ptr_mask;
-        if(mask_val == 0)
+        for(; ptr < line_end; ++ptr_metric, ++ptr_gradient, ++ptr_mask)
           {
-          ptr += nc;
+          *ptr_metric = itk::NumericTraits<MetricPixelType>::Zero;
+          *ptr_gradient = itk::NumericTraits<GradientPixelType>::Zero;
+
+          // Should we skip this pixel?
+          MaskPixelType mask_val = *ptr_mask;
+          if(mask_val == 0)
+            {
+            ptr += nc;
+            }
+          else
+            {
+            // End of the chunk for this pixel
+            const InputComponentType *ptr_end = ptr + nc;
+
+            // Apply the post computation
+            ptr = MultiImageNNCPostComputeFunction(ptr, ptr_end, m_Weights.data_block(), ptr_metric, ptr_gradient, ImageDimension);
+
+            // Scale metric and gradient by the mask
+            *ptr_metric *= mask_val;
+            *ptr_gradient *= mask_val;
+
+            // Accumulate the summary metric
+            m_MetricPerThread[threadId] += *ptr_metric;
+            }
           }
-        else
+        }
+      else
+        {
+        // Get the offset into the mask, if a mask exists
+        const MaskPixelType *ptr_mask = mask->GetBufferPointer() + offset_in_pixels;
+
+        for(; ptr < line_end; ++ptr_metric, ++ptr_mask)
           {
+          *ptr_metric = itk::NumericTraits<MetricPixelType>::Zero;
+
+          // Should we skip this pixel?
+          MaskPixelType mask_val = *ptr_mask;
+          if(mask_val == 0)
+            {
+            ptr += nc;
+            }
+          else
+            {
+            // End of the chunk for this pixel
+            const InputComponentType *ptr_end = ptr + nc;
+
+            // Apply the post computation
+            ptr = MultiImageNNCPostComputeFunction(ptr, ptr_end, m_Weights.data_block(), ptr_metric, ptr_gradient, ImageDimension);
+
+            // Scale metric and gradient by the mask
+            *ptr_metric *= mask_val;
+
+            // Accumulate the summary metric
+            m_MetricPerThread[threadId] += *ptr_metric;
+            }
+          }
+        }
+      }
+    else
+      {
+      if(ptr_gradient)
+        {
+        for(; ptr < line_end; ++ptr_metric, ++ptr_gradient)
+          {
+          *ptr_metric = itk::NumericTraits<MetricPixelType>::Zero;
+          *ptr_gradient = itk::NumericTraits<GradientPixelType>::Zero;
+
           // End of the chunk for this pixel
           const InputComponentType *ptr_end = ptr + nc;
 
           // Apply the post computation
           ptr = MultiImageNNCPostComputeFunction(ptr, ptr_end, m_Weights.data_block(), ptr_metric, ptr_gradient, ImageDimension);
 
-          // Scale metric and gradient by the mask
-          *ptr_metric *= mask_val;
-          *ptr_gradient *= mask_val;
-
           // Accumulate the summary metric
           m_MetricPerThread[threadId] += *ptr_metric;
           }
         }
-      }
-    else
-      {
-      for(; ptr < line_end; ++ptr_metric, ++ptr_gradient)
+      else
         {
-        *ptr_metric = itk::NumericTraits<MetricPixelType>::Zero;
-        *ptr_gradient = itk::NumericTraits<GradientPixelType>::Zero;
+        for(; ptr < line_end; ++ptr_metric)
+          {
+          *ptr_metric = itk::NumericTraits<MetricPixelType>::Zero;
 
-        // End of the chunk for this pixel
-        const InputComponentType *ptr_end = ptr + nc;
+          // End of the chunk for this pixel
+          const InputComponentType *ptr_end = ptr + nc;
 
-        // Apply the post computation
-        ptr = MultiImageNNCPostComputeFunction(ptr, ptr_end, m_Weights.data_block(), ptr_metric, ptr_gradient, ImageDimension);
+          // Apply the post computation
+          ptr = MultiImageNNCPostComputeFunction(ptr, ptr_end, m_Weights.data_block(), ptr_metric, ptr_gradient, ImageDimension);
 
-        // Accumulate the summary metric
-        m_MetricPerThread[threadId] += *ptr_metric;
+          // Accumulate the summary metric
+          m_MetricPerThread[threadId] += *ptr_metric;
+          }
         }
       }
     }

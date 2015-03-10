@@ -287,6 +287,14 @@ public:
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, TOutputImage::ImageDimension );
 
+  /**
+   * Whether the gradient of the NCC metric will be computed. Depending on this, the filter
+   * will generate 5 components per pixel (x,y,xy,x2,y2) or a bunch more needed for the
+   * gradient computation. Default is Off.
+   */
+  itkSetMacro(ComputeGradient, bool)
+  itkBooleanMacro(ComputeGradient)
+
   /** Typedef to describe the output image region type. */
   typedef typename Superclass::OutputImageRegionType         OutputImageRegionType;
 
@@ -310,7 +318,7 @@ public:
   typedef typename Superclass::DeformationVectorType         DeformationVectorType;
 
 protected:
-  MultiImageNCCPrecomputeFilter() {}
+  MultiImageNCCPrecomputeFilter() : m_ComputeGradient(false) {}
   ~MultiImageNCCPrecomputeFilter() {}
 
   /** SimpleWarpImageFilter is implemented as a multi-threaded filter.
@@ -325,6 +333,11 @@ protected:
 private:
   MultiImageNCCPrecomputeFilter(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
+
+  // Whether the gradient of the NCC metric will be computed. Depending on this, the filter
+  // will generate 5 components per pixel (x,y,xy,x2,y2) or a bunch more needed for the
+  // gradient computation.
+  bool m_ComputeGradient;
 };
 
 
@@ -332,13 +345,13 @@ private:
 
 
 template <class TInputImage, class TMetricImage, class TGradientImage, class TMaskImage>
-class MultiImageNCCPostcomputeFilter : public itk::ImageToImageFilter<TInputImage, TGradientImage>
+class MultiImageNCCPostcomputeFilter : public itk::ImageToImageFilter<TInputImage, TMetricImage>
 {
 public:
 
   /** Standard class typedefs. */
   typedef MultiImageNCCPostcomputeFilter                      Self;
-  typedef itk::ImageToImageFilter<TInputImage,TGradientImage> Superclass;
+  typedef itk::ImageToImageFilter<TInputImage,TMetricImage>   Superclass;
   typedef itk::SmartPointer<Self>                             Pointer;
   typedef itk::SmartPointer<const Self>                       ConstPointer;
 
@@ -367,8 +380,15 @@ public:
   typedef typename InputImageType::IndexType          IndexType;
   typedef typename InputImageType::SizeType           SizeType;
 
+  typedef typename Superclass::DataObjectPointerArraySizeType  DataObjectPointerArraySizeType;
+
+
   /** Weight vector */
   typedef vnl_vector<float>                           WeightVectorType;
+
+  /** Is the gradient of the metric being computed */
+  itkSetMacro(ComputeGradient, bool)
+  itkBooleanMacro(ComputeGradient)
 
   /** Set the weight vector */
   itkSetMacro(Weights, WeightVectorType)
@@ -379,26 +399,29 @@ public:
     { this->itk::ProcessObject::SetInput("mask", mask); }
 
   /** Get the metric image */
-  itkGetObjectMacro(MetricImage, MetricImageType)
+  MetricImageType *GetMetricOutput();
+
+  /** Get the gradient image */
+  GradientImageType *GetGradientOutput();
 
   /** Get the metric value */
   itkGetMacro(MetricValue, double)
 
 protected:
 
-  MultiImageNCCPostcomputeFilter() {}
+  MultiImageNCCPostcomputeFilter();
   ~MultiImageNCCPostcomputeFilter() {}
 
-  /** This method is used to set the state of the filter before
-   * multi-threading. */
   virtual void BeforeThreadedGenerateData();
-
-  /** This method is used to set the state of the filter after
-   * multi-threading. */
   virtual void AfterThreadedGenerateData();
 
   void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
                             itk::ThreadIdType threadId );
+
+  typename itk::DataObject::Pointer MakeOutput(DataObjectPointerArraySizeType idx);
+
+  // Whether or not the gradient is computed
+  bool m_ComputeGradient;
 
   // Weight vector
   WeightVectorType m_Weights;

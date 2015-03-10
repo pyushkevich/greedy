@@ -72,9 +72,12 @@ public:
   vnl_vector<double> ComputeOpticalFlowField(int level, VectorImageType *def, VectorImageType *result,
                                  double result_scaling = 1.0);
 
-  /** Compute normalized cross-correlation metric and gradient */
-  double ComputeNCCMetricAndGradient(int level, VectorImageType *def, VectorImageType *result,
-                                     const SizeType &radius, double result_scaling = 1.0);
+  /** Compute the NCC metric without gradient */
+  double ComputeNCCMetricImage(int level, VectorImageType *def, const SizeType &radius,
+                              FloatImageType *out_metric, VectorImageType *out_gradient = NULL,
+                               double result_scaling = 1.0);
+
+
 
   double ComputeAffineMatchAndGradient(int level, LinearTransformType *tran,
                                        LinearTransformType *grad = NULL);

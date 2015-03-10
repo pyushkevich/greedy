@@ -272,26 +272,33 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 #undef DUMP_NCC
 // #define DUMP_NCC 1
 
+
 template <class TFloat, unsigned int VDim>
 double
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::ComputeNCCMetricAndGradient(
-    int level,
+::ComputeNCCMetricImage(int level,
     VectorImageType *def,
-    VectorImageType *result,
     const SizeType &radius,
-    double result_scaling)
+    FloatImageType *out_metric,
+    VectorImageType *out_gradient, double result_scaling)
 {
   // Get the reference image
   ImageBaseType *ref = this->GetReferenceSpace(level);
 
+  // The number of components used in the accumulation - depends on whether
+  // the gradient is being computed or not
+  int n_comp = 1 + ref->GetNumberOfComponentsPerPixel() * 5;
+  if(out_gradient)
+    n_comp += VDim * 3;
+
   // Allocate the working image
-  if(m_NCCWorkingImage.IsNull() || m_NCCWorkingImage->GetBufferedRegion() != ref->GetBufferedRegion())
+  if(m_NCCWorkingImage.IsNull()
+     || m_NCCWorkingImage->GetBufferedRegion() != ref->GetBufferedRegion()
+     || m_NCCWorkingImage->GetNumberOfComponentsPerPixel() != n_comp)
     {
     m_NCCWorkingImage = MultiComponentImageType::New();
     m_NCCWorkingImage->CopyInformation(ref);
-    m_NCCWorkingImage->SetNumberOfComponentsPerPixel(
-          1 + ref->GetNumberOfComponentsPerPixel() * (5 + 3 * VDim));
+    m_NCCWorkingImage->SetNumberOfComponentsPerPixel(n_comp);
     m_NCCWorkingImage->SetRegions(ref->GetBufferedRegion());
     m_NCCWorkingImage->Allocate();
     }
@@ -303,6 +310,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   typename PreFilterType::Pointer filter = PreFilterType::New();
 
   // Run the filter
+  filter->SetComputeGradient(out_gradient != NULL);
   filter->SetFixedImage(m_FixedComposite[level]);
   filter->SetMovingImage(m_MovingComposite[level]);
   filter->SetDeformationField(def);
@@ -320,10 +328,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   // image. Next, we run the fast sum computation to give us the local average of
   // intensities, products, gradients in the working image
   typedef OneDimensionalInPlaceAccumulateFilter<MultiComponentImageType> AccumFilterType;
-
-  // TRASH ME
-  itk::Index<VDim> testIndex;
-  testIndex[0] = 66; testIndex[1] = 49; testIndex[2] = 26;
 
   // Create a chain of separable 1-D filters
   typename itk::ImageSource<MultiComponentImageType>::Pointer pipeTail;
@@ -356,8 +360,15 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       MultiComponentImageType, FloatImageType, VectorImageType, FloatImageType> PostFilterType;
 
   typename PostFilterType::Pointer postFilter = PostFilterType::New();
+  postFilter->SetComputeGradient(out_gradient != NULL);
   postFilter->SetInput(pipeTail->GetOutput());
-  postFilter->GraftOutput(result);
+
+  // Graft the metric image
+  postFilter->GetMetricOutput()->Graft(out_metric);
+
+  // Graft the gradient image if it is needed
+  if(out_gradient)
+    postFilter->GetGradientOutput()->Graft(out_gradient);
 
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
@@ -389,6 +400,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   // Get the metric
   return postFilter->GetMetricValue();
 }
+
+
 
 template <class TFloat, unsigned int VDim>
 double
