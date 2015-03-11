@@ -22,58 +22,87 @@
 #include "itkFixedArray.h"
 #include "itkVectorImage.h"
 
+/**
+ * Default traits for parameterizing the metric filters below
+ */
+template <class TReal, unsigned int VDim> struct DefaultMultiComponentImageMetricTraits
+{
+  typedef itk::VectorImage<TReal, VDim> InputImageType;
+  typedef itk::Image<TReal, VDim> ScalarImageType;
+  typedef itk::Image<itk::CovariantVector<TReal, VDim>, VDim> VectorImageType;
 
+  typedef ScalarImageType MaskImageType;
+  typedef VectorImageType DeformationFieldType;
+  typedef VectorImageType GradientImageType;
+  typedef ScalarImageType MetricImageType;
+};
 
-/** \class MultiImageOpticalFlowImageFilterBase
+/** \class MultiComponentImageMetricBase
  * \brief Warps an image using an input deformation field (for LDDMM)
  *
- * Base class for filters that take a pair of vector images and a
- * deformation field and produce an output image. Can be used to compute
- * the mean squared difference metric and gradient or to compute the
- * components necessary to compute the normalized cross-correlation metric
- * and gradient
+ * Base class for metrics that compute similarity between two multi-component
+ * images based on a deformation field. This filter is extended to support
+ * normalized cross-correlation and least squares metrics.
  *
+ * The metric takes the following inputs:
+ *    Fixed multicomponent image (type TMetricTraits::InputImageType)
+ *    Moving multicomponent image (type TMetricTraits::InputImageType)
+ *    A mask for the fixed image (type TMetricTraits::MaskImageType) [optional]
+ *    A deformation field (type TMetricTraits::DeformationFieldType)
+ *
+ * It produces the following outputs
+ *    Metric image (type TMetricTraits::MetricImageType)
+ *    Metric image gradient (type TMetricTraits::GradientImageType)
+ *    Moving image domain mask (type TMetricTraits::MetricImageType)
+ *    Moving image domain mask gradient (type TMetricTraits::GradientImageType)
  */
-template <class TInputImage, class TOutputImage, class TDeformationField>
-class ITK_EXPORT MultiImageOpticalFlowImageFilterBase :
-    public itk::ImageToImageFilter<TInputImage, TOutputImage>
+template <class TMetricTraits>
+class ITK_EXPORT MultiComponentImageMetricBase :
+    public itk::ImageToImageFilter<typename TMetricTraits::InputImageType,
+                                   typename TMetricTraits::MetricImageType>
 {
 public:
+  /** Type definitions from the traits class */
+  typedef typename TMetricTraits::InputImageType        InputImageType;
+  typedef typename TMetricTraits::MaskImageType         MaskImageType;
+  typedef typename TMetricTraits::DeformationFieldType  DeformationFieldType;
+  typedef typename TMetricTraits::MetricImageType       MetricImageType;
+  typedef typename TMetricTraits::GradientImageType     GradientImageType;
+
   /** Standard class typedefs. */
-  typedef MultiImageOpticalFlowImageFilterBase              Self;
-  typedef itk::ImageToImageFilter<TInputImage,TOutputImage> Superclass;
-  typedef itk::SmartPointer<Self>                           Pointer;
-  typedef itk::SmartPointer<const Self>                     ConstPointer;
+  typedef MultiComponentImageMetricBase                            Self;
+  typedef itk::ImageToImageFilter<InputImageType,MetricImageType>  Superclass;
+  typedef itk::SmartPointer<Self>                                  Pointer;
+  typedef itk::SmartPointer<const Self>                            ConstPointer;
 
   /** Method for creation through the object factory. */
   itkNewMacro(Self)
 
   /** Run-time type information (and related methods) */
-  itkTypeMacro( MultiImageOpticalFlowImageFilterBase, ImageToImageFilter )
+  itkTypeMacro( MultiComponentImageMetricBase, ImageToImageFilter )
 
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int,
-                      TOutputImage::ImageDimension );
+                      MetricImageType::ImageDimension );
 
   /** Typedef to describe the output image region type. */
-  typedef typename TInputImage::RegionType OutputImageRegionType;
+  typedef typename InputImageType::RegionType OutputImageRegionType;
 
   /** Inherit some types from the superclass. */
-  typedef TInputImage                                 InputImageType;
-  typedef typename TInputImage::PixelType             InputPixelType;
-  typedef typename TInputImage::InternalPixelType     InputComponentType;
-  typedef TOutputImage                                OutputImageType;
-  typedef typename OutputImageType::PixelType         OutputPixelType;
-  typedef typename OutputPixelType::ComponentType     OutputComponentType;
-  typedef typename OutputImageType::IndexType         IndexType;
-  typedef typename OutputImageType::IndexValueType    IndexValueType;
-  typedef typename OutputImageType::SizeType          SizeType;
-  typedef typename OutputImageType::SpacingType       SpacingType;
-  typedef typename OutputImageType::DirectionType     DirectionType;
+  typedef typename InputImageType::PixelType          InputPixelType;
+  typedef typename InputImageType::InternalPixelType  InputComponentType;
+  typedef typename MetricImageType::PixelType         MetricPixelType;
+  typedef typename MetricImageType::IndexType         IndexType;
+  typedef typename MetricImageType::IndexValueType    IndexValueType;
+  typedef typename MetricImageType::SizeType          SizeType;
+  typedef typename MetricImageType::SpacingType       SpacingType;
+  typedef typename MetricImageType::DirectionType     DirectionType;
+  typedef typename GradientImageType::PixelType       GradientPixelType;
   typedef itk::ImageBase<ImageDimension>              ImageBaseType;
 
+  typedef typename Superclass::DataObjectIdentifierType DataObjectIdentifierType;
+
   /** Information from the deformation field class */
-  typedef TDeformationField                           DeformationFieldType;
   typedef typename DeformationFieldType::Pointer      DeformationFieldPointer;
   typedef typename DeformationFieldType::PixelType    DeformationVectorType;
 
@@ -84,20 +113,64 @@ public:
   void SetFixedImage(InputImageType *fixed)
     { this->itk::ProcessObject::SetInput("Primary", fixed); }
 
+  InputImageType *GetFixedImage()
+    { return dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary")); }
+
   /** Set the moving image(s) and their gradients */
   void SetMovingImage(InputImageType *moving)
     { this->itk::ProcessObject::SetInput("moving", moving); }
+
+  InputImageType *GetMovingImage()
+    { return dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving")); }
+
+  /** Set the optional mask input */
+  void SetFixedMaskImage(MaskImageType *fixed_mask)
+    { this->itk::ProcessObject::SetInput("fixed_mask", fixed_mask); }
+
+  MaskImageType *GetFixedMaskImage()
+    { return dynamic_cast<MaskImageType *>(this->ProcessObject::GetInput("fixed_mask")); }
+
+
+  /**
+   * Set the deformation field. An affine transformation should be converted
+   * to a deformation field first
+   */
+  void SetDeformationField(DeformationFieldType *phi)
+    { this->itk::ProcessObject::SetInput("phi", phi); }
+\
+  DeformationFieldType *GetDeformationField()
+    { return dynamic_cast<DeformationFieldType *>(this->ProcessObject::GetInput("phi")); }
+
 
   /** Set the weight vector */
   itkSetMacro(Weights, WeightVectorType)
   itkGetConstMacro(Weights, WeightVectorType)
 
-  /** Set the deformation field. */
-  void SetDeformationField(DeformationFieldType *phi)
-    {
-    m_Deformation = phi;
-    this->itk::ProcessObject::SetInput("phi", m_Deformation);
-    }
+  /** Specify whether the filter should compute gradients */
+  itkSetMacro(ComputeGradient, bool)
+  itkBooleanMacro(ComputeGradient)
+
+  /** Specify whether the filter should compute a mask based on the moving image domain */
+  itkSetMacro(ComputeMovingDomainMask, bool)
+  itkBooleanMacro(ComputeMovingDomainMask)
+
+  /** Get the metric output */
+  MetricImageType *GetMetricOutput()
+    { return dynamic_cast<MetricImageType *>(this->ProcessObject::GetOutput("Primary")); }
+
+  /** Get the mask output */
+  MetricImageType *GetMovingDomainMaskOutput()
+    { return dynamic_cast<MetricImageType *>(this->ProcessObject::GetOutput("moving_mask")); }
+
+  /** Get the metric output */
+  GradientImageType *GetGradientOutput()
+    { return dynamic_cast<GradientImageType *>(this->ProcessObject::GetOutput("gradient")); }
+
+  /** Get the mask output */
+  GradientImageType *GetMovingDomainMaskGradientOutput()
+    { return dynamic_cast<GradientImageType *>(this->ProcessObject::GetOutput("moving_mask_gradient")); }
+
+
 
   /** This filter produces an image which is a different
    * size than its input image. As such, it needs to provide an
@@ -114,21 +187,23 @@ public:
    * set to be the same as that of the output requested region. */
   virtual void GenerateInputRequestedRegion();
 
+  virtual typename itk::DataObject::Pointer MakeOutput(const DataObjectIdentifierType &);
+  virtual void AllocateOutputs();
+
 protected:
-  MultiImageOpticalFlowImageFilterBase() {}
-  ~MultiImageOpticalFlowImageFilterBase() {}
+  MultiComponentImageMetricBase();
+  ~MultiComponentImageMetricBase() {}
 
   void VerifyInputInformation() {}
 
   // Weight vector
   WeightVectorType                m_Weights;
 
-  // Transform pointer
-  DeformationFieldPointer         m_Deformation;
-
+  bool m_ComputeMovingDomainMask;
+  bool m_ComputeGradient;
 
 private:
-  MultiImageOpticalFlowImageFilterBase(const Self&); //purposely not implemented
+  MultiComponentImageMetricBase(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
 
 };
@@ -164,15 +239,14 @@ private:
  * and deformation field type all have the same number of dimensions.
  *
  */
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TMetricTraits>
 class ITK_EXPORT MultiImageOpticalFlowImageFilter :
-    public MultiImageOpticalFlowImageFilterBase<TInputImage, TOutputImage, TDeformationField>
+    public MultiComponentImageMetricBase<TMetricTraits>
 {
 public:
   /** Standard class typedefs. */
-  typedef MultiImageOpticalFlowImageFilter                  Self;
-  typedef MultiImageOpticalFlowImageFilterBase<TInputImage,TOutputImage,TDeformationField>
-                                                            Superclass;
+  typedef MultiImageOpticalFlowImageFilter<TMetricTraits>   Self;
+  typedef MultiComponentImageMetricBase<TMetricTraits>      Superclass;
   typedef itk::SmartPointer<Self>                           Pointer;
   typedef itk::SmartPointer<const Self>                     ConstPointer;
 
@@ -180,10 +254,7 @@ public:
   itkNewMacro(Self)
 
   /** Run-time type information (and related methods) */
-  itkTypeMacro( MultiImageOpticalFlowImageFilter, MultiImageOpticalFlowImageFilterBase )
-
-  /** Determine the image dimension. */
-  itkStaticConstMacro(ImageDimension, unsigned int, TOutputImage::ImageDimension );
+  itkTypeMacro( MultiImageOpticalFlowImageFilter, MultiComponentImageMetricBase )
 
   /** Typedef to describe the output image region type. */
   typedef typename Superclass::OutputImageRegionType         OutputImageRegionType;
@@ -192,9 +263,11 @@ public:
   typedef typename Superclass::InputImageType                InputImageType;
   typedef typename Superclass::InputPixelType                InputPixelType;
   typedef typename Superclass::InputComponentType            InputComponentType;
-  typedef typename Superclass::OutputImageType               OutputImageType;
-  typedef typename Superclass::OutputPixelType               OutputPixelType;
-  typedef typename Superclass::OutputComponentType           OutputComponentType;
+  typedef typename Superclass::MetricImageType               MetricImageType;
+  typedef typename Superclass::GradientImageType             GradientImageType;
+  typedef typename Superclass::MetricPixelType               MetricPixelType;
+  typedef typename Superclass::GradientPixelType             GradientPixelType;
+
   typedef typename Superclass::IndexType                     IndexType;
   typedef typename Superclass::IndexValueType                IndexValueType;
   typedef typename Superclass::SizeType                      SizeType;
@@ -206,6 +279,9 @@ public:
   typedef typename Superclass::DeformationFieldType          DeformationFieldType;
   typedef typename Superclass::DeformationFieldPointer       DeformationFieldPointer;
   typedef typename Superclass::DeformationVectorType         DeformationVectorType;
+
+  /** Determine the image dimension. */
+  itkStaticConstMacro(ImageDimension, unsigned int, InputImageType::ImageDimension );
 
   /** Summary results after running the filter */
   itkGetConstMacro(MetricValue, double)
@@ -254,6 +330,98 @@ private:
 
 
 
+/**
+ * Normalized cross-correlation metric. This filter sets up a mini-pipeline with
+ * a pre-compute filter that interpolates the moving image, N one-dimensional
+ * mean filters, and a post-compute filter that generates the metric and the
+ * gradient.
+ */
+template <class TMetricTraits>
+class ITK_EXPORT MultiComponentNCCImageMetric :
+    public MultiComponentImageMetricBase<TMetricTraits>
+{
+public:
+  /** Standard class typedefs. */
+  typedef MultiComponentNCCImageMetric<TMetricTraits>       Self;
+  typedef MultiComponentImageMetricBase<TMetricTraits>      Superclass;
+  typedef itk::SmartPointer<Self>                           Pointer;
+  typedef itk::SmartPointer<const Self>                     ConstPointer;
+
+  /** Method for creation through the object factory. */
+  itkNewMacro(Self)
+
+  /** Run-time type information (and related methods) */
+  itkTypeMacro( MultiComponentNCCImageMetric, MultiComponentImageMetricBase )
+
+  /** Typedef to describe the output image region type. */
+  typedef typename Superclass::OutputImageRegionType         OutputImageRegionType;
+
+  /** Inherit some types from the superclass. */
+  typedef typename Superclass::InputImageType                InputImageType;
+  typedef typename Superclass::InputPixelType                InputPixelType;
+  typedef typename Superclass::InputComponentType            InputComponentType;
+  typedef typename Superclass::MetricImageType               MetricImageType;
+  typedef typename Superclass::GradientImageType             GradientImageType;
+  typedef typename Superclass::MaskImageType                 MaskImageType;
+
+
+  typedef typename Superclass::IndexType                     IndexType;
+  typedef typename Superclass::IndexValueType                IndexValueType;
+  typedef typename Superclass::SizeType                      SizeType;
+  typedef typename Superclass::SpacingType                   SpacingType;
+  typedef typename Superclass::DirectionType                 DirectionType;
+  typedef typename Superclass::ImageBaseType                 ImageBaseType;
+
+  /** Information from the deformation field class */
+  typedef typename Superclass::DeformationFieldType          DeformationFieldType;
+
+  /** Determine the image dimension. */
+  itkStaticConstMacro(ImageDimension, unsigned int, InputImageType::ImageDimension );
+
+  /** Set the radius of the cross-correlation */
+  itkSetMacro(Radius, SizeType)
+
+  /** Get the radius of the cross-correlation */
+  itkGetMacro(Radius, SizeType)
+
+  /**
+   * Set the working memory image for this filter. This function should be used to prevent
+   * repeated allocation of memory when the metric is created/destructed in a loop. The
+   * user can just pass in a pointer to a blank image, the filter will take care of allocating
+   * the image as necessary
+   */
+  itkSetObjectMacro(WorkingImage, InputImageType)
+
+  /** Summary results after running the filter */
+  itkGetConstMacro(MetricValue, double)
+
+protected:
+  MultiComponentNCCImageMetric() {}
+  ~MultiComponentNCCImageMetric() {}
+
+  /** SimpleWarpImageFilter is implemented as a multi-threaded filter.
+   * As such, it needs to provide and implementation for
+   * ThreadedGenerateData(). */
+  void GenerateData();
+
+private:
+  MultiComponentNCCImageMetric(const Self&); //purposely not implemented
+  void operator=(const Self&); //purposely not implemented
+
+  // A pointer to the working image. The user should supply this image in order to prevent
+  // unnecessary memory allocation
+  typename InputImageType::Pointer m_WorkingImage;
+
+  // Radius of the cross-correlation
+  SizeType m_Radius;
+
+  // Vector of accumulated data (difference, gradient of affine transform, etc)
+  double                          m_MetricValue;
+};
+
+
+
+
 /** \class MultiImageNCCPrecomputeFilter
  * \brief Warps an image using an input deformation field (for LDDMM)
  *
@@ -266,23 +434,51 @@ private:
  * The output of this filter must be a vector image. The input may be a vector image.
  *
  */
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TMetricTraits, class TOutputImage>
 class ITK_EXPORT MultiImageNCCPrecomputeFilter :
-    public MultiImageOpticalFlowImageFilterBase<TInputImage, TOutputImage, TDeformationField>
+    public itk::ImageToImageFilter<typename TMetricTraits::InputImageType, TOutputImage>
 {
 public:
+
+  /** Types from the traits */
+  typedef typename TMetricTraits::InputImageType        InputImageType;
+  typedef typename TMetricTraits::MaskImageType         MaskImageType;
+  typedef typename TMetricTraits::DeformationFieldType  DeformationFieldType;
+  typedef typename TMetricTraits::MetricImageType       MetricImageType;
+  typedef typename TMetricTraits::GradientImageType     GradientImageType;
+  typedef TOutputImage                                  OutputImageType;
+
+
   /** Standard class typedefs. */
-  typedef MultiImageNCCPrecomputeFilter                     Self;
-  typedef MultiImageOpticalFlowImageFilterBase<TInputImage,TOutputImage,TDeformationField>
-                                                            Superclass;
-  typedef itk::SmartPointer<Self>                           Pointer;
-  typedef itk::SmartPointer<const Self>                     ConstPointer;
+  typedef MultiImageNCCPrecomputeFilter                         Self;
+  typedef itk::ImageToImageFilter<InputImageType, TOutputImage> Superclass;
+  typedef itk::SmartPointer<Self>                               Pointer;
+  typedef itk::SmartPointer<const Self>                         ConstPointer;
+
+  /** Typedef to describe the output image region type. */
+  typedef typename Superclass::OutputImageRegionType         OutputImageRegionType;
+
+  /** Inherit some types from the superclass. */
+  typedef typename InputImageType::PixelType          InputPixelType;
+  typedef typename InputImageType::InternalPixelType  InputComponentType;
+  typedef typename TOutputImage::PixelType            OutputPixelType;
+  typedef typename TOutputImage::InternalPixelType    OutputComponentType;
+  typedef typename DeformationFieldType::PixelType    DeformationVectorType;
+  typedef typename MetricImageType::PixelType         MetricPixelType;
+  typedef typename GradientImageType::PixelType       GradientPixelType;
+  typedef typename MetricImageType::IndexType         IndexType;
+  typedef typename MetricImageType::IndexValueType    IndexValueType;
+  typedef typename MetricImageType::SizeType          SizeType;
+  typedef typename MetricImageType::SpacingType       SpacingType;
+  typedef typename MetricImageType::DirectionType     DirectionType;
+
+  typedef typename Superclass::DataObjectIdentifierType DataObjectIdentifierType;
 
   /** Method for creation through the object factory. */
   itkNewMacro(Self)
 
   /** Run-time type information (and related methods) */
-  itkTypeMacro( MultiImageNCCPrecomputeFilter, MultiImageOpticalFlowImageFilterBase )
+  itkTypeMacro( MultiImageNCCPrecomputeFilter, ImageToImageFilter )
 
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, TOutputImage::ImageDimension );
@@ -295,30 +491,57 @@ public:
   itkSetMacro(ComputeGradient, bool)
   itkBooleanMacro(ComputeGradient)
 
-  /** Typedef to describe the output image region type. */
-  typedef typename Superclass::OutputImageRegionType         OutputImageRegionType;
+  /** Specify whether the filter should compute a mask based on the moving image domain */
+  itkSetMacro(ComputeMovingDomainMask, bool)
+  itkBooleanMacro(ComputeMovingDomainMask)
 
-  /** Inherit some types from the superclass. */
-  typedef typename Superclass::InputImageType                InputImageType;
-  typedef typename Superclass::InputPixelType                InputPixelType;
-  typedef typename Superclass::InputComponentType            InputComponentType;
-  typedef typename Superclass::OutputImageType               OutputImageType;
-  typedef typename Superclass::OutputPixelType               OutputPixelType;
-  typedef typename Superclass::OutputComponentType           OutputComponentType;
-  typedef typename Superclass::IndexType                     IndexType;
-  typedef typename Superclass::IndexValueType                IndexValueType;
-  typedef typename Superclass::SizeType                      SizeType;
-  typedef typename Superclass::SpacingType                   SpacingType;
-  typedef typename Superclass::DirectionType                 DirectionType;
-  typedef typename Superclass::ImageBaseType                 ImageBaseType;
+  /** Set the fixed image(s) */
+  void SetFixedImage(InputImageType *fixed)
+    { this->itk::ProcessObject::SetInput("Primary", fixed); }
 
-  /** Information from the deformation field class */
-  typedef typename Superclass::DeformationFieldType          DeformationFieldType;
-  typedef typename Superclass::DeformationFieldPointer       DeformationFieldPointer;
-  typedef typename Superclass::DeformationVectorType         DeformationVectorType;
+  InputImageType *GetFixedImage()
+    { return dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("Primary")); }
+
+  /** Set the moving image(s) and their gradients */
+  void SetMovingImage(InputImageType *moving)
+    { this->itk::ProcessObject::SetInput("moving", moving); }
+
+  InputImageType *GetMovingImage()
+    { return dynamic_cast<InputImageType *>(this->ProcessObject::GetInput("moving")); }
+
+  /**
+   * Set the deformation field. An affine transformation should be converted
+   * to a deformation field first
+   */
+  void SetDeformationField(DeformationFieldType *phi)
+    { this->itk::ProcessObject::SetInput("phi", phi); }
+\
+  DeformationFieldType *GetDeformationField()
+    { return dynamic_cast<DeformationFieldType *>(this->ProcessObject::GetInput("phi")); }
+
+  /** Get the metric output */
+  MetricImageType *GetMetricOutput()
+    { return dynamic_cast<MetricImageType *>(this->ProcessObject::GetOutput("Primary")); }
+
+  /** Get the mask output */
+  MetricImageType *GetMovingDomainMaskOutput()
+    { return dynamic_cast<MetricImageType *>(this->ProcessObject::GetOutput("moving_mask")); }
+
+  /** Get the metric output */
+  GradientImageType *GetGradientOutput()
+    { return dynamic_cast<GradientImageType *>(this->ProcessObject::GetOutput("gradient")); }
+
+  /** Get the mask output */
+  GradientImageType *GetMovingDomainMaskGradientOutput()
+    { return dynamic_cast<GradientImageType *>(this->ProcessObject::GetOutput("moving_mask_gradient")); }
+
+
+  /** Get the number of components in the output */
+  int GetNumberOfOutputComponents();
+
 
 protected:
-  MultiImageNCCPrecomputeFilter() : m_ComputeGradient(false) {}
+  MultiImageNCCPrecomputeFilter();
   ~MultiImageNCCPrecomputeFilter() {}
 
   /** SimpleWarpImageFilter is implemented as a multi-threaded filter.
@@ -330,6 +553,10 @@ protected:
   /** Set up the output information */
   virtual void GenerateOutputInformation();
 
+
+  virtual typename itk::DataObject::Pointer MakeOutput(const DataObjectIdentifierType &);
+  virtual void AllocateOutputs();
+
 private:
   MultiImageNCCPrecomputeFilter(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
@@ -338,6 +565,7 @@ private:
   // will generate 5 components per pixel (x,y,xy,x2,y2) or a bunch more needed for the
   // gradient computation.
   bool m_ComputeGradient;
+  bool m_ComputeMovingDomainMask;
 };
 
 

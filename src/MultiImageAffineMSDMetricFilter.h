@@ -64,9 +64,9 @@ static void unflatten_affine_transform(
   transform->SetOffset(offset);
 }
 
+
 /**
- * This filter computes the similarity between a set of moving images and a
- * set of fixed images in a highly optimized way
+ * This filter computes the gradient of the affine transform
  */
 template <class TInputImage>
 class ITK_EXPORT MultiImageAffineMSDMetricFilter :
@@ -211,6 +211,11 @@ private:
   // Gradient
   TransformPointer                m_MetricGradient;
 };
+
+
+
+
+
 
 #ifndef ITK_MANUAL_INSTANTIATION
 #include "MultiImageAffineMSDMetricFilter.txx"

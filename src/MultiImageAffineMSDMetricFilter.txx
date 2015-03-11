@@ -73,13 +73,6 @@ MultiImageAffineMSDMetricFilter<TInputImage>
 
   // Pack into the output
   unflatten_affine_transform(grad_metric.data_block(), m_MetricGradient.GetPointer());
-
-  /*
-  m_MetricValue = summary.mask;
-  vnl_vector<double> grad_metric(summary.gradient.size());
-  grad_metric = summary.grad_mask;
-  unflatten_affine_transform(grad_metric.data_block(), m_MetricGradient.GetPointer());
-  */
 }
 
 template <class TInputImage>

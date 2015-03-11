@@ -69,8 +69,9 @@ public:
   FloatImageType *GetGradientMask(int level) { return m_GradientMaskComposite[level]; }
 
   /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
-  vnl_vector<double> ComputeOpticalFlowField(int level, VectorImageType *def, VectorImageType *result,
-                                 double result_scaling = 1.0);
+  vnl_vector<double> ComputeOpticalFlowField(
+      int level, VectorImageType *def, FloatImageType *out_metric,
+      VectorImageType *out_gradient, double result_scaling = 1.0);
 
   /** Compute the NCC metric without gradient */
   double ComputeNCCMetricImage(int level, VectorImageType *def, const SizeType &radius,

@@ -489,50 +489,6 @@ int GreedyApproach<VDim, TReal>
     // Convert to a parameter vector
     vnl_vector<double> xLevel = acf.GetCoefficients(tLevel.GetPointer());
 
-    // Test the gradient computation
-    /*
-    vnl_vector<double> xGrad(acf.get_number_of_unknowns(), 0.0);
-    double f0;
-<<<<<<< HEAD
-    acf.compute(xLevel, &f0, &xGrad);
-
-    printf("ANL gradient: ");
-    for(int i = 0; i < xGrad.size(); i++)
-      printf("%11.2f ", xGrad[i]);
-    printf("\n");
-=======
-    acf.compute(xInit, &f0, &xGrad);
-
-    std::cout << "A-Gradient: " << xGrad << std::endl;
->>>>>>> 43ef7496f075d647d8e516d0c8c81fc86f04a1ae
-
-    vnl_vector<double> xGradN(acf.get_number_of_unknowns(), 0.0);
-    for(int i = 0; i < acf.get_number_of_unknowns(); i++)
-      {
-      // double eps = (i % VDim == 0) ? 1.0e-2 : 1.0e-5;
-      double eps = 1.0e-2;
-      double f1, f2;
-      vnl_vector<double> x1 = xLevel, x2 = xLevel;
-      x1[i] -= eps; x2[i] += eps;
-
-      acf.compute(x1, &f1, NULL);
-      acf.compute(x2, &f2, NULL);
-
-      xGradN[i] = (f2 - f1) / (2 * eps);
-      }
-
-<<<<<<< HEAD
-    printf("NUM gradient: ");
-    for(int i = 0; i < xGradN.size(); i++)
-      printf("%11.2f ", xGradN[i]);
-    printf("\n");
-=======
-    std::cout << "N-gradient: " << xGradN << std::endl;
->>>>>>> 43ef7496f075d647d8e516d0c8c81fc86f04a1ae
-
-    std::cout << "f = " << f0 << std::endl;
-    */
-
     // Propagate the jitter to the transform
     Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
     std::cout << "Initial RAS Transform: " << std::endl << Q_physical  << std::endl;
@@ -649,7 +605,8 @@ int GreedyApproach<VDim, TReal>
 
       if(param.metric == GreedyParameters::SSD)
         {
-        vnl_vector<double> all_metrics = of_helper.ComputeOpticalFlowField(level, uk, uk1, param.epsilon);
+        vnl_vector<double> all_metrics =
+            of_helper.ComputeOpticalFlowField(level, uk, iTemp, uk1, param.epsilon);
 
         printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
         total_energy = 0.0;

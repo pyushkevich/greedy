@@ -245,10 +245,14 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 vnl_vector<double>
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::ComputeOpticalFlowField(int level, VectorImageType *def, VectorImageType *result, double result_scaling)
+::ComputeOpticalFlowField(int level,
+                          VectorImageType *def,
+                          FloatImageType *out_metric,
+                          VectorImageType *out_gradient,
+                          double result_scaling)
 {
-  typedef MultiImageOpticalFlowImageFilter<
-      MultiComponentImageType, VectorImageType, VectorImageType> FilterType;
+  typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
+  typedef MultiImageOpticalFlowImageFilter<TraitsType> FilterType;
 
   typename FilterType::Pointer filter = FilterType::New();
 
@@ -262,7 +266,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetMovingImage(m_MovingComposite[level]);
   filter->SetDeformationField(def);
   filter->SetWeights(wscaled);
-  filter->GraftOutput(result);
+  filter->SetComputeGradient(true);
+  filter->GetMetricOutput()->Graft(out_metric);
+  filter->GetGradientOutput()->Graft(out_gradient);
   filter->Update();
 
   // Get the vector of the normalized metrics
@@ -277,128 +283,40 @@ template <class TFloat, unsigned int VDim>
 double
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeNCCMetricImage(int level,
-    VectorImageType *def,
-    const SizeType &radius,
-    FloatImageType *out_metric,
-    VectorImageType *out_gradient, double result_scaling)
+                        VectorImageType *def,
+                        const SizeType &radius,
+                        FloatImageType *out_metric,
+                        VectorImageType *out_gradient,
+                        double result_scaling)
 {
-  // Get the reference image
-  ImageBaseType *ref = this->GetReferenceSpace(level);
+  typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
+  typedef MultiComponentNCCImageMetric<TraitsType> FilterType;
 
-  // The number of components used in the accumulation - depends on whether
-  // the gradient is being computed or not
-  int n_comp = 1 + ref->GetNumberOfComponentsPerPixel() * 5;
-  if(out_gradient)
-    n_comp += VDim * 3;
-
-  // Allocate the working image
-  if(m_NCCWorkingImage.IsNull()
-     || m_NCCWorkingImage->GetBufferedRegion() != ref->GetBufferedRegion()
-     || m_NCCWorkingImage->GetNumberOfComponentsPerPixel() != n_comp)
-    {
-    m_NCCWorkingImage = MultiComponentImageType::New();
-    m_NCCWorkingImage->CopyInformation(ref);
-    m_NCCWorkingImage->SetNumberOfComponentsPerPixel(n_comp);
-    m_NCCWorkingImage->SetRegions(ref->GetBufferedRegion());
-    m_NCCWorkingImage->Allocate();
-    }
-
-  // Create the filter
-  typedef MultiImageNCCPrecomputeFilter<
-      MultiComponentImageType, MultiComponentImageType, VectorImageType> PreFilterType;
-
-  typename PreFilterType::Pointer filter = PreFilterType::New();
-
-  // Run the filter
-  filter->SetComputeGradient(out_gradient != NULL);
-  filter->SetFixedImage(m_FixedComposite[level]);
-  filter->SetMovingImage(m_MovingComposite[level]);
-  filter->SetDeformationField(def);
-  filter->GraftOutput(m_NCCWorkingImage);
-  filter->Update();
-
-#ifdef DUMP_NCC
-  typename itk::ImageFileWriter<MultiComponentImageType>::Pointer pwriter = itk::ImageFileWriter<MultiComponentImageType>::New();
-  pwriter->SetInput(m_NCCWorkingImage);
-  pwriter->SetFileName("nccpre.nii.gz");
-  pwriter->Update();
-#endif
-
-  // Currently, we have all the stuff we need to compute the metric in the working
-  // image. Next, we run the fast sum computation to give us the local average of
-  // intensities, products, gradients in the working image
-  typedef OneDimensionalInPlaceAccumulateFilter<MultiComponentImageType> AccumFilterType;
-
-  // Create a chain of separable 1-D filters
-  typename itk::ImageSource<MultiComponentImageType>::Pointer pipeTail;
-  for(int dir = 0; dir < VDim; dir++)
-    {
-    typename AccumFilterType::Pointer accum = AccumFilterType::New();
-    if(pipeTail.IsNull())
-      accum->SetInput(m_NCCWorkingImage);
-    else
-      accum->SetInput(pipeTail->GetOutput());
-    accum->SetDimension(dir);
-    accum->SetRadius(radius[dir]);
-    pipeTail = accum;
-
-    accum->Update();
-    }
-
-#ifdef DUMP_NCC
-  pwriter->SetInput(pipeTail->GetOutput());
-  pwriter->SetFileName("nccaccum.nii.gz");
-  pwriter->Update();
-#endif
-
-  // Now pipetail has the mean filtering of the different components in m_NCCWorkingImage.
-  // Last piece is to perform a calculation that will convert all this information into a
-  // metric value and a gradient value. For the time being, we will use the unary functor
-  // image filter to compute this, but a slightly more efficient implementation might be
-  // possible that accumulates the metric on the fly ...
-  typedef MultiImageNCCPostcomputeFilter<
-      MultiComponentImageType, FloatImageType, VectorImageType, FloatImageType> PostFilterType;
-
-  typename PostFilterType::Pointer postFilter = PostFilterType::New();
-  postFilter->SetComputeGradient(out_gradient != NULL);
-  postFilter->SetInput(pipeTail->GetOutput());
-
-  // Graft the metric image
-  postFilter->GetMetricOutput()->Graft(out_metric);
-
-  // Graft the gradient image if it is needed
-  if(out_gradient)
-    postFilter->GetGradientOutput()->Graft(out_gradient);
+  typename FilterType::Pointer filter = FilterType::New();
 
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
   for(int i = 0; i < wscaled.size(); i++)
     wscaled[i] = m_Weights[i] * result_scaling;
 
-  postFilter->SetWeights(wscaled);
+  // Allocate a working image
+  if(m_NCCWorkingImage.IsNull())
+    m_NCCWorkingImage = MultiComponentImageType::New();
 
-  // Set the mask on the post filter
-  if(m_GradientMaskComposite[level])
-    postFilter->SetMaskImage(m_GradientMaskComposite[level]);
+  // Run the filter
+  filter->SetFixedImage(m_FixedComposite[level]);
+  filter->SetMovingImage(m_MovingComposite[level]);
+  filter->SetDeformationField(def);
+  filter->SetWeights(wscaled);
+  filter->SetComputeGradient(true);
+  filter->GetMetricOutput()->Graft(out_metric);
+  filter->GetGradientOutput()->Graft(out_gradient);
+  filter->SetRadius(radius);
+  filter->SetWorkingImage(m_NCCWorkingImage);
+  filter->Update();
 
-  postFilter->Update();
-
-#ifdef DUMP_NCC
-  // TODO: trash this code!!!!
-  // Get and save the metric image
-  typename itk::ImageFileWriter<FloatImageType>::Pointer writer = itk::ImageFileWriter<FloatImageType>::New();
-  writer->SetInput(postFilter->GetMetricImage());
-  writer->SetFileName("nccmap.nii.gz");
-  writer->Update();
-
-  typename itk::ImageFileWriter<VectorImageType>::Pointer qwriter = itk::ImageFileWriter<VectorImageType>::New();
-  qwriter->SetInput(result);
-  qwriter->SetFileName("nccgrad.mha");
-  qwriter->Update();
-#endif
-
-  // Get the metric
-  return postFilter->GetMetricValue();
+  // Get the vector of the normalized metrics
+  return filter->GetMetricValue();
 }
 
 
@@ -436,59 +354,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   return filter->GetMetricValue();
 
-  /*
-  // Scale the weights by epsilon
-  vnl_vector<float> wscaled(m_Weights.size());
-  for(int i = 0; i < wscaled.size(); i++)
-    wscaled[i] = m_Weights[i];
-
-  // Use finite differences
-  typedef itk::MultiImageAffineMSDMetricFilter<MultiComponentImageType> FilterType;
-  typename FilterType::Pointer filter = FilterType::New();
-
-  // Run the filter
-  filter->SetFixedImage(m_FixedComposite[level]);
-  filter->SetMovingImageAndGradient(m_MovingComposite[level]);
-  filter->SetTransform(tran);
-  filter->SetWeights(wscaled);
-  filter->SetComputeGradient(false);
-  filter->Update();
-
-  double f0 = filter->GetMetricValue();
-
-  // Compute finite differences
-  if(grad)
-    {
-    vnl_vector<float> x(12), gradf(12);
-    itk::flatten_affine_transform(tran, x.data_block());
-    for(int k = 0; k < 12; k++)
-      {
-      double fk[2], eps = 1.0e-3;
-      for(int q = 0; q < 2; q++)
-        {
-        typename LinearTransformType::Pointer tranq = LinearTransformType::New();
-        vnl_vector<float> xq = x;
-        xq[k] += (q == 0 ? -1 : 1) * eps;
-        itk::unflatten_affine_transform(xq.data_block(), tranq.GetPointer());
-
-        filter = FilterType::New();
-        filter->SetFixedImage(m_FixedComposite[level]);
-        filter->SetMovingImageAndGradient(m_MovingComposite[level]);
-        filter->SetTransform(tranq);
-        filter->SetWeights(wscaled);
-        filter->SetComputeGradient(false);
-        filter->Update();
-
-        fk[q] = filter->GetMetricValue();
-        }
-      gradf[k] = (fk[1]-fk[0]) / (2.0 * eps);
-      }
-    itk::unflatten_affine_transform(gradf.data_block(), grad);
-    }
-
-  return f0;
-
-  */
 }
 
 template <class TFloat, unsigned int VDim>

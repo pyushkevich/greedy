@@ -25,12 +25,58 @@
 #include "vnl/vnl_math.h"
 #include "FastLinearInterpolator.h"
 #include "ImageRegionConstIteratorWithIndexOverride.h"
+#include "OneDimensionalInPlaceAccumulateFilter.h"
 
+template <class TMetricTraits>
+MultiComponentImageMetricBase<TMetricTraits>
+::MultiComponentImageMetricBase()
+{
+  // Create the outputs of this filter
+  this->SetPrimaryOutput(this->MakeOutput("Primary"));
+  this->SetOutput("gradient", this->MakeOutput("gradient"));
+  this->SetOutput("moving_mask", this->MakeOutput("moving_mask"));
+  this->SetOutput("moving_mask_gradient", this->MakeOutput("moving_mask_gradient"));
+}
 
+template <class TMetricTraits>
+typename itk::DataObject::Pointer
+MultiComponentImageMetricBase<TMetricTraits>
+::MakeOutput(const DataObjectIdentifierType &key)
+{
+  if(key == "Primary" || key == "moving_mask")
+    {
+    return (MetricImageType::New()).GetPointer();
+    }
+  else if(key == "gradient" || key == "moving_mask_gradient")
+    {
+    return (GradientImageType::New()).GetPointer();
+    }
+  else
+    {
+    return NULL;
+    }
+}
 
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TMetricTraits>
 void
-MultiImageOpticalFlowImageFilterBase<TInputImage,TOutputImage,TDeformationField>
+MultiComponentImageMetricBase<TMetricTraits>
+::AllocateOutputs()
+{
+  this->GetMetricOutput()->Allocate();
+
+  if(m_ComputeGradient)
+    this->GetGradientOutput()->Allocate();
+
+  if(m_ComputeMovingDomainMask)
+    this->GetMovingDomainMaskOutput()->Allocate();
+
+  if(m_ComputeGradient && m_ComputeMovingDomainMask)
+    this->GetMovingDomainMaskGradientOutput()->Allocate();
+}
+
+template <class TMetricTraits>
+void
+MultiComponentImageMetricBase<TMetricTraits>
 ::GenerateInputRequestedRegion()
 {
   // call the superclass's implementation
@@ -60,20 +106,13 @@ MultiImageOpticalFlowImageFilterBase<TInputImage,TOutputImage,TDeformationField>
 }
 
 
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TMetricTraits>
 void
-MultiImageOpticalFlowImageFilterBase<TInputImage,TOutputImage,TDeformationField>
+MultiComponentImageMetricBase<TMetricTraits>
 ::GenerateOutputInformation()
 {
   // call the superclass's implementation of this method
   Superclass::GenerateOutputInformation();
-
-  OutputImageType *outputPtr = this->GetOutput();
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
-  outputPtr->SetSpacing( fixed->GetSpacing() );
-  outputPtr->SetOrigin( fixed->GetOrigin() );
-  outputPtr->SetDirection( fixed->GetDirection() );
-  outputPtr->SetLargestPossibleRegion( fixed->GetLargestPossibleRegion() );
 }
 
 
@@ -82,12 +121,12 @@ MultiImageOpticalFlowImageFilterBase<TInputImage,TOutputImage,TDeformationField>
  * InterpolatorType::SetInputImage is not thread-safe and hence
  * has to be setup before ThreadedGenerateData
  */
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TMetricTraits>
 void
-MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
+MultiImageOpticalFlowImageFilter<TMetricTraits>
 ::BeforeThreadedGenerateData()
 {
-  const InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
+  const InputImageType *fixed = this->GetFixedImage();
 
   // Create the prototype results vector
   m_MetricStatsPerThread.clear();
@@ -105,12 +144,12 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 /**
  * Setup state of filter after multi-threading.
  */
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TMetricTraits>
 void
-MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
+MultiImageOpticalFlowImageFilter<TMetricTraits>
 ::AfterThreadedGenerateData()
 {
-  const InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
+  const InputImageType *fixed = this->GetFixedImage();
 
   // Allocate the final result vector
   m_MetricStats.metric_values.set_size(fixed->GetNumberOfComponentsPerPixel());
@@ -132,9 +171,9 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
   m_MetricValue /= m_MetricStats.num_voxels;
 }
 
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TMetricTraits>
 vnl_vector<double>
-MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
+MultiImageOpticalFlowImageFilter<TMetricTraits>
 ::GetAllMetricValues() const
 {
   vnl_vector<double> result;
@@ -145,26 +184,28 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 /**
  * Compute the output for the region specified by outputRegionForThread.
  */
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TMetricTraits>
 void
-MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
+MultiImageOpticalFlowImageFilter<TMetricTraits>
 ::ThreadedGenerateData(
   const OutputImageRegionType& outputRegionForThread,
   itk::ThreadIdType threadId )
 {
   // Get the pointers to the input and output images
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
-  InputImageType *moving = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("moving"));
-  DeformationFieldType *phi = dynamic_cast<DeformationFieldType *>(this->itk::ProcessObject::GetInput("phi"));
-  OutputImageType *out = this->GetOutput();
+  InputImageType *fixed = this->GetFixedImage();
+  InputImageType *moving = this->GetMovingImage();
+  DeformationFieldType *phi = this->GetDeformationField();
+
+  // Get the pointer to the metric image and to the gradient image
+  MetricImageType *metric = this->GetMetricOutput();
+  GradientImageType *gradient = this->GetGradientOutput();
 
   // Get the number of components
   int kFixed = fixed->GetNumberOfComponentsPerPixel();
-  int kMoving = moving->GetNumberOfComponentsPerPixel();
 
   // Iterate over the deformation field and the output image. In reality, we don't
   // need to waste so much time on iteration, so we use a specialized iterator here
-  typedef itk::ImageRegionIteratorWithIndex<OutputImageType> OutputIterBase;
+  typedef itk::ImageLinearConstIteratorWithIndex<MetricImageType> OutputIterBase;
   typedef IteratorExtender<OutputIterBase> OutputIter;
 
   // Location of the lookup
@@ -172,9 +213,13 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
 
   // Pointer to the fixed image data
   const InputComponentType *bFix = fixed->GetBufferPointer();
-  const InputComponentType *bMov = moving->GetBufferPointer();
   const DeformationVectorType *bPhi = phi->GetBufferPointer();
-  OutputPixelType *bOut = out->GetBufferPointer();
+
+  // Pointers to the output data
+  MetricPixelType *bMetric = metric->GetBufferPointer();
+  GradientPixelType *bGradient = gradient->GetBufferPointer();
+  MetricPixelType *bMDMask = this->GetMovingDomainMaskOutput()->GetBufferPointer();
+  GradientPixelType *bMDMaskGradient = this->GetMovingDomainMaskGradientOutput()->GetBufferPointer();
 
   // Pointer to store interpolated moving data
   vnl_vector<InputComponentType> interp_mov(kFixed);
@@ -191,94 +236,222 @@ MultiImageOpticalFlowImageFilter<TInputImage,TOutputImage,TDeformationField>
   FastInterpolator flint(moving);
 
   // Iterate over the fixed space region
-  for(OutputIter it(out, outputRegionForThread); !it.IsAtEnd(); ++it)
+  for(OutputIter it(metric, outputRegionForThread); !it.IsAtEnd(); it.NextLine())
     {
+    // Process the whole line using pointer arithmetic. We have to deal with messy behavior
+    // of iterators on vector images. Trying to avoid using accessors and Set/Get
+    long offset_in_pixels = it.GetPosition() - bMetric;
+
+    // Output pointer (simple pointer arithmetic here)
+    MetricPixelType *ptrMetric = bMetric + offset_in_pixels;
+    MetricPixelType *ptrMetricEnd = ptrMetric + outputRegionForThread.GetSize(0);
+
+    // Get the beginning of the same line in the deformation image
+    const DeformationVectorType *def_ptr = bPhi + offset_in_pixels;
+
+    // Get the beginning of the same line in the fixed image
+    const InputComponentType *fix_ptr = bFix + offset_in_pixels * kFixed;
+
     // Get the index at the current location
-    const IndexType &idx = it.GetIndex();
+    IndexType idx = it.GetIndex();
 
     // Get the output pointer at this location
-    OutputPixelType *ptrOut = const_cast<OutputPixelType *>(it.GetPosition());
+    GradientPixelType *ptrGrad = (this->m_ComputeGradient) ? bGradient + offset_in_pixels : NULL;
 
-    // Get the offset into the fixed pointer
-    long offset = ptrOut - bOut;
+    // Get the output pointer for the mask and mask gradient
+    MetricPixelType *ptrMDMask = (this->m_ComputeMovingDomainMask) ? bMDMask + offset_in_pixels : NULL;
+    GradientPixelType *ptrMDMaskGradient =
+        (this->m_ComputeMovingDomainMask && this->m_ComputeGradient)
+        ? bMDMaskGradient + offset_in_pixels : NULL;
 
-    // Map to a position at which to interpolate
-    const DeformationVectorType &def = bPhi[offset];
-    for(int i = 0; i < ImageDimension; i++)
-      cix[i] = idx[i] + def[i];
-
-    // Perform the interpolation, put the results into interp_mov
-    typename FastInterpolator::InOut status =
-        flint.InterpolateWithGradient(cix.data_block(),
-                                      interp_mov.data_block(),
-                                      interp_mov_grad.data_block());
-
-    // Handle outside values
-    if(status == FastInterpolator::OUTSIDE)
+    // Loop over the line
+    for(; ptrMetric < ptrMetricEnd; idx[0]++, def_ptr++)
       {
-      interp_mov.fill(0.0);
-      interp_mov_grad.fill(0.0);
-      }
+      // Clear the metric value for accumulation
+      *ptrMetric = 0.0;
 
-    // Compute the optical flow gradient field
-    OutputPixelType &vOut = *ptrOut;
-    for(int i = 0; i < ImageDimension; i++)
-      vOut[i] = 0;
+      // Pointer to the data storing the interpolated moving values
+      InputComponentType *mov_ptr = interp_mov.data_block();
+      const InputComponentType *mov_ptr_end = mov_ptr + kFixed;
 
-    // Iterate over the components
-    const InputComponentType *mov_ptr = interp_mov.data_block();
-    const InputComponentType *mov_ptr_end = mov_ptr + kFixed;
-    const InputComponentType *mov_grad_ptr = interp_mov_grad.data_block();
-    const InputComponentType *fix_ptr = bFix + offset * kFixed;
-    float *wgt_ptr = this->m_Weights.data_block();
-    double *met_ptr = metric_accum_ptr;
+      // Where the gradient is placed
+      InputComponentType *mov_grad_ptr = interp_mov_grad.data_block();
 
-    // Compute the gradient of the term contribution for this voxel
-    for( ;mov_ptr < mov_ptr_end; ++mov_ptr, ++fix_ptr, ++wgt_ptr, ++met_ptr)
-      {
-      // Intensity difference for k-th component
-      double del = (*fix_ptr) - *(mov_ptr);
+      // Pointer to the weight array
+      float *wgt_ptr = this->m_Weights.data_block();
 
-      // Weighted intensity difference for k-th component
-      double delw = (*wgt_ptr) * del;
+      // Pointer to the per-component metric accumulator
+      double *comp_accum_ptr = metric_accum_ptr;
 
-      // Accumulate the weighted sum of squared differences
-      *met_ptr += delw * del;
-
-      // Accumulate the weighted gradient term
+      // Map to a position at which to interpolate
       for(int i = 0; i < ImageDimension; i++)
-        vOut[i] += delw * *(mov_grad_ptr++);
-      }
+        cix[i] = idx[i] + (*def_ptr)[i];
 
-    metric_stats.num_voxels++;
+      typename FastInterpolator::InOut status;
+
+      if(this->m_ComputeGradient)
+        {
+        // Compute gradient
+        status = flint.InterpolateWithGradient(cix.data_block(), mov_ptr, mov_grad_ptr);
+
+        // Zero out the optical flow gradient field
+        ptrGrad->Fill(0.0);
+        }
+      else
+        {
+        // Just interpolate
+        status = flint.Interpolate(cix.data_block(), mov_ptr);
+        }
+
+      // Handle outside values
+      if(status == FastInterpolator::OUTSIDE)
+        {
+        interp_mov.fill(0.0);
+        if(this->m_ComputeGradient)
+          interp_mov_grad.fill(0.0);
+        }
+
+      // Iterate over the components
+      for( ;mov_ptr < mov_ptr_end; ++mov_ptr, ++fix_ptr, ++wgt_ptr, ++comp_accum_ptr)
+        {
+        // Intensity difference for k-th component
+        double del = (*fix_ptr) - *(mov_ptr);
+
+        // Weighted intensity difference for k-th component
+        double delw = (*wgt_ptr) * del;
+
+        // Add this information to the metric
+        *ptrMetric += delw;
+
+        // Add this to the per-component accumulator
+        *comp_accum_ptr += delw;
+
+        // Add the gradient information
+        if(this->m_ComputeGradient)
+          {
+          for(int i = 0; i < ImageDimension; i++)
+            ptrGrad[i] += delw * *(mov_grad_ptr++);
+          }
+        }
+
+      // Handle the mask information
+      if(this->m_ComputeMovingDomainMask)
+        {
+        if(status == FastInterpolator::BORDER)
+          {
+          if(this->m_ComputeGradient)
+            {
+            *ptrMDMask++ = flint.GetMaskAndGradient((*ptrMDMaskGradient++).GetDataPointer());
+            }
+          else
+            {
+            *ptrMDMask++ = flint.GetMask();
+            }
+          }
+        else
+          {
+          *ptrMDMask++ = (status == FastInterpolator::INSIDE) ? 1.0 : 0.0;
+          if(this->m_ComputeGradient)
+            (*ptrMDMaskGradient++).Fill(0.0);
+          }
+        }
+
+      // Accumulate the number of voxels
+      metric_stats.num_voxels++;
+      }
     }
 }
+
+
+
+
+template <class TMetricTraits, class TOutputImage>
+MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
+::MultiImageNCCPrecomputeFilter()
+{
+  m_ComputeGradient = false;
+  m_ComputeMovingDomainMask = false;
+
+  // Create the outputs of this filter
+  this->SetPrimaryOutput(this->MakeOutput("Primary"));
+  this->SetOutput("moving_mask", this->MakeOutput("moving_mask"));
+  this->SetOutput("moving_mask_gradient", this->MakeOutput("moving_mask_gradient"));
+}
+
+template <class TMetricTraits, class TOutputImage>
+typename itk::DataObject::Pointer
+MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
+::MakeOutput(const DataObjectIdentifierType &key)
+{
+  if(key == "Primary")
+    {
+    return (OutputImageType::New()).GetPointer();
+    }
+  if(key == "moving_mask")
+    {
+    return (MetricImageType::New()).GetPointer();
+    }
+  else if(key == "moving_mask_gradient")
+    {
+    return (GradientImageType::New()).GetPointer();
+    }
+  else
+    {
+    return NULL;
+    }
+
+}
+
+template <class TMetricTraits, class TOutputImage>
+void
+MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
+::AllocateOutputs()
+{
+  // Allocate the primary output
+  this->GetOutput()->Allocate();
+
+  if(m_ComputeMovingDomainMask)
+    this->GetMovingDomainMaskOutput()->Allocate();
+
+  if(m_ComputeGradient && m_ComputeMovingDomainMask)
+    this->GetMovingDomainMaskGradientOutput()->Allocate();
+}
+
 
 
 /**
  * Generate output information, which will be different from the default
  */
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TMetricTraits, class TOutputImage>
 void
-MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
+MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
 ::GenerateOutputInformation()
 {
-  this->GetOutput()->CopyInformation(this->GetInput());
+  // Call the parent method to set up all the outputs
+  Superclass::GenerateOutputInformation();
 
-  int ncomp = (m_ComputeGradient)
-              ? 1 + this->GetInput()->GetNumberOfComponentsPerPixel() * (5 + ImageDimension * 3)
-              : 1 + this->GetInput()->GetNumberOfComponentsPerPixel() * 5;
-
+  // Set the number of components in the primary output
+  int ncomp = this->GetNumberOfOutputComponents();
   this->GetOutput()->SetNumberOfComponentsPerPixel(ncomp);
 }
 
+template <class TMetricTraits, class TOutputImage>
+int
+MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
+::GetNumberOfOutputComponents()
+{
+  int ncomp = (m_ComputeGradient)
+              ? 1 + this->GetInput()->GetNumberOfComponentsPerPixel() * (5 + ImageDimension * 3)
+              : 1 + this->GetInput()->GetNumberOfComponentsPerPixel() * 5;
+  return ncomp;
+}
 
 /**
  * Compute the output for the region specified by outputRegionForThread.
  */
-template <class TInputImage, class TOutputImage, class TDeformationField>
+template <class TMetricTraits, class TOutputImage>
 void
-MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
+MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
 ::ThreadedGenerateData(
   const OutputImageRegionType& outputRegionForThread,
   itk::ThreadIdType threadId )
@@ -297,7 +470,6 @@ MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
   // need to waste so much time on iteration, so we use a specialized iterator here
   typedef itk::ImageLinearConstIteratorWithIndex<OutputImageType> OutputIterBase;
   typedef IteratorExtender<OutputIterBase> OutputIter;
-  // typedef ImageRegionConstIteratorWithIndexOverride<OutputImageType> OutputIter;
 
   // Location of the lookup
   vnl_vector_fixed<float, ImageDimension> cix;
@@ -306,6 +478,10 @@ MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
   const InputComponentType *bFix = fixed->GetBufferPointer();
   const DeformationVectorType *bPhi = phi->GetBufferPointer();
   OutputComponentType *bOut = out->GetBufferPointer();
+
+  // Pointers to mask output data
+  MetricPixelType *bMDMask = this->GetMovingDomainMaskOutput()->GetBufferPointer();
+  GradientPixelType *bMDMaskGradient = this->GetMovingDomainMaskGradientOutput()->GetBufferPointer();
 
   // Pointer to store interpolated moving data
   vnl_vector<InputComponentType> interp_mov(kFixed);
@@ -335,26 +511,46 @@ MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
     // Get the index at the current location
     IndexType idx = it.GetIndex();
 
+    // Get the output pointer for the mask and mask gradient
+    MetricPixelType *ptrMDMask = (m_ComputeMovingDomainMask) ? bMDMask + offset_in_pixels : NULL;
+    GradientPixelType *ptrMDMaskGradient =
+        (m_ComputeMovingDomainMask && m_ComputeGradient)
+        ? bMDMaskGradient + offset_in_pixels : NULL;
+
     // Loop over the line
     for(; ptrOut < ptrEnd; idx[0]++, def_ptr++)
       {
+      // Pointer to the data storing the interpolated moving values
+      InputComponentType *mov_ptr = interp_mov.data_block();
+      const InputComponentType *mov_ptr_end = mov_ptr + kFixed;
+
+      // Where the gradient is placed
+      InputComponentType *mov_grad_ptr = interp_mov_grad.data_block();
+
       // Map to a position at which to interpolate
       for(int i = 0; i < ImageDimension; i++)
         cix[i] = idx[i] + (*def_ptr)[i];
 
-      // Perform the interpolation, put the results into interp_mov
-      typename FastInterpolator::InOut status =
-          flint.InterpolateWithGradient(cix.data_block(),
-                                        interp_mov.data_block(),
-                                        interp_mov_grad.data_block());
+      typename FastInterpolator::InOut status;
 
-      double x = cix[0], y = cix[1], z = cix[2];
+      if(m_ComputeGradient)
+        {
+        // Compute gradient
+        status = flint.InterpolateWithGradient(cix.data_block(), mov_ptr, mov_grad_ptr);
+        }
+      else
+        {
+        // Just interpolate
+        status = flint.Interpolate(cix.data_block(), mov_ptr);
+        }
+
 
       // Handle outside values
       if(status == FastInterpolator::OUTSIDE)
         {
         interp_mov.fill(0.0);
-        interp_mov_grad.fill(0.0);
+        if(m_ComputeGradient)
+          interp_mov_grad.fill(0.0);
         }
 
       // Fake a function
@@ -365,14 +561,6 @@ MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
       interp_mov_grad[1] = cos(a * x * y + b * z) * a * x - sin(c * x + d * y * z) * d * z;
       interp_mov_grad[2] = cos(a * x * y + b * z) * b     - sin(c * x + d * y * z) * d * y;
       */
-
-      // Fixed image pointer
-      const InputComponentType *mov_ptr = interp_mov.data_block();
-      const InputComponentType *mov_ptr_end = mov_ptr + kFixed;
-      const InputComponentType *mov_grad_ptr = interp_mov_grad.data_block();
-
-      // Fill out the output vector
-      // i, j, i^2, i*j, j^2, gradJ[0], i*gradJ[0], j*gradJ[0], ...
 
       // Write out 1!
       *ptrOut++ = 1.0;
@@ -395,6 +583,28 @@ MultiImageNCCPrecomputeFilter<TInputImage,TOutputImage,TDeformationField>
             *ptrOut++ = x_fix * x_grad_mov_i;
             *ptrOut++ = x_mov * x_grad_mov_i;
             }
+          }
+        }
+
+      // Handle the mask information
+      if(m_ComputeMovingDomainMask)
+        {
+        if(status == FastInterpolator::BORDER)
+          {
+          if(m_ComputeGradient)
+            {
+            *ptrMDMask++ = flint.GetMaskAndGradient((*ptrMDMaskGradient++).GetDataPointer());
+            }
+          else
+            {
+            *ptrMDMask++ = flint.GetMask();
+            }
+          }
+        else
+          {
+          *ptrMDMask++ = (status == FastInterpolator::INSIDE) ? 1.0 : 0.0;
+          if(m_ComputeGradient)
+            (*ptrMDMaskGradient++).Fill(0.0);
           }
         }
       }
@@ -796,6 +1006,138 @@ MultiImageNCCPostcomputeFilter<TInputImage,TMetricImage,TGradientImage,TMaskImag
         }
       }
     }
+}
+
+
+
+
+template <class TMetricTraits>
+void
+MultiComponentNCCImageMetric<TMetricTraits>
+::GenerateData()
+{
+  // Create the mini-pipeline of filters
+
+  // Pre-compute filter
+  typedef MultiImageNCCPrecomputeFilter<TMetricTraits, InputImageType> PreFilterType;
+  typename PreFilterType::Pointer preFilter = PreFilterType::New();
+
+  // Configure the precompute filter
+  preFilter->SetComputeGradient(this->m_ComputeGradient);
+  preFilter->SetComputeMovingDomainMask(this->m_ComputeMovingDomainMask);
+  preFilter->SetFixedImage(this->GetFixedImage());
+  preFilter->SetMovingImage(this->GetMovingImage());
+  preFilter->SetDeformationField(this->GetDeformationField());
+
+  // Number of components in the working image
+  int ncomp = preFilter->GetNumberOfOutputComponents();
+
+  // If the user supplied a working image, configure it and graft it as output
+  if(!m_WorkingImage)
+    {
+    // Configure the working image
+    m_WorkingImage->CopyInformation(this->GetFixedImage());
+    m_WorkingImage->SetNumberOfComponentsPerPixel(ncomp);
+    m_WorkingImage->SetRegions(this->GetFixedImage()->GetBufferedRegion());
+    m_WorkingImage->Allocate();
+
+    // Graft the working image onto the filter's output
+    preFilter->GraftOutput(m_WorkingImage);
+    }
+
+  // If the filter needs moving domain mask/gradient, graft those as well
+  if(this->m_ComputeMovingDomainMask)
+    {
+    preFilter->GetMovingDomainMaskOutput()->Graft(this->GetMovingDomainMaskOutput());
+    if(this->m_ComputeGradient)
+      preFilter->GetMovingDomainMaskGradientOutput()->Graft(
+            this->GetMovingDomainMaskGradientOutput());
+    }
+
+  // Execute the filter
+  preFilter->Update();
+
+#ifdef DUMP_NCC
+  typename itk::ImageFileWriter<MultiComponentImageType>::Pointer pwriter = itk::ImageFileWriter<MultiComponentImageType>::New();
+  pwriter->SetInput(preFilter->GetOutput());
+  pwriter->SetFileName("nccpre.nii.gz");
+  pwriter->Update();
+#endif
+
+  // Currently, we have all the stuff we need to compute the metric in the working
+  // image. Next, we run the fast sum computation to give us the local average of
+  // intensities, products, gradients in the working image
+  typedef OneDimensionalInPlaceAccumulateFilter<InputImageType> AccumFilterType;
+
+  // Create a chain of separable 1-D filters
+  typename itk::ImageSource<InputImageType>::Pointer pipeTail;
+  for(int dir = 0; dir < ImageDimension; dir++)
+    {
+    typename AccumFilterType::Pointer accum = AccumFilterType::New();
+    if(pipeTail.IsNull())
+      accum->SetInput(preFilter->GetOutput());
+    else
+      accum->SetInput(pipeTail->GetOutput());
+    accum->SetDimension(dir);
+    accum->SetRadius(m_Radius[dir]);
+    pipeTail = accum;
+
+    accum->Update();
+    }
+
+#ifdef DUMP_NCC
+  pwriter->SetInput(pipeTail->GetOutput());
+  pwriter->SetFileName("nccaccum.nii.gz");
+  pwriter->Update();
+#endif
+
+  // Now pipetail has the mean filtering of the different components in m_NCCWorkingImage.
+  // Last piece is to perform a calculation that will convert all this information into a
+  // metric value and a gradient value. For the time being, we will use the unary functor
+  // image filter to compute this, but a slightly more efficient implementation might be
+  // possible that accumulates the metric on the fly ...
+  typedef MultiImageNCCPostcomputeFilter<
+      InputImageType, MetricImageType, GradientImageType, MaskImageType> PostFilterType;
+
+  typename PostFilterType::Pointer postFilter = PostFilterType::New();
+
+  // Configure the post-processing filter
+  postFilter->SetComputeGradient(this->m_ComputeGradient);
+  postFilter->SetInput(pipeTail->GetOutput());
+
+  // Graft the metric image
+  postFilter->GetMetricOutput()->Graft(this->GetMetricOutput());
+
+  // Graft the gradient image if it is needed
+  if(this->m_ComputeGradient)
+    postFilter->GetGradientOutput()->Graft(this->GetGradientOutput());
+
+  // Set up the weights
+  postFilter->SetWeights(this->m_Weights);
+
+  // Set the mask on the post filter
+  if(this->GetFixedMaskImage())
+    postFilter->SetMaskImage(this->GetFixedMaskImage());
+
+  // Run the post-filter
+  postFilter->Update();
+
+#ifdef DUMP_NCC
+  // TODO: trash this code!!!!
+  // Get and save the metric image
+  typename itk::ImageFileWriter<FloatImageType>::Pointer writer = itk::ImageFileWriter<FloatImageType>::New();
+  writer->SetInput(postFilter->GetMetricImage());
+  writer->SetFileName("nccmap.nii.gz");
+  writer->Update();
+
+  typename itk::ImageFileWriter<VectorImageType>::Pointer qwriter = itk::ImageFileWriter<VectorImageType>::New();
+  qwriter->SetInput(result);
+  qwriter->SetFileName("nccgrad.mha");
+  qwriter->Update();
+#endif
+
+  // Get the metric
+  m_MetricValue = postFilter->GetMetricValue();
 }
 
 
