@@ -36,6 +36,9 @@ MultiComponentImageMetricBase<TMetricTraits>
   this->SetOutput("gradient", this->MakeOutput("gradient"));
   this->SetOutput("moving_mask", this->MakeOutput("moving_mask"));
   this->SetOutput("moving_mask_gradient", this->MakeOutput("moving_mask_gradient"));
+
+  this->m_ComputeGradient = false;
+  this->m_ComputeMovingDomainMask = false;
 }
 
 template <class TMetricTraits>
@@ -265,7 +268,7 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
         ? bMDMaskGradient + offset_in_pixels : NULL;
 
     // Loop over the line
-    for(; ptrMetric < ptrMetricEnd; idx[0]++, def_ptr++)
+    for(; ptrMetric < ptrMetricEnd; idx[0]++, def_ptr++, ptrMetric++, ptrGrad++)
       {
       // Clear the metric value for accumulation
       *ptrMetric = 0.0;
@@ -319,18 +322,19 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
 
         // Weighted intensity difference for k-th component
         double delw = (*wgt_ptr) * del;
+        double del2w = delw * del;
 
         // Add this information to the metric
-        *ptrMetric += delw;
+        *ptrMetric += del2w;
 
         // Add this to the per-component accumulator
-        *comp_accum_ptr += delw;
+        *comp_accum_ptr += del2w;
 
         // Add the gradient information
         if(this->m_ComputeGradient)
           {
           for(int i = 0; i < ImageDimension; i++)
-            ptrGrad[i] += delw * *(mov_grad_ptr++);
+            (*ptrGrad)[i] += delw * *(mov_grad_ptr++);
           }
         }
 
