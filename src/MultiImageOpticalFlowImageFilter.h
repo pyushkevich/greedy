@@ -146,13 +146,23 @@ public:
   itkSetMacro(Weights, WeightVectorType)
   itkGetConstMacro(Weights, WeightVectorType)
 
-  /** Specify whether the filter should compute gradients */
-  itkSetMacro(ComputeGradient, bool)
   itkBooleanMacro(ComputeGradient)
 
-  /** Specify whether the filter should compute a mask based on the moving image domain */
-  itkSetMacro(ComputeMovingDomainMask, bool)
+  /** Specify whether the filter should compute gradients */
+  void SetComputeGradient(bool flag)
+  {
+    this->m_ComputeGradient = flag;
+    this->UpdateOutputs();
+  }
+
   itkBooleanMacro(ComputeMovingDomainMask)
+
+  /** Specify whether the filter should compute a mask based on the moving image domain */
+  void SetComputeMovingDomainMask(bool flag)
+  {
+    this->m_ComputeMovingDomainMask = flag;
+    this->UpdateOutputs();
+  }
 
   /** Get the metric output */
   MetricImageType *GetMetricOutput()
@@ -188,13 +198,15 @@ public:
   virtual void GenerateInputRequestedRegion();
 
   virtual typename itk::DataObject::Pointer MakeOutput(const DataObjectIdentifierType &);
-  virtual void AllocateOutputs();
 
 protected:
   MultiComponentImageMetricBase();
   ~MultiComponentImageMetricBase() {}
 
   void VerifyInputInformation() {}
+
+  void UpdateOutputs();
+  void ToggleOutput(bool flag, const DataObjectIdentifierType &key);
 
   // Weight vector
   WeightVectorType                m_Weights;
@@ -483,17 +495,28 @@ public:
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, TOutputImage::ImageDimension );
 
+  itkBooleanMacro(ComputeGradient)
+
   /**
    * Whether the gradient of the NCC metric will be computed. Depending on this, the filter
    * will generate 5 components per pixel (x,y,xy,x2,y2) or a bunch more needed for the
    * gradient computation. Default is Off.
    */
-  itkSetMacro(ComputeGradient, bool)
-  itkBooleanMacro(ComputeGradient)
+  void SetComputeGradient(bool flag)
+  {
+    this->m_ComputeGradient = flag;
+    this->UpdateOutputs();
+  }
+
+  itkBooleanMacro(ComputeMovingDomainMask)
 
   /** Specify whether the filter should compute a mask based on the moving image domain */
-  itkSetMacro(ComputeMovingDomainMask, bool)
-  itkBooleanMacro(ComputeMovingDomainMask)
+  void SetComputeMovingDomainMask(bool flag)
+  {
+    this->m_ComputeMovingDomainMask = flag;
+    this->UpdateOutputs();
+  }
+
 
   /** Set the fixed image(s) */
   void SetFixedImage(InputImageType *fixed)
@@ -555,7 +578,9 @@ protected:
 
 
   virtual typename itk::DataObject::Pointer MakeOutput(const DataObjectIdentifierType &);
-  virtual void AllocateOutputs();
+
+  void UpdateOutputs();
+  void ToggleOutput(bool flag, const DataObjectIdentifierType &key);
 
 private:
   MultiImageNCCPrecomputeFilter(const Self&); //purposely not implemented

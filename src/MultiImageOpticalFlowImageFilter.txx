@@ -33,10 +33,6 @@ MultiComponentImageMetricBase<TMetricTraits>
 {
   // Create the outputs of this filter
   this->SetPrimaryOutput(this->MakeOutput("Primary"));
-  this->SetOutput("gradient", this->MakeOutput("gradient"));
-  this->SetOutput("moving_mask", this->MakeOutput("moving_mask"));
-  this->SetOutput("moving_mask_gradient", this->MakeOutput("moving_mask_gradient"));
-
   this->m_ComputeGradient = false;
   this->m_ComputeMovingDomainMask = false;
 }
@@ -63,19 +59,24 @@ MultiComponentImageMetricBase<TMetricTraits>
 template <class TMetricTraits>
 void
 MultiComponentImageMetricBase<TMetricTraits>
-::AllocateOutputs()
+::ToggleOutput(bool flag, const DataObjectIdentifierType &key)
 {
-  this->GetMetricOutput()->Allocate();
-
-  if(m_ComputeGradient)
-    this->GetGradientOutput()->Allocate();
-
-  if(m_ComputeMovingDomainMask)
-    this->GetMovingDomainMaskOutput()->Allocate();
-
-  if(m_ComputeGradient && m_ComputeMovingDomainMask)
-    this->GetMovingDomainMaskGradientOutput()->Allocate();
+  if(flag && !this->HasOutput(key))
+    this->SetOutput(key, this->MakeOutput(key));
+  if(!flag && this->HasOutput(key))
+    this->RemoveOutput(key);
 }
+
+template <class TMetricTraits>
+void
+MultiComponentImageMetricBase<TMetricTraits>
+::UpdateOutputs()
+{
+  this->ToggleOutput(m_ComputeGradient, "gradient");
+  this->ToggleOutput(m_ComputeMovingDomainMask, "moving_mask");
+  this->ToggleOutput(m_ComputeGradient && m_ComputeMovingDomainMask, "moving_mask_gradient");
+}
+
 
 template <class TMetricTraits>
 void
@@ -220,9 +221,18 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
 
   // Pointers to the output data
   MetricPixelType *bMetric = metric->GetBufferPointer();
-  GradientPixelType *bGradient = gradient->GetBufferPointer();
-  MetricPixelType *bMDMask = this->GetMovingDomainMaskOutput()->GetBufferPointer();
-  GradientPixelType *bMDMaskGradient = this->GetMovingDomainMaskGradientOutput()->GetBufferPointer();
+
+  GradientPixelType *bGradient = (this->m_ComputeGradient)
+                                 ? this->GetGradientOutput()->GetBufferPointer()
+                                 : NULL;
+
+  MetricPixelType *bMDMask = (this->m_ComputeMovingDomainMask)
+                             ? this->GetMovingDomainMaskOutput()->GetBufferPointer()
+                             : NULL;
+
+  GradientPixelType *bMDMaskGradient = (this->m_ComputeGradient && this->m_ComputeMovingDomainMask)
+                                       ? this->GetMovingDomainMaskGradientOutput()->GetBufferPointer()
+                                       : NULL;
 
   // Pointer to store interpolated moving data
   vnl_vector<InputComponentType> interp_mov(kFixed);
@@ -378,8 +388,6 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
 
   // Create the outputs of this filter
   this->SetPrimaryOutput(this->MakeOutput("Primary"));
-  this->SetOutput("moving_mask", this->MakeOutput("moving_mask"));
-  this->SetOutput("moving_mask_gradient", this->MakeOutput("moving_mask_gradient"));
 }
 
 template <class TMetricTraits, class TOutputImage>
@@ -403,24 +411,27 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
     {
     return NULL;
     }
-
 }
 
 template <class TMetricTraits, class TOutputImage>
 void
 MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
-::AllocateOutputs()
+::ToggleOutput(bool flag, const DataObjectIdentifierType &key)
 {
-  // Allocate the primary output
-  this->GetOutput()->Allocate();
-
-  if(m_ComputeMovingDomainMask)
-    this->GetMovingDomainMaskOutput()->Allocate();
-
-  if(m_ComputeGradient && m_ComputeMovingDomainMask)
-    this->GetMovingDomainMaskGradientOutput()->Allocate();
+  if(flag && !this->HasOutput(key))
+    this->SetOutput(key, this->MakeOutput(key));
+  if(!flag && this->HasOutput(key))
+    this->RemoveOutput(key);
 }
 
+template <class TMetricTraits, class TOutputImage>
+void
+MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
+::UpdateOutputs()
+{
+  this->ToggleOutput(m_ComputeMovingDomainMask, "moving_mask");
+  this->ToggleOutput(m_ComputeGradient && m_ComputeMovingDomainMask, "moving_mask_gradient");
+}
 
 
 /**
@@ -483,9 +494,14 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
   const DeformationVectorType *bPhi = phi->GetBufferPointer();
   OutputComponentType *bOut = out->GetBufferPointer();
 
-  // Pointers to mask output data
-  MetricPixelType *bMDMask = this->GetMovingDomainMaskOutput()->GetBufferPointer();
-  GradientPixelType *bMDMaskGradient = this->GetMovingDomainMaskGradientOutput()->GetBufferPointer();
+  // Pointers to mask output data  GradientPixelType *bGradient = (this->m_ComputeGradient)
+  MetricPixelType *bMDMask = (this->m_ComputeMovingDomainMask)
+                             ? this->GetMovingDomainMaskOutput()->GetBufferPointer()
+                             : NULL;
+
+  GradientPixelType *bMDMaskGradient = (this->m_ComputeGradient && this->m_ComputeMovingDomainMask)
+                                       ? this->GetMovingDomainMaskGradientOutput()->GetBufferPointer()
+                                       : NULL;
 
   // Pointer to store interpolated moving data
   vnl_vector<InputComponentType> interp_mov(kFixed);
@@ -1046,7 +1062,7 @@ MultiComponentNCCImageMetric<TMetricTraits>
     m_WorkingImage->Allocate();
 
     // Graft the working image onto the filter's output
-    preFilter->GraftOutput(m_WorkingImage);
+    // TODO: preFilter->GraftOutput(m_WorkingImage);
     }
 
   // If the filter needs moving domain mask/gradient, graft those as well
