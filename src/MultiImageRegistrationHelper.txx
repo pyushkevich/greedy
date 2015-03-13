@@ -30,6 +30,8 @@
 #include "OneDimensionalInPlaceAccumulateFilter.h"
 #include "itkUnaryFunctorImageFilter.h"
 
+#include "LinearTransformToWarpFilter.h"
+
 #include "itkImageFileWriter.h"
 
 template <class TFloat, unsigned int VDim>
@@ -324,8 +326,13 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 double
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::ComputeAffineMatchAndGradient(
-    int level, LinearTransformType *tran,
+::ComputeAffineMatchAndGradient(int level,
+    LinearTransformType *tran,
+    FloatImageType *wrkMetric,
+    FloatImageType *wrkMask,
+    VectorImageType *wrkGradMetric,
+    VectorImageType *wrkGradMask,
+    VectorImageType *wrkPhi,
     LinearTransformType *grad)
 {
   // Scale the weights by epsilon
@@ -333,26 +340,90 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   for(int i = 0; i < wscaled.size(); i++)
     wscaled[i] = m_Weights[i];
 
+  // Create a deformation field from the affine transform
+  typedef LinearTransformToWarpFilter<
+      MultiComponentImageType, VectorImageType, LinearTransformType> WarpFilter;
+  typename WarpFilter::Pointer warp_source = WarpFilter::New();
+  warp_source->SetInput(m_FixedComposite[level]);
+  warp_source->SetTransform(tran);
+  warp_source->GraftOutput(wrkPhi);
+
+  // Set up the optical flow computation
+  typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
+  typedef MultiImageOpticalFlowImageFilter<TraitsType> MetricType;
+  typename MetricType::Pointer metric = MetricType::New();
+
+  metric->SetFixedImage(m_FixedComposite[level]);
+  metric->SetMovingImage(m_MovingComposite[level]);
+  metric->SetWeights(wscaled);
+  metric->SetDeformationField(warp_source->GetOutput());
+
+  metric->GetMetricOutput()->Graft(wrkMetric);
+
+  metric->SetComputeMovingDomainMask(true);
+  metric->GetMovingDomainMaskOutput()->Graft(wrkMask);
+
+  if(grad)
+    {
+    metric->SetComputeGradient(true);
+    metric->GetGradientOutput()->Graft(wrkGradMetric);
+    metric->GetMovingDomainMaskGradientOutput()->Graft(wrkGradMask);
+    }
+
   // Use finite differences
-  typedef MultiImageAffineMSDMetricFilter<MultiComponentImageType> FilterType;
-  typename FilterType::Pointer filter = FilterType::New();
+  typedef MultiImageAffineMetricFilter<TraitsType> AffineMetricType;
+  typename AffineMetricType::Pointer affine_metric = AffineMetricType::New();
 
   // Run the filter
-  filter->SetFixedImage(m_FixedComposite[level]);
-  filter->SetMovingImageAndGradient(m_MovingComposite[level]);
-  filter->SetTransform(tran);
-  filter->SetWeights(wscaled);
-  filter->SetComputeGradient(grad != NULL);
-  filter->Update();
+  affine_metric->SetMetricImage(metric->GetMetricOutput());
+  affine_metric->SetMovingDomainMaskImage(metric->GetMovingDomainMaskOutput());
+
+  // TODO: only if gradient!
+  if(grad)
+    {
+    /*
+    typedef itk::ImageFileWriter<FloatImageType> IW;
+    typename IW::Pointer iw = IW::New();
+    iw->SetFileName("dump_mask.nii.gz");
+    iw->SetInput(metric->GetMovingDomainMaskOutput());
+    iw->Update();
+
+    iw->SetFileName("dump_metric.nii.gz");
+    iw->SetInput(metric->GetMetricOutput());
+    iw->Update();
+
+    typedef itk::ImageFileWriter<VectorImageType> GW;
+    typename GW::Pointer gw = GW::New();
+    gw->SetFileName("dump_mask_grad.mha");
+    gw->SetInput(metric->GetMovingDomainMaskGradientOutput());
+    gw->Update();
+
+    gw->SetFileName("dump_metric_grad.mha");
+    gw->SetInput(metric->GetGradientOutput());
+    gw->Update();
+
+    gw->SetFileName("dump_phi.mha");
+    gw->SetInput(wrkPhi);
+    gw->Update();
+
+    exit(-1);
+    */
+
+    affine_metric->SetComputeGradient(true);
+    affine_metric->SetGradientImage(metric->GetGradientOutput());
+    affine_metric->SetMovingDomainMaskGradientImage(metric->GetMovingDomainMaskGradientOutput());
+    }
+
+  affine_metric->Update();
 
   // Process the results
   if(grad)
     {
-    grad->SetMatrix(filter->GetMetricGradient()->GetMatrix());
-    grad->SetOffset(filter->GetMetricGradient()->GetOffset());
+    grad->SetMatrix(affine_metric->GetMetricGradient()->GetMatrix());
+    grad->SetOffset(affine_metric->GetMetricGradient()->GetOffset());
     }
 
-  return filter->GetMetricValue();
+  return affine_metric->GetMetricValue();
 
 }
 

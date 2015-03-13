@@ -31,9 +31,9 @@
  * InterpolatorType::SetInputImage is not thread-safe and hence
  * has to be setup before ThreadedGenerateData
  */
-template <class TInputImage>
+template <class TMetricTraits>
 void
-MultiImageAffineMSDMetricFilter<TInputImage>
+MultiImageAffineMetricFilter<TMetricTraits>
 ::BeforeThreadedGenerateData()
 {
   // Initialize the per thread data
@@ -43,9 +43,9 @@ MultiImageAffineMSDMetricFilter<TInputImage>
 /**
  * Setup state of filter after multi-threading.
  */
-template <class TInputImage>
+template <class TMetricTraits>
 void
-MultiImageAffineMSDMetricFilter<TInputImage>
+MultiImageAffineMetricFilter<TMetricTraits>
 ::AfterThreadedGenerateData()
 {
   // Add up all the thread data
@@ -58,6 +58,7 @@ MultiImageAffineMSDMetricFilter<TInputImage>
     summary.grad_mask += m_ThreadData[i].grad_mask;
     }
 
+  // Initialize the output metric gradient
   m_MetricGradient = TransformType::New();
 
   // Compute the objective value
@@ -75,28 +76,24 @@ MultiImageAffineMSDMetricFilter<TInputImage>
   unflatten_affine_transform(grad_metric.data_block(), m_MetricGradient.GetPointer());
 }
 
-template <class TInputImage>
+template <class TMetricTraits>
 void
-MultiImageAffineMSDMetricFilter<TInputImage>
+MultiImageAffineMetricFilter<TMetricTraits>
 ::GenerateInputRequestedRegion()
 {
   // Call the superclass's implementation
   Superclass::GenerateInputRequestedRegion();
 
-  // Set regions to max
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
-  InputImageType *moving = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("moving"));
-
-  if(moving)
-    moving->SetRequestedRegionToLargestPossibleRegion();
-
-  if(fixed)
-    fixed->SetRequestedRegionToLargestPossibleRegion();
+  // Set all regions to max
+  this->GetMetricImage()->SetRequestedRegionToLargestPossibleRegion();
+  this->GetGradientImage()->SetRequestedRegionToLargestPossibleRegion();
+  this->GetMovingDomainMaskImage()->SetRequestedRegionToLargestPossibleRegion();
+  this->GetMovingDomainMaskGradientImage()->SetRequestedRegionToLargestPossibleRegion();
 }
 
-template <class TInputImage>
+template <class TMetricTraits>
 void
-MultiImageAffineMSDMetricFilter<TInputImage>
+MultiImageAffineMetricFilter<TMetricTraits>
 ::EnlargeOutputRequestedRegion(itk::DataObject *data)
 {
   Superclass::EnlargeOutputRequestedRegion(data);
@@ -104,137 +101,88 @@ MultiImageAffineMSDMetricFilter<TInputImage>
 }
 
 
-template <class TInputImage>
+template <class TMetricTraits>
 void
-MultiImageAffineMSDMetricFilter<TInputImage>
+MultiImageAffineMetricFilter<TMetricTraits>
 ::AllocateOutputs()
 {
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
-  this->GraftOutput(fixed);
+  // Propagate input
+  this->GraftOutput(this->GetMetricImage());
 }
 
 
-template <class TInputImage>
+template <class TMetricTraits>
 void
-MultiImageAffineMSDMetricFilter<TInputImage>
+MultiImageAffineMetricFilter<TMetricTraits>
 ::ThreadedGenerateData(
   const OutputImageRegionType& outputRegionForThread,
   itk::ThreadIdType threadId )
 {
   // Get the pointers to the input and output images
-  InputImageType *fixed = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary"));
-  InputImageType *moving = dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("moving"));
+  InputImageType *metric = this->GetMetricImage();
+  InputImageType *mask = this->GetMovingDomainMaskImage();
 
-  // Get the pointer to the start of the fixed data
-  const InputComponentType *fix_buffer = fixed->GetBufferPointer();
+  // Get the pointers to the buffers of these four images
+  const InputPixelType *b_metric = metric->GetBufferPointer();
+  const InputPixelType *b_mask = mask->GetBufferPointer();
 
-  // Get the number of components
-  int kFixed = fixed->GetNumberOfComponentsPerPixel();
-  int kMoving = moving->GetNumberOfComponentsPerPixel();
+  const GradientPixelType *b_gradient =
+      m_ComputeGradient ? this->GetGradientImage()->GetBufferPointer() : NULL;
 
-  // Create an interpolator for the moving image
-  typedef FastLinearInterpolator<InputComponentType, ImageDimension> FastInterpolator;
-  FastInterpolator flint(moving);
+  const GradientPixelType *b_mask_gradient =
+      m_ComputeGradient ? this->GetMovingDomainMaskGradientImage()->GetBufferPointer() : NULL;
 
   // Iterate over the deformation field and the output image. In reality, we don't
   // need to waste so much time on iteration, so we use a specialized iterator here
-  typedef itk::ImageRegionConstIteratorWithIndex<InputImageType> FixedIterBase;
-  typedef IteratorExtender<FixedIterBase> FixedIter;
-
-  // Location of the lookup
-  vnl_vector_fixed<float, ImageDimension> cix;
-
-  // Pointer to store interpolated moving data
-  vnl_vector<typename InputImageType::InternalPixelType> interp_mov(kFixed);
-
-  // Pointer to store the gradient of the moving images
-  vnl_vector<typename InputImageType::InternalPixelType> interp_mov_grad(kFixed * ImageDimension);
+  typedef itk::ImageLinearConstIteratorWithIndex<InputImageType> IterBase;
+  typedef IteratorExtender<IterBase> Iter;
 
   // The thread data to accumulate
   ThreadData &td = m_ThreadData[threadId];
-
-  // Affine transform matrix and vector
-  vnl_matrix_fixed<double, ImageDimension, ImageDimension> M =
-      m_Transform->GetMatrix().GetVnlMatrix();
-  vnl_vector_fixed<double, ImageDimension> off =
-      m_Transform->GetOffset().GetVnlVector();
 
   // Gradient accumulator
   vnl_vector_fixed<double, ImageDimension> grad, gradM;
 
   // Iterate over the fixed space region
-  for(FixedIter it(fixed, outputRegionForThread); !it.IsAtEnd(); ++it)
+  for(Iter it(metric, outputRegionForThread); !it.IsAtEnd(); it.NextLine())
     {
-    // Get the index at the current location
-    const IndexType &idx = it.GetIndex();
+    // Process the whole line using pointer arithmetic. We have to deal with messy behavior
+    // of iterators on vector images. Trying to avoid using accessors and Set/Get
+    long offset_in_pixels = it.GetPosition() - b_metric;
 
-    // Get the pointer to the fixed pixel
-    // TODO: WHY IS THIS RETURNING NONSENSE?
-    const InputComponentType *fix_ptr =
-        fix_buffer + (it.GetPosition() - fix_buffer) * kFixed;
+    // Get pointers to the start of the line
+    const InputPixelType *p_metric = b_metric + offset_in_pixels;
+    const InputPixelType *p_mask = b_mask + offset_in_pixels;
 
-    // Map to a position at which to interpolate
-    // TODO: all this can be done more efficiently!
-    for(int i = 0; i < ImageDimension; i++)
-      {
-      cix[i] = off[i];
-      for(int j = 0; j < ImageDimension; j++)
-        cix[i] += M(i,j) * idx[j];
-      }
+    // Loop over the line
+    const InputPixelType *p_metric_end = p_metric + outputRegionForThread.GetSize(0);
 
-    // Do we need the gradient?
+    // Loop if we are computing gradient
     if(m_ComputeGradient)
       {
-      // Interpolate moving image with gradient
-      typename FastInterpolator::InOut status =
-          flint.InterpolateWithGradient(cix.data_block(),
-                                        interp_mov.data_block(),
-                                        interp_mov_grad.data_block());
+      const GradientPixelType *p_gradient = b_gradient + offset_in_pixels;
+      const GradientPixelType *p_mask_gradient = b_mask_gradient + offset_in_pixels;
 
-      // Stop if the sample is outside
-      if(status == FastInterpolator::OUTSIDE)
-        continue;
+      // Get the index at the current location
+      IndexType idx = it.GetIndex();
 
-      // Initialize the gradient to zeros
-      grad.fill(0.0);
-
-      // Iterate over the components
-      const InputComponentType *mov_ptr = interp_mov.data_block(), *mov_ptr_end = mov_ptr + kFixed;
-      const InputComponentType *mov_grad_ptr = interp_mov_grad.data_block();
-      float *wgt_ptr = m_Weights.data_block();
-      double w_sq_diff = 0.0;
-
-      // Compute the gradient of the term contribution for this voxel
-      for( ;mov_ptr < mov_ptr_end; ++mov_ptr, ++fix_ptr, ++wgt_ptr)
+      // Do we need the gradient?
+      for(; p_metric < p_metric_end; ++p_metric, ++p_mask, ++p_gradient, ++p_mask_gradient, ++idx[0])
         {
-        // Intensity difference for k-th component
-        double del = (*fix_ptr) - *(mov_ptr);
+        // Accumulators for the gradients
+        double *out_grad = td.gradient.data_block();
+        double *out_grad_mask = td.grad_mask.data_block();
 
-        // Weighted intensity difference for k-th component
-        double delw = (*wgt_ptr) * del;
-
-        // Accumulate the weighted sum of squared differences
-        w_sq_diff += delw * del;
-
-        // Accumulate the weighted gradient term
-        for(int i = 0; i < ImageDimension; i++)
-          grad[i] += delw * *(mov_grad_ptr++);
-        }
-
-      // Accumulators for the gradients
-      double *out_grad = td.gradient.data_block();
-      double *out_grad_mask = td.grad_mask.data_block();
-
-      // For border regions, we need to explicitly deal with the mask
-      if(status == FastInterpolator::BORDER)
-        {
-        // Border - compute the mask and its gradient
-        double mask = flint.GetMaskAndGradient(gradM.data_block());
+        // For border regions, we need to explicitly deal with the mask
+        const InputPixelType &metric = *p_metric;
+        const InputPixelType &mask = *p_mask;
+        const GradientPixelType &grad = *p_gradient;
+        const GradientPixelType &gradM = *p_mask_gradient;
 
         // Compute the mask and metric gradient contributions
         for(int i = 0; i < ImageDimension; i++)
           {
-          double v = grad[i] * mask - 0.5 * gradM[i] * w_sq_diff;
+          double v = grad[i] * mask - 0.5 * gradM[i] * metric;
           *(out_grad++) += v;
           *(out_grad_mask++) += gradM[i];
           for(int j = 0; j < ImageDimension; j++)
@@ -244,67 +192,20 @@ MultiImageAffineMSDMetricFilter<TInputImage>
             }
           }
 
-        td.metric += w_sq_diff * mask;
+        td.metric += metric * mask;
         td.mask += mask;
-        }
-      else
-        {
-        // No border - means no dealing with the mask!
-        for(int i = 0; i < ImageDimension; i++)
-          {
-          *(out_grad++) += grad[i];
-          for(int j = 0; j < ImageDimension; j++)
-            {
-            *(out_grad++) += grad[i] * idx[j];
-            }
-          }
-
-        td.metric += w_sq_diff;
-        td.mask += 1.0;
         }
       }
-
-    // No gradient requested
     else
       {
-      // Interpolate moving image with gradient
-      typename FastInterpolator::InOut status =
-          flint.Interpolate(cix.data_block(), interp_mov.data_block());
-
-      // Stop if the sample is outside
-      if(status == FastInterpolator::OUTSIDE)
-        continue;
-
-      // Iterate over the components
-      const InputComponentType *mov_ptr = interp_mov.data_block(), *mov_ptr_end = mov_ptr + kFixed;
-      float *wgt_ptr = m_Weights.data_block();
-      double w_sq_diff = 0.0;
-
-      // Compute the gradient of the term contribution for this voxel
-      for( ;mov_ptr < mov_ptr_end; ++mov_ptr, ++fix_ptr, ++wgt_ptr)
+      // Do we need the gradient?
+      for(; p_metric < p_metric_end; ++p_metric, ++p_mask)
         {
-        // Intensity difference for k-th component
-        double del = (*fix_ptr) - *(mov_ptr);
-
-        // Weighted intensity difference for k-th component
-        double delw = (*wgt_ptr) * del;
-
-        // Accumulate the weighted sum of squared differences
-        w_sq_diff += delw * del;
-        }
-
-      // For border regions, we need to explicitly deal with the mask
-      if(status == FastInterpolator::BORDER)
-        {
-        // Border - compute the mask and its gradient
-        double mask = flint.GetMaskAndGradient(gradM.data_block());
-        td.metric += w_sq_diff * mask;
+        // For border regions, we need to explicitly deal with the mask
+        const InputPixelType &metric = *p_metric;
+        const InputPixelType &mask = *p_mask;
+        td.metric += metric * mask;
         td.mask += mask;
-        }
-      else
-        {
-        td.metric += w_sq_diff;
-        td.mask += 1.0;
         }
       }
     }

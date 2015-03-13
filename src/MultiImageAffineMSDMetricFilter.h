@@ -66,65 +66,83 @@ static void unflatten_affine_transform(
 
 
 /**
- * This filter computes the gradient of the affine transform
+ * This filter computes the gradient of the affine transform. The inputs to this filter
+ * should come from a metric
  */
-template <class TInputImage>
-class ITK_EXPORT MultiImageAffineMSDMetricFilter :
-    public itk::ImageToImageFilter<TInputImage, TInputImage>
+template <class TMetricTraits>
+class ITK_EXPORT MultiImageAffineMetricFilter :
+    public itk::ImageToImageFilter<typename TMetricTraits::MetricImageType,
+                                   typename TMetricTraits::MetricImageType>
 {
 public:
+
+  /** Type definitions from the traits class */
+  typedef typename TMetricTraits::MetricImageType       InputImageType;
+  typedef typename TMetricTraits::GradientImageType     GradientImageType;
+
   /** Standard class typedefs. */
-  typedef MultiImageAffineMSDMetricFilter                   Self;
-  typedef itk::ImageToImageFilter<TInputImage,TInputImage>  Superclass;
-  typedef itk::SmartPointer<Self>                           Pointer;
-  typedef itk::SmartPointer<const Self>                     ConstPointer;
+  typedef MultiImageAffineMetricFilter                              Self;
+  typedef itk::ImageToImageFilter<InputImageType,InputImageType>    Superclass;
+  typedef itk::SmartPointer<Self>                                   Pointer;
+  typedef itk::SmartPointer<const Self>                             ConstPointer;
 
   /** Method for creation through the object factory. */
   itkNewMacro(Self)
 
   /** Run-time type information (and related methods) */
-  itkTypeMacro( MultiImageAffineMSDMetricFilter, ImageToImageFilter )
+  itkTypeMacro( MultiImageAffineMetricFilter, ImageToImageFilter )
 
   /** Determine the image dimension. */
-  itkStaticConstMacro(ImageDimension, unsigned int,
-                      TInputImage::ImageDimension );
+  itkStaticConstMacro(ImageDimension, unsigned int, InputImageType::ImageDimension );
 
   /** Typedef to describe the output image region type. */
-  typedef typename TInputImage::RegionType OutputImageRegionType;
 
   /** Inherit some types from the superclass. */
-  typedef TInputImage                                 InputImageType;
   typedef itk::ImageBase<ImageDimension>              ImageBaseType;
-  typedef typename TInputImage::PixelType             InputPixelType;
-  typedef typename TInputImage::InternalPixelType     InputComponentType;
+  typedef typename InputImageType::PixelType          InputPixelType;
+  typedef typename GradientImageType::PixelType       GradientPixelType;
   typedef typename InputImageType::IndexType          IndexType;
   typedef typename InputImageType::IndexValueType     IndexValueType;
   typedef typename InputImageType::SizeType           SizeType;
   typedef typename InputImageType::SpacingType        SpacingType;
   typedef typename InputImageType::DirectionType      DirectionType;
+  typedef typename InputImageType::RegionType         OutputImageRegionType;
 
   /** Information from the parent class */
   typedef itk::MatrixOffsetTransformBase<double, ImageDimension, ImageDimension> TransformType;
   typedef typename TransformType::Pointer             TransformPointer;
 
-  /** Weight vector */
-  typedef vnl_vector<float>                           WeightVectorType;
+  /** Set the metric image, which is passed through as the output */
+  void SetMetricImage(InputImageType *metric)
+    { this->itk::ProcessObject::SetInput("Primary", metric); }
 
-  /** Set the fixed image(s) */
-  void SetFixedImage(InputImageType *fixed)
-    { this->itk::ProcessObject::SetInput("Primary", fixed); }
+  InputImageType *GetMetricImage()
+    { return dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("Primary")); }
 
-  /** Set the moving image(s) and their gradients */
-  void SetMovingImageAndGradient(InputImageType *moving)
-    { this->itk::ProcessObject::SetInput("moving", moving); }
+  /** Set the metric image, which is passed through as the output */
+  void SetGradientImage(GradientImageType *metric)
+    { this->itk::ProcessObject::SetInput("gradient", metric); }
 
-  /** Set the weight vector */
-  itkSetMacro(Weights, WeightVectorType)
-  itkGetConstMacro(Weights, WeightVectorType)
+  GradientImageType *GetGradientImage()
+    { return dynamic_cast<GradientImageType *>(this->itk::ProcessObject::GetInput("gradient")); }
 
-  /** Whether to compute gradient */
+  /** Set the metric image, which is passed through as the output */
+  void SetMovingDomainMaskImage(InputImageType *metric)
+    { this->itk::ProcessObject::SetInput("moving_mask", metric); }
+
+  InputImageType *GetMovingDomainMaskImage()
+    { return dynamic_cast<InputImageType *>(this->itk::ProcessObject::GetInput("moving_mask")); }
+
+  /** Set the metric image, which is passed through as the output */
+  void SetMovingDomainMaskGradientImage(GradientImageType *metric)
+    { this->itk::ProcessObject::SetInput("moving_mask_gradient", metric); }
+
+  GradientImageType *GetMovingDomainMaskGradientImage()
+    { return dynamic_cast<GradientImageType *>(this->itk::ProcessObject::GetInput("moving_mask_gradient")); }
+
+  /** Whether the gradient is computed */
   itkSetMacro(ComputeGradient, bool)
-  itkGetConstMacro(ComputeGradient, bool)
+  itkGetMacro(ComputeGradient, bool)
 
   /** Set the transform field. */
   void SetTransform(TransformType *transform)
@@ -132,17 +150,15 @@ public:
 
   itkGetConstMacro(Transform, TransformType *)
 
-  /** Value of the similarity objective after running the filter */
-  itkGetConstMacro(MetricValue, double)
-
   /** The gradient (in the form of a transform) after running the filter */
   itkGetConstMacro(MetricGradient, TransformType *)
 
-
+  /** Get the computed metric value */
+  itkGetMacro(MetricValue, double)
 
 protected:
-  MultiImageAffineMSDMetricFilter() : m_ComputeGradient(false) {}
-  ~MultiImageAffineMSDMetricFilter() {}
+  MultiImageAffineMetricFilter() : m_ComputeGradient(false) {}
+  ~MultiImageAffineMetricFilter() {}
 
   void PrintSelf(std::ostream& os, itk::Indent indent) const
     { this->PrintSelf(os, indent); }
@@ -182,17 +198,11 @@ protected:
   template <unsigned int VDim> struct Dispatch : public DispatchBase {};
 
 private:
-  MultiImageAffineMSDMetricFilter(const Self&); //purposely not implemented
+  MultiImageAffineMetricFilter(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
-
-  // Weight vector
-  WeightVectorType                m_Weights;
 
   // Transform pointer
   TransformPointer                m_Transform;
-
-  // Whether the gradient is computed
-  bool                            m_ComputeGradient;
 
   // Data accumulated for each thread
   struct ThreadData {
@@ -205,11 +215,14 @@ private:
 
   std::vector<ThreadData>         m_ThreadData;
 
-  // Vector of accumulated data (difference, gradient of affine transform, etc)
-  double                          m_MetricValue;
-
   // Gradient
   TransformPointer                m_MetricGradient;
+
+  // Metric scaled by the mask
+  double                          m_MetricValue;
+
+  // Whether the gradient is computed
+  bool                            m_ComputeGradient;
 };
 
 

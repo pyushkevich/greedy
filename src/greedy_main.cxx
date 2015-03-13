@@ -216,7 +216,8 @@ protected:
     vnl_vector<double> scaling;
 
     // Storage for the gradient of the similarity map
-    VectorImagePointer *m_GradSim;
+    VectorImagePointer m_Phi, m_GradMetric, m_GradMask;
+    ImagePointer m_Metric, m_Mask;
   };
 };
 
@@ -248,6 +249,32 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
   transform->SetMatrix(matrix);
   transform->SetOffset(offset);
   flatten_affine_transform(transform.GetPointer(), scaling.data_block());
+
+  // Allocate the working images
+  m_Phi = VectorImageType::New();
+  m_Phi->CopyInformation(helper->GetReferenceSpace(level));
+  m_Phi->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
+  m_Phi->Allocate();
+
+  m_GradMetric = VectorImageType::New();
+  m_GradMetric->CopyInformation(helper->GetReferenceSpace(level));
+  m_GradMetric->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
+  m_GradMetric->Allocate();
+
+  m_GradMask = VectorImageType::New();
+  m_GradMask->CopyInformation(helper->GetReferenceSpace(level));
+  m_GradMask->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
+  m_GradMask->Allocate();
+
+  m_Metric = ImageType::New();
+  m_Metric->CopyInformation(helper->GetReferenceSpace(level));
+  m_Metric->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
+  m_Metric->Allocate();
+
+  m_Mask = ImageType::New();
+  m_Mask->CopyInformation(helper->GetReferenceSpace(level));
+  m_Mask->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
+  m_Mask->Allocate();
 }
 
 
@@ -271,13 +298,15 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
     {
     vnl_vector<double> g_scaled(x_scaled.size());
     typename TransformType::Pointer grad = TransformType::New();
-    val = m_OFHelper->ComputeAffineMatchAndGradient(m_Level, tran, grad);
+    val = m_OFHelper->ComputeAffineMatchAndGradient(
+            m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
     flatten_affine_transform(grad.GetPointer(), g_scaled.data_block());
     *g = element_quotient(g_scaled, scaling);
     }
   else
     {
-    val = m_OFHelper->ComputeAffineMatchAndGradient(m_Level, tran, NULL);
+    val = m_OFHelper->ComputeAffineMatchAndGradient(
+            m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
     }
 
   if(f)
@@ -472,7 +501,7 @@ int GreedyApproach<VDim, TReal>
       vnl_vector<double> xInit = acf.GetCoefficients(tLevel);
 
       // Apply small amount of jitter to the vector
-      vnl_random rndy; // (12345);
+      vnl_random rndy(12345);
       for(int i = 0; i < xInit.size(); i++)
         xInit[i] += rndy.drand32(-0.4, 0.4);
 

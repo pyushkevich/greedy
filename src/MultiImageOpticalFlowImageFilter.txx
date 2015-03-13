@@ -1,19 +1,27 @@
 /*=========================================================================
 
-  Program:   Insight Segmentation & Registration Toolkit
-  Module:    $RCSfile: SimpleWarpImageFilter.txx,v $
+  Program:   ALFABIS fast image registration
   Language:  C++
-  Date:      $Date: 2009-10-29 11:19:10 $
-  Version:   $Revision: 1.34 $
 
-  Copyright (c) Insight Software Consortium. All rights reserved.
-  See ITKCopyright.txt or http://www.itk.org/HTML/Copyright.htm for details.
+  Copyright (c) Paul Yushkevich. All rights reserved.
 
-     This software is distributed WITHOUT ANY WARRANTY; without even 
-     the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR 
-     PURPOSE.  See the above copyright notices for more information.
+  This program is part of ALFABIS
+
+  ALFABIS is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  ALFABIS is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
+
 #ifndef __MultiImageOpticalFlowImageFilter_txx
 #define __MultiImageOpticalFlowImageFilter_txx
 #include "MultiImageOpticalFlowImageFilter.h"

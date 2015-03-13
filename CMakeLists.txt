@@ -12,6 +12,8 @@ INCLUDE(CMake/FindFFTW.cmake)
 
 SET(HEADERS
   src/FastLinearInterpolator.h
+  src/LinearTransformToWarpFilter.h
+  src/LinearTransformToWarpFilter.txx
   src/MultiImageAffineMSDMetricFilter.h
   src/MultiImageAffineMSDMetricFilter.txx
   src/MultiImageOpticalFlowImageFilter.h

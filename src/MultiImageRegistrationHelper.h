@@ -81,6 +81,11 @@ public:
 
 
   double ComputeAffineMatchAndGradient(int level, LinearTransformType *tran,
+                                       FloatImageType *wrkMetric,
+                                       FloatImageType *wrkMask,
+                                       VectorImageType *wrkGradMetric,
+                                       VectorImageType *wrkGradMask,
+                                       VectorImageType *wrkPhi,
                                        LinearTransformType *grad = NULL);
 
   static void AffineToField(LinearTransformType *tran, VectorImageType *def);
