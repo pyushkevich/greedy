@@ -62,14 +62,16 @@ MultiImageAffineMetricFilter<TMetricTraits>
   m_MetricGradient = TransformType::New();
 
   // Compute the objective value
-  m_MetricValue = summary.metric / summary.mask;
+  // m_MetricValue = summary.metric / summary.mask;
+  m_MetricValue = summary.metric;
 
   // Compute the gradient
   vnl_vector<double> grad_metric(summary.gradient.size());
   for(int j = 0; j < summary.gradient.size(); j++)
     {
-    grad_metric[j] =
-        (-2.0 * summary.gradient[j] - m_MetricValue * summary.grad_mask[j]) / summary.mask;
+    // grad_metric[j] =
+       // (-2.0 * summary.gradient[j] - m_MetricValue * summary.grad_mask[j]) / summary.mask;
+    grad_metric[j] = m_GradientScalingFactor * summary.gradient[j];
     }
 
   // Pack into the output
@@ -86,9 +88,13 @@ MultiImageAffineMetricFilter<TMetricTraits>
 
   // Set all regions to max
   this->GetMetricImage()->SetRequestedRegionToLargestPossibleRegion();
-  this->GetGradientImage()->SetRequestedRegionToLargestPossibleRegion();
   this->GetMovingDomainMaskImage()->SetRequestedRegionToLargestPossibleRegion();
-  this->GetMovingDomainMaskGradientImage()->SetRequestedRegionToLargestPossibleRegion();
+
+  if(m_ComputeGradient)
+    {
+    this->GetGradientImage()->SetRequestedRegionToLargestPossibleRegion();
+    this->GetMovingDomainMaskGradientImage()->SetRequestedRegionToLargestPossibleRegion();
+    }
 }
 
 template <class TMetricTraits>
@@ -180,6 +186,7 @@ MultiImageAffineMetricFilter<TMetricTraits>
         const GradientPixelType &gradM = *p_mask_gradient;
 
         // Compute the mask and metric gradient contributions
+        /*
         for(int i = 0; i < ImageDimension; i++)
           {
           double v = grad[i] * mask - 0.5 * gradM[i] * metric;
@@ -193,7 +200,20 @@ MultiImageAffineMetricFilter<TMetricTraits>
           }
 
         td.metric += metric * mask;
-        td.mask += mask;
+        td.mask += mask;*/
+
+
+        for(int i = 0; i < ImageDimension; i++)
+          {
+          double v = grad[i];
+          *(out_grad++) += v;
+          for(int j = 0; j < ImageDimension; j++)
+            {
+            *(out_grad++) += v * idx[j];
+            }
+          }
+
+        td.metric += metric;
         }
       }
     else

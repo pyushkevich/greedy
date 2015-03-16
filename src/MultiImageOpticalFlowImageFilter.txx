@@ -351,6 +351,7 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
         // Add the gradient information
         if(this->m_ComputeGradient)
           {
+          // This is currently computing negative half of the gradient
           for(int i = 0; i < ImageDimension; i++)
             (*ptrGrad)[i] += delw * *(mov_grad_ptr++);
           }

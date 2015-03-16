@@ -298,15 +298,46 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
     {
     vnl_vector<double> g_scaled(x_scaled.size());
     typename TransformType::Pointer grad = TransformType::New();
-    val = m_OFHelper->ComputeAffineMatchAndGradient(
-            m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
-    flatten_affine_transform(grad.GetPointer(), g_scaled.data_block());
-    *g = element_quotient(g_scaled, scaling);
+
+    if(m_Param->metric == GreedyParameters::SSD)
+      {
+      val = m_OFHelper->ComputeAffineMSDMatchAndGradient(
+              m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
+
+      flatten_affine_transform(grad.GetPointer(), g_scaled.data_block());
+      *g = element_quotient(g_scaled, scaling);
+      }
+    else if(m_Param->metric == GreedyParameters::NCC)
+      {
+
+      val = m_OFHelper->ComputeAffineNCCMatchAndGradient(
+              m_Level, tran, array_caster<VDim>::to_itkSize(m_Param->metric_radius),
+              m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
+
+      flatten_affine_transform(grad.GetPointer(), g_scaled.data_block());
+      *g = element_quotient(g_scaled, scaling);
+
+      // NCC should be maximized
+      // *g *= -10000.0;
+      // val *= -10000.0;
+      }
     }
   else
     {
-    val = m_OFHelper->ComputeAffineMatchAndGradient(
-            m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
+    if(m_Param->metric == GreedyParameters::SSD)
+      {
+      val = m_OFHelper->ComputeAffineMSDMatchAndGradient(
+              m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
+      }
+    else if(m_Param->metric == GreedyParameters::NCC)
+      {
+      val = m_OFHelper->ComputeAffineNCCMatchAndGradient(
+              m_Level, tran, array_caster<VDim>::to_itkSize(m_Param->metric_radius)
+              , m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
+
+      // NCC should be maximized
+      // val *= -10000.0;
+      }
     }
 
   if(f)
@@ -497,6 +528,17 @@ int GreedyApproach<VDim, TReal>
       // Set the initial transform
       tLevel->SetIdentity();
 
+      // Map into the middle of the moving image
+      itk::Matrix<double, VDim, VDim> mat;
+      mat.SetIdentity();
+      mat *= 0.6;
+      tLevel->SetMatrix(mat);
+
+      itk::Vector<double, VDim> offset;
+      for(int i=0;i<VDim;i++)
+        offset[i] = 0.2 * of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()[i];
+      tLevel->SetOffset(offset);
+
       // Apply some random jitter to the initial transform
       vnl_vector<double> xInit = acf.GetCoefficients(tLevel);
 
@@ -504,6 +546,28 @@ int GreedyApproach<VDim, TReal>
       vnl_random rndy(12345);
       for(int i = 0; i < xInit.size(); i++)
         xInit[i] += rndy.drand32(-0.4, 0.4);
+
+      // Test the derivative of the cost function
+      vnl_vector<double> grad_analytic(VDim * (VDim + 1), 0.0);
+      vnl_vector<double> grad_numeric(VDim * (VDim + 1), 0.0);
+      double f;
+      acf.compute(xInit, &f, &grad_analytic);
+
+      for(int i = 0; i < grad_analytic.size(); i++)
+        {
+        double eps = 1.0e-5;
+        vnl_vector<double> x1 = xInit, x2 = xInit;
+        double f1, f2;
+        x1[i] += eps; x2[i] -= eps;
+        acf.compute(x1, &f1, NULL);
+        acf.compute(x2, &f2, NULL);
+        grad_numeric[i] = (f1 - f2) / (2 * eps);
+        }
+
+      std::cout << "grad-a: " << grad_analytic << std::endl;
+      std::cout << "grad-n: " << grad_numeric << std::endl;
+
+
 
       // Map back into transform format
       acf.GetTransform(xInit, tLevel);
@@ -651,36 +715,53 @@ int GreedyApproach<VDim, TReal>
         {
         itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
 
-        /*
         // Test derivative
         // total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, param.epsilon);
 
+        /*
         if(iter == 0)
           {
+
           // Perform a derivative check!
 
           itk::Index<VDim> test; test.Fill(24);
           typename VectorImageType::PixelType vtest = uk->GetPixel(test), vv;
 
+          itk::ImageRegion<VDim> region = uk1->GetBufferedRegion();
+          // region.ShrinkByRadius(1);
+
           double eps = param.epsilon;
           for(int d = 0; d < VDim; d++)
             {
             vv.Fill(0.5); vv[d] -= eps; uk->FillBuffer(vv);
-            double a1 = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
+            of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, 1.0);
+
+            double a1 = 0.0;
+            typedef itk::ImageRegionConstIterator<ImageType> Iter;
+            for(Iter it(iTemp, region); !it.IsAtEnd(); ++it)
+              {
+              a1 += it.Get();
+              }
+
 
             vv.Fill(0.5); vv[d] += eps; uk->FillBuffer(vv);
-            double a2 = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
+            of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, 1.0);
+
+            double a2 = 0.0;
+            typedef itk::ImageRegionConstIterator<ImageType> Iter;
+            for(Iter it(iTemp, region); !it.IsAtEnd(); ++it)
+              {
+              a2 += it.Get();
+              }
 
             std::cout << "NUM:" << (a2 - a1) / (2*eps) << std::endl;
 
             }
 
           vv.Fill(0.5); uk->FillBuffer(vv);
-          total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, 1.0);
+          total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, 1.0);
           for(int d = 0; d < VDim; d++)
             {
-            itk::ImageRegion<VDim> region = uk1->GetBufferedRegion();
-            region.ShrinkByRadius(16);
 
             double ader = 0.0;
             typedef itk::ImageRegionConstIterator<VectorImageType> Iter;
@@ -694,7 +775,8 @@ int GreedyApproach<VDim, TReal>
 
             std::cout << "ANA:" << ader << std::endl;
             }
-          } */
+          }
+          */
 
         total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, param.epsilon);
         printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);

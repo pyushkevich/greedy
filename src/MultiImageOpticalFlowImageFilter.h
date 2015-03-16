@@ -82,9 +82,6 @@ public:
   typedef itk::SmartPointer<Self>                                  Pointer;
   typedef itk::SmartPointer<const Self>                            ConstPointer;
 
-  /** Method for creation through the object factory. */
-  itkNewMacro(Self)
-
   /** Run-time type information (and related methods) */
   itkTypeMacro( MultiComponentImageMetricBase, ImageToImageFilter )
 
@@ -187,7 +184,15 @@ public:
   GradientImageType *GetMovingDomainMaskGradientOutput()
     { return dynamic_cast<GradientImageType *>(this->ProcessObject::GetOutput("moving_mask_gradient")); }
 
-
+  /**
+   * Get the gradient scaling factor. To get the actual gradient of the metric, multiply the
+   * gradient output of this filter by the scaling factor. Explanation: for efficiency, the
+   * metrics return an arbitrarily scaled vector, such that adding the gradient to the
+   * deformation field would INCREASE SIMILARITY. For metrics that are meant to be minimized,
+   * this is the opposite of the gradient direction. For metrics that are meant to be maximized,
+   * it is the gradient direction.
+   */
+  virtual double GetGradientScalingFactor() const = 0;
 
   /** This filter produces an image which is a different
    * size than its input image. As such, it needs to provide an
@@ -210,7 +215,7 @@ protected:
   MultiComponentImageMetricBase();
   ~MultiComponentImageMetricBase() {}
 
-  void VerifyInputInformation() {}
+  virtual void VerifyInputInformation() {}
 
   void UpdateOutputs();
   void ToggleOutput(bool flag, const DataObjectIdentifierType &key);
@@ -307,6 +312,16 @@ public:
 
   /** Get the metric values per component (each component weighted) */
   vnl_vector<double> GetAllMetricValues() const;
+
+  /**
+   * Get the gradient scaling factor. To get the actual gradient of the metric, multiply the
+   * gradient output of this filter by the scaling factor. Explanation: for efficiency, the
+   * metrics return an arbitrarily scaled vector, such that adding the gradient to the
+   * deformation field would INCREASE SIMILARITY. For metrics that are meant to be minimized,
+   * this is the opposite of the gradient direction. For metrics that are meant to be maximized,
+   * it is the gradient direction.
+   */
+  virtual double GetGradientScalingFactor() const { return -2.0; }
 
 protected:
   MultiImageOpticalFlowImageFilter() {}
@@ -413,6 +428,17 @@ public:
 
   /** Summary results after running the filter */
   itkGetConstMacro(MetricValue, double)
+
+  /**
+   * Get the gradient scaling factor. To get the actual gradient of the metric, multiply the
+   * gradient output of this filter by the scaling factor. Explanation: for efficiency, the
+   * metrics return an arbitrarily scaled vector, such that adding the gradient to the
+   * deformation field would INCREASE SIMILARITY. For metrics that are meant to be minimized,
+   * this is the opposite of the gradient direction. For metrics that are meant to be maximized,
+   * it is the gradient direction.
+   */
+  virtual double GetGradientScalingFactor() const { return 1.0; }
+
 
 protected:
   MultiComponentNCCImageMetric() {}
@@ -582,6 +608,10 @@ protected:
 
   /** Set up the output information */
   virtual void GenerateOutputInformation();
+
+  /** Override input checks to allow fixed and moving to be in different space */
+  virtual void VerifyInputInformation() {}
+
 
 
   virtual typename itk::DataObject::Pointer MakeOutput(const DataObjectIdentifierType &);

@@ -150,6 +150,15 @@ public:
 
   itkGetConstMacro(Transform, TransformType *)
 
+  /**
+   * Set the scaling factor for the metric gradient input. For efficiency reasons, metric filters
+   * may produce gradient outputs that are arbitrarily scaled (e.g., by -0.5). This value is used
+   * to scale the gradient so it is the actual gradient of the sum of all voxels in the metric
+   * input
+   */
+  itkSetMacro(GradientScalingFactor, double)
+  itkGetMacro(GradientScalingFactor, double)
+
   /** The gradient (in the form of a transform) after running the filter */
   itkGetConstMacro(MetricGradient, TransformType *)
 
@@ -223,6 +232,9 @@ private:
 
   // Whether the gradient is computed
   bool                            m_ComputeGradient;
+
+  // Gradient scaling factor
+  double                          m_GradientScalingFactor;
 };
 
 

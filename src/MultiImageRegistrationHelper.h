@@ -80,13 +80,23 @@ public:
 
 
 
-  double ComputeAffineMatchAndGradient(int level, LinearTransformType *tran,
-                                       FloatImageType *wrkMetric,
-                                       FloatImageType *wrkMask,
-                                       VectorImageType *wrkGradMetric,
-                                       VectorImageType *wrkGradMask,
-                                       VectorImageType *wrkPhi,
-                                       LinearTransformType *grad = NULL);
+  /** Compute affine similarity and gradient */
+  double ComputeAffineMSDMatchAndGradient(int level, LinearTransformType *tran,
+                                          FloatImageType *wrkMetric,
+                                          FloatImageType *wrkMask,
+                                          VectorImageType *wrkGradMetric,
+                                          VectorImageType *wrkGradMask,
+                                          VectorImageType *wrkPhi,
+                                          LinearTransformType *grad = NULL);
+
+  double ComputeAffineNCCMatchAndGradient(int level, LinearTransformType *tran,
+                                          const SizeType &radius,
+                                          FloatImageType *wrkMetric,
+                                          FloatImageType *wrkMask,
+                                          VectorImageType *wrkGradMetric,
+                                          VectorImageType *wrkGradMask,
+                                          VectorImageType *wrkPhi,
+                                          LinearTransformType *grad = NULL);
 
   static void AffineToField(LinearTransformType *tran, VectorImageType *def);
 
