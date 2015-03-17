@@ -53,7 +53,7 @@ LinearTransformToWarpFilter<TInputImage,TDeformationField,TTransform>
     {
     // Get the index at the current location. For the rest of the line, the index will
     // increment by one
-    const IndexType &idx = it.GetIndex();
+    IndexType idx = it.GetIndex();
 
     // Displacement vector for the first position in the line and a delta corresponding to a
     // step along the line
@@ -78,6 +78,19 @@ LinearTransformToWarpFilter<TInputImage,TDeformationField,TTransform>
       {
       *p_phi = disp;
       }
+
+    /*
+    for( ; p_phi < p_phi_end; ++p_phi, ++idx[0])
+      {
+      for(int i = 0; i < ImageDimension; i++)
+        {
+        (*p_phi)[i] = off[i] - idx[i];
+        for(int j = 0; j < ImageDimension; j++)
+          (*p_phi)[i] += M(i,j) * idx[j];
+        }
+      }
+
+*/
     }
 }
 

@@ -470,6 +470,8 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
   return ncomp;
 }
 
+// #define _FAKE_FUNC_
+
 /**
  * Compute the output for the region specified by outputRegionForThread.
  */
@@ -562,6 +564,20 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
 
       typename FastInterpolator::InOut status;
 
+
+#ifdef _FAKE_FUNC_
+
+      // Fake a function
+      double x = cix[0], y = cix[1], z = cix[2];
+      double a = 0.01, b = 0.005, c = 0.008, d = 0.004;
+      interp_mov[0] = sin(a * x * y + b * z) + cos(c * x + d * y * z);
+      interp_mov_grad[0] = cos(a * x * y + b * z) * a * y - sin(c * x + d * y * z) * c;
+      interp_mov_grad[1] = cos(a * x * y + b * z) * a * x - sin(c * x + d * y * z) * d * z;
+      interp_mov_grad[2] = cos(a * x * y + b * z) * b     - sin(c * x + d * y * z) * d * y;
+      status = FastInterpolator::INSIDE;
+
+#else
+
       if(m_ComputeGradient)
         {
         // Compute gradient
@@ -573,6 +589,7 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
         status = flint.Interpolate(cix.data_block(), mov_ptr);
         }
 
+#endif
 
       // Handle outside values
       if(status == FastInterpolator::OUTSIDE)
@@ -581,15 +598,6 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
         if(m_ComputeGradient)
           interp_mov_grad.fill(0.0);
         }
-
-      // Fake a function
-      /*
-      double a = 0.01, b = 0.005, c = 0.008, d = 0.004;
-      interp_mov[0] = sin(a * x * y + b * z) + cos(c * x + d * y * z);
-      interp_mov_grad[0] = cos(a * x * y + b * z) * a * y - sin(c * x + d * y * z) * c;
-      interp_mov_grad[1] = cos(a * x * y + b * z) * a * x - sin(c * x + d * y * z) * d * z;
-      interp_mov_grad[2] = cos(a * x * y + b * z) * b     - sin(c * x + d * y * z) * d * y;
-      */
 
       // Write out 1!
       *ptrOut++ = 1.0;

@@ -68,6 +68,12 @@ public:
   /** Get the gradient mask at a pyramid level */
   FloatImageType *GetGradientMask(int level) { return m_GradientMaskComposite[level]; }
 
+  /** Get the fixed image at a pyramid level */
+  MultiComponentImageType *GetFixedComposite(int level) { return m_FixedComposite[level]; }
+
+  /** Get the moving image at a pyramid level */
+  MultiComponentImageType *GetMovingComposite(int level) { return m_MovingComposite[level]; }
+
   /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
   vnl_vector<double> ComputeOpticalFlowField(
       int level, VectorImageType *def, FloatImageType *out_metric,

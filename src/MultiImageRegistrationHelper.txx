@@ -167,7 +167,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         if(add_noise)
           {
           // TODO: remove this or make it optional
-          vnl_random randy;
+          vnl_random randy(12345);
           for(long i = 0; i < lFixed->GetPixelContainer()->Size(); i++)
             lFixed->GetBufferPointer()[i] += randy.normal();
           for(long i = 0; i < lMoving->GetPixelContainer()->Size(); i++)

@@ -18,6 +18,9 @@
 #define __MultiImageAffineMSDMetricFilter_txx
 #include "MultiImageAffineMSDMetricFilter.h"
 
+#define _USING_MASK_ 1
+
+
 #include "itkImageRegionIterator.h"
 #include "itkImageRegionIteratorWithIndex.h"
 #include "itkNumericTraits.h"
@@ -62,16 +65,22 @@ MultiImageAffineMetricFilter<TMetricTraits>
   m_MetricGradient = TransformType::New();
 
   // Compute the objective value
-  // m_MetricValue = summary.metric / summary.mask;
+#ifdef _USING_MASK_
+  m_MetricValue = summary.metric / summary.mask;
+#else
   m_MetricValue = summary.metric;
+#endif
 
   // Compute the gradient
   vnl_vector<double> grad_metric(summary.gradient.size());
   for(int j = 0; j < summary.gradient.size(); j++)
     {
-    // grad_metric[j] =
-       // (-2.0 * summary.gradient[j] - m_MetricValue * summary.grad_mask[j]) / summary.mask;
+#ifdef _USING_MASK_
+    grad_metric[j] =
+        (m_GradientScalingFactor * summary.gradient[j] - m_MetricValue * summary.grad_mask[j]) / summary.mask;
+#else
     grad_metric[j] = m_GradientScalingFactor * summary.gradient[j];
+#endif
     }
 
   // Pack into the output
@@ -149,8 +158,11 @@ MultiImageAffineMetricFilter<TMetricTraits>
   // Gradient accumulator
   vnl_vector_fixed<double, ImageDimension> grad, gradM;
 
+  itk::ImageRegion<ImageDimension> workRegion = outputRegionForThread;
+  // workRegion.ShrinkByRadius(3);
+
   // Iterate over the fixed space region
-  for(Iter it(metric, outputRegionForThread); !it.IsAtEnd(); it.NextLine())
+  for(Iter it(metric, workRegion); !it.IsAtEnd(); it.NextLine())
     {
     // Process the whole line using pointer arithmetic. We have to deal with messy behavior
     // of iterators on vector images. Trying to avoid using accessors and Set/Get
@@ -186,7 +198,7 @@ MultiImageAffineMetricFilter<TMetricTraits>
         const GradientPixelType &gradM = *p_mask_gradient;
 
         // Compute the mask and metric gradient contributions
-        /*
+#ifdef _USING_MASK_
         for(int i = 0; i < ImageDimension; i++)
           {
           double v = grad[i] * mask - 0.5 * gradM[i] * metric;
@@ -200,9 +212,9 @@ MultiImageAffineMetricFilter<TMetricTraits>
           }
 
         td.metric += metric * mask;
-        td.mask += mask;*/
-
-
+        td.mask += mask;
+#else
+        // NOT USING MASK
         for(int i = 0; i < ImageDimension; i++)
           {
           double v = grad[i];
@@ -214,6 +226,7 @@ MultiImageAffineMetricFilter<TMetricTraits>
           }
 
         td.metric += metric;
+#endif
         }
       }
     else
