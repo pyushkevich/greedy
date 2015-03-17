@@ -35,6 +35,9 @@ LinearTransformToWarpFilter<TInputImage,TDeformationField,TTransform>
 ::ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread,
                        itk::ThreadIdType threadId)
 {
+
+
+
   // Get a pointer to the output deformation field
   DeformationVectorType *b_phi = this->GetOutput()->GetBufferPointer();
 

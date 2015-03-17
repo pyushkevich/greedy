@@ -16,10 +16,14 @@ SET(HEADERS
   src/LinearTransformToWarpFilter.txx
   src/MultiImageAffineMSDMetricFilter.h
   src/MultiImageAffineMSDMetricFilter.txx
+  src/MultiComponentImageMetricBase.h
+  src/MultiComponentImageMetricBase.txx
   src/MultiImageOpticalFlowImageFilter.h
   src/MultiImageOpticalFlowImageFilter.txx
   src/MultiImageRegistrationHelper.h
   src/MultiImageRegistrationHelper.txx
+  src/MultiComponentNCCImageMetric.h
+  src/MultiComponentNCCImageMetric.txx
   src/OneDimensionalInPlaceAccumulateFilter.h
   src/OneDimensionalInPlaceAccumulateFilter.txx
   src/SimpleWarpImageFilter.h

@@ -54,7 +54,7 @@ public:
 
   FastLinearInterpolator(ImageType *image) : Superclass(image) {}
 
-  InOut InterpolateWithGradient(float *cix, InputComponentType *out, InputComponentType *grad)
+  InOut InterpolateWithGradient(float *cix, InputComponentType *out, InputComponentType **grad)
     { return Superclass::INSIDE; }
 
   InOut Interpolate(float *cix, InputComponentType *out)
@@ -153,7 +153,7 @@ public:
    * Interpolate at position cix, placing the intensity values in out and gradient
    * values in grad (in strides of VDim)
    */
-  InOut InterpolateWithGradient(float *cix, InputComponentType *out, InputComponentType *grad)
+  InOut InterpolateWithGradient(float *cix, InputComponentType *out, InputComponentType **grad)
   {
     double dx00, dx01, dx10, dx11, dxy0, dxy1;
     double dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
@@ -165,7 +165,7 @@ public:
     if(this->status != Superclass::OUTSIDE)
       {
       // Loop over the components
-      for(int iComp = 0; iComp < this->nComp; iComp++,
+      for(int iComp = 0; iComp < this->nComp; iComp++, grad++,
           d000++, d001++, d010++, d011++,
           d100++, d101++, d110++, d111++)
         {
@@ -185,15 +185,15 @@ public:
         dx11_x = *d111 - *d011;
         dxy0_x = this->lerp(fy, dx00_x, dx10_x);
         dxy1_x = this->lerp(fy, dx01_x, dx11_x);
-        *(grad++) = this->lerp(fz, dxy0_x, dxy1_x);
+        (*grad)[0] = this->lerp(fz, dxy0_x, dxy1_x);
 
         // Interpolate the gradient in y
         dxy0_y = dx10 - dx00;
         dxy1_y = dx11 - dx01;
-        *(grad++) = this->lerp(fz, dxy0_y, dxy1_y);
+        (*grad)[1] = this->lerp(fz, dxy0_y, dxy1_y);
 
         // Interpolate the gradient in z
-        *(grad++) = dxy1 - dxy0;
+        (*grad)[2] = dxy1 - dxy0;
         }
       }
 

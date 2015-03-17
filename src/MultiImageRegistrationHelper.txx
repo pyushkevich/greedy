@@ -270,7 +270,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetWeights(wscaled);
   filter->SetComputeGradient(true);
   filter->GetMetricOutput()->Graft(out_metric);
-  filter->GetGradientOutput()->Graft(out_gradient);
+  filter->GetDeformationGradientOutput()->Graft(out_gradient);
   filter->Update();
 
   // Get the vector of the normalized metrics
@@ -291,6 +291,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
                         VectorImageType *out_gradient,
                         double result_scaling)
 {
+  // TODO: restore NCC!
+  /*
   typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
   typedef MultiComponentNCCImageMetric<TraitsType> FilterType;
 
@@ -319,6 +321,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   // Get the vector of the normalized metrics
   return filter->GetMetricValue();
+  */
+  return 0;
 }
 
 
@@ -340,14 +344,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   for(int i = 0; i < wscaled.size(); i++)
     wscaled[i] = m_Weights[i];
 
-  // Create a deformation field from the affine transform
-  typedef LinearTransformToWarpFilter<
-      MultiComponentImageType, VectorImageType, LinearTransformType> WarpFilter;
-  typename WarpFilter::Pointer warp_source = WarpFilter::New();
-  warp_source->SetInput(m_FixedComposite[level]);
-  warp_source->SetTransform(tran);
-  warp_source->GraftOutput(wrkPhi);
-
   // Set up the optical flow computation
   typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
   typedef MultiImageOpticalFlowImageFilter<TraitsType> MetricType;
@@ -356,48 +352,19 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetFixedImage(m_FixedComposite[level]);
   metric->SetMovingImage(m_MovingComposite[level]);
   metric->SetWeights(wscaled);
-  metric->SetDeformationField(warp_source->GetOutput());
-
+  metric->SetAffineTransform(tran);
   metric->GetMetricOutput()->Graft(wrkMetric);
-
-  metric->SetComputeMovingDomainMask(true);
-  metric->GetMovingDomainMaskOutput()->Graft(wrkMask);
-
-  if(grad)
-    {
-    metric->SetComputeGradient(true);
-    metric->GetGradientOutput()->Graft(wrkGradMetric);
-    metric->GetMovingDomainMaskGradientOutput()->Graft(wrkGradMask);
-    }
-
-  // Use finite differences
-  typedef MultiImageAffineMetricFilter<TraitsType> AffineMetricType;
-  typename AffineMetricType::Pointer affine_metric = AffineMetricType::New();
-
-  // Run the filter
-  affine_metric->SetMetricImage(metric->GetMetricOutput());
-  affine_metric->SetMovingDomainMaskImage(metric->GetMovingDomainMaskOutput());
-
-  // TODO: only if gradient!
-  if(grad)
-    {
-    affine_metric->SetComputeGradient(true);
-    affine_metric->SetGradientImage(metric->GetGradientOutput());
-    affine_metric->SetMovingDomainMaskGradientImage(metric->GetMovingDomainMaskGradientOutput());
-    affine_metric->SetGradientScalingFactor(metric->GetGradientScalingFactor());
-    }
-
-  affine_metric->Update();
+  metric->SetComputeGradient(grad != NULL);
+  metric->Update();
 
   // Process the results
   if(grad)
     {
-    grad->SetMatrix(affine_metric->GetMetricGradient()->GetMatrix());
-    grad->SetOffset(affine_metric->GetMetricGradient()->GetOffset());
+    grad->SetMatrix(metric->GetAffineTransformGradient()->GetMatrix());
+    grad->SetOffset(metric->GetAffineTransformGradient()->GetOffset());
     }
 
-  return affine_metric->GetMetricValue();
-
+  return metric->GetMetricValue();
 }
 
 
@@ -415,6 +382,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
                                    VectorImageType *wrkPhi,
                                    LinearTransformType *grad)
 {
+  // TODO: RESTORE NCC
+  /*
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
   for(int i = 0; i < wscaled.size(); i++)
@@ -483,16 +452,18 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     grad->SetOffset(affine_metric->GetMetricGradient()->GetOffset());
     }
 
-  /*
-  LDDMMData<TFloat, VDim>::img_write(wrkMetric, "dump_metric.nii.gz");
-  LDDMMData<TFloat, VDim>::img_write(wrkMask, "dump_mask.nii.gz");
-  LDDMMData<TFloat, VDim>::vimg_write(wrkGradMetric, "dump_grad_metric.nii.gz");
-  LDDMMData<TFloat, VDim>::vimg_write(wrkGradMask, "dump_grad_mask.nii.gz");
-  exit(-1);
-  */
+  // / *
+  // LDDMMData<TFloat, VDim>::img_write(wrkMetric, "dump_metric.nii.gz");
+  // LDDMMData<TFloat, VDim>::img_write(wrkMask, "dump_mask.nii.gz");
+  // LDDMMData<TFloat, VDim>::vimg_write(wrkGradMetric, "dump_grad_metric.nii.gz");
+  // LDDMMData<TFloat, VDim>::vimg_write(wrkGradMask, "dump_grad_mask.nii.gz");
+  // exit(-1);
+  // * /
 
   return affine_metric->GetMetricValue();
+*/
 
+  return 0;
 }
 
 template <class TFloat, unsigned int VDim>

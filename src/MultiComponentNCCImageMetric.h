@@ -21,45 +21,25 @@
   along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
-#ifndef __MultiImageOpticalFlowImageFilter_h
-#define __MultiImageOpticalFlowImageFilter_h
+#ifndef MULTICOMPONENTNCCIMAGEMETRIC_H
+#define MULTICOMPONENTNCCIMAGEMETRIC_H
 
 #include "MultiComponentImageMetricBase.h"
 
 
 /**
- * \class MultiImageOpticalFlowImageFilter
- * \brief Warps an image using an input deformation field (for LDDMM)
- *
- * This filter efficiently computes the optical flow field between a
- * set of image pairs, given a transformation phi. This filter is the
- * workhorse of deformable and affine rigid registration algorithms that
- * use the mean squared difference metric. Given a set of fixed images F_i
- * and moving images M_i, it computes
- *
- *   v(x) = Sum_i w_i \[ F_i(x) - M_i(Phi(x)) ] \Grad M_i (Phi(x))
- *
- * The efficiency of this filter comes from combining the interpolation of
- * all the M and GradM terms in one loop, so that all possible computations
- * are reused
- *
- * The fixed and moving images must be passed in to the filter in the form
- * of VectorImages of size K and (VDim+K), respectively - i.e., the moving
- * images and their gradients are packed together.
- *
- * The output should be an image of CovariantVector type
- *
- * \warning This filter assumes that the input type, output type
- * and deformation field type all have the same number of dimensions.
- *
+ * Normalized cross-correlation metric. This filter sets up a mini-pipeline with
+ * a pre-compute filter that interpolates the moving image, N one-dimensional
+ * mean filters, and a post-compute filter that generates the metric and the
+ * gradient.
  */
 template <class TMetricTraits>
-class ITK_EXPORT MultiImageOpticalFlowImageFilter :
+class ITK_EXPORT MultiComponentNCCImageMetric :
     public MultiComponentImageMetricBase<TMetricTraits>
 {
 public:
   /** Standard class typedefs. */
-  typedef MultiImageOpticalFlowImageFilter<TMetricTraits>   Self;
+  typedef MultiComponentNCCImageMetric<TMetricTraits>       Self;
   typedef MultiComponentImageMetricBase<TMetricTraits>      Superclass;
   typedef itk::SmartPointer<Self>                           Pointer;
   typedef itk::SmartPointer<const Self>                     ConstPointer;
@@ -68,7 +48,7 @@ public:
   itkNewMacro(Self)
 
   /** Run-time type information (and related methods) */
-  itkTypeMacro( MultiImageOpticalFlowImageFilter, MultiComponentImageMetricBase )
+  itkTypeMacro( MultiComponentNCCImageMetric, MultiComponentImageMetricBase )
 
   /** Typedef to describe the output image region type. */
   typedef typename Superclass::OutputImageRegionType         OutputImageRegionType;
@@ -79,9 +59,8 @@ public:
   typedef typename Superclass::InputComponentType            InputComponentType;
   typedef typename Superclass::MetricImageType               MetricImageType;
   typedef typename Superclass::GradientImageType             GradientImageType;
-  typedef typename Superclass::MetricPixelType               MetricPixelType;
-  typedef typename Superclass::GradientPixelType             GradientPixelType;
-  typedef typename Superclass::RealType                      RealType;
+  typedef typename Superclass::MaskImageType                 MaskImageType;
+
 
   typedef typename Superclass::IndexType                     IndexType;
   typedef typename Superclass::IndexValueType                IndexValueType;
@@ -92,12 +71,26 @@ public:
 
   /** Information from the deformation field class */
   typedef typename Superclass::DeformationFieldType          DeformationFieldType;
-  typedef typename Superclass::DeformationFieldPointer       DeformationFieldPointer;
-  typedef typename Superclass::DeformationVectorType         DeformationVectorType;
-  typedef typename Superclass::TransformType                 TransformType;
 
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, InputImageType::ImageDimension );
+
+  /** Set the radius of the cross-correlation */
+  itkSetMacro(Radius, SizeType)
+
+  /** Get the radius of the cross-correlation */
+  itkGetMacro(Radius, SizeType)
+
+  /**
+   * Set the working memory image for this filter. This function should be used to prevent
+   * repeated allocation of memory when the metric is created/destructed in a loop. The
+   * user can just pass in a pointer to a blank image, the filter will take care of allocating
+   * the image as necessary
+   */
+  itkSetObjectMacro(WorkingImage, InputImageType)
+
+  /** Summary results after running the filter */
+  itkGetConstMacro(MetricValue, double)
 
   /**
    * Get the gradient scaling factor. To get the actual gradient of the metric, multiply the
@@ -107,33 +100,36 @@ public:
    * this is the opposite of the gradient direction. For metrics that are meant to be maximized,
    * it is the gradient direction.
    */
-  virtual double GetGradientScalingFactor() const { return -2.0; }
+  virtual double GetGradientScalingFactor() const { return 1.0; }
+
 
 protected:
-  MultiImageOpticalFlowImageFilter() {}
-  ~MultiImageOpticalFlowImageFilter() {}
+  MultiComponentNCCImageMetric() {}
+  ~MultiComponentNCCImageMetric() {}
 
-  void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                            itk::ThreadIdType threadId );
+  /** SimpleWarpImageFilter is implemented as a multi-threaded filter.
+   * As such, it needs to provide and implementation for
+   * ThreadedGenerateData(). */
+  void GenerateData();
 
 private:
-  MultiImageOpticalFlowImageFilter(const Self&); //purposely not implemented
+  MultiComponentNCCImageMetric(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
+
+  // A pointer to the working image. The user should supply this image in order to prevent
+  // unnecessary memory allocation
+  typename InputImageType::Pointer m_WorkingImage;
+
+  // Radius of the cross-correlation
+  SizeType m_Radius;
+
+  // Vector of accumulated data (difference, gradient of affine transform, etc)
+  double                          m_MetricValue;
 };
 
-
-
-
-
-
-
-
-
-
-
-
 #ifndef ITK_MANUAL_INSTANTIATION
-#include "MultiImageOpticalFlowImageFilter.txx"
+#include "MultiComponentNCCImageMetric.txx"
 #endif
 
-#endif
+
+#endif // MULTICOMPONENTNCCIMAGEMETRIC_H
