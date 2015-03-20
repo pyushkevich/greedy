@@ -56,6 +56,9 @@ int usage()
   printf("  -threads N                  : set the number of allowed concurrent threads\n");
   printf("  -ia filename                : initial affine transform (c3d format)\n");
   printf("  -gm mask.nii                : mask for gradient computation\n");
+  printf("For developers: \n");
+  printf("  -debug-deriv                : enable periodic checks of derivatives (debug) \n");
+
   return -1;
 }
 
@@ -81,7 +84,7 @@ struct GreedyParameters
   // Registration mode
   Mode mode;
 
-  bool flag_dump_moving;
+  bool flag_dump_moving, flag_debug_deriv;
   int dump_frequency, threads;
   double epsilon, sigma_pre, sigma_post;
 
@@ -512,24 +515,6 @@ int GreedyApproach<VDim, TReal>
     // Define the affine cost function
     AffineCostFunction acf(&param, level, &of_helper);
 
-    // Set up the optimizer
-    vnl_nonlinear_minimizer *optimizer = NULL;
-    if(param.metric == GreedyParameters::NCC)
-      {
-      optimizer = new vnl_powell(&acf);
-      optimizer->set_trace(true);
-      optimizer->set_verbose(true);
-      optimizer->set_max_function_evals(10);
-      }
-    else
-      {
-      optimizer = new vnl_lbfgs(acf);
-      optimizer->set_f_tolerance(1e-9);
-      optimizer->set_x_tolerance(1e-4);
-      optimizer->set_g_tolerance(1e-6);
-      optimizer->set_trace(true);
-      }
-
     // Current transform
     typedef typename OFHelperType::LinearTransformType TransformType;
     typename TransformType::Pointer tLevel = TransformType::New();
@@ -540,24 +525,6 @@ int GreedyApproach<VDim, TReal>
       // Set the initial transform
       tLevel->SetIdentity();
 
-      /*
-      vnl_random rndy(12345);
-
-      // Map into the middle of the moving image
-      itk::Matrix<double, VDim, VDim> mat;
-      mat.SetIdentity();
-      mat *= 0.6;
-      for(int i=0;i<VDim;i++)
-        for(int j=0;j<VDim;j++)
-          mat[i][j] += rndy.drand32(-0.01, 0.01);
-      tLevel->SetMatrix(mat);
-
-      itk::Vector<double, VDim> offset;
-      for(int i=0;i<VDim;i++)
-        offset[i] = 0.2 * of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()[i]
-                    + rndy.drand32(-0.4, 0.4);
-      tLevel->SetOffset(offset); */
-
       // Apply some random jitter to the initial transform
       vnl_vector<double> xInit = acf.GetCoefficients(tLevel);
 
@@ -565,33 +532,6 @@ int GreedyApproach<VDim, TReal>
 
       for(int i = 0; i < xInit.size(); i++)
         xInit[i] += rndy.drand32(-0.4, 0.4);
-
-      /*
-      std::cout << "Initial Transform: " << tLevel << std::endl;
-
-      std::cout << "Initial Transform: " << xInit << std::endl;
-
-      // Test the derivative of the cost function
-      vnl_vector<double> grad_analytic(VDim * (VDim + 1), 0.0);
-      vnl_vector<double> grad_numeric(VDim * (VDim + 1), 0.0);
-      double f;
-      acf.compute(xInit, &f, &grad_analytic);
-
-      for(int i = 0; i < grad_analytic.size(); i++)
-        {
-        double eps = 1.0e-2;
-        vnl_vector<double> x1 = xInit, x2 = xInit;
-        double f1, f2;
-        x1[i] += eps; x2[i] -= eps;
-        acf.compute(x1, &f1, NULL);
-        acf.compute(x2, &f2, NULL);
-        grad_numeric[i] = (f1 - f2) / (2 * eps);
-        }
-
-      std::cout << "grad-a: " << grad_analytic << std::endl;
-      std::cout << "grad-n: " << grad_numeric << std::endl;
-
-      */
 
       // Map back into transform format
       acf.GetTransform(xInit, tLevel);
@@ -606,56 +546,64 @@ int GreedyApproach<VDim, TReal>
     // Convert to a parameter vector
     vnl_vector<double> xLevel = acf.GetCoefficients(tLevel.GetPointer());
 
-    // Test the gradient computation
-    vnl_vector<double> xGrad(acf.get_number_of_unknowns(), 0.0);
-    double f0;
-    acf.compute(xLevel, &f0, &xGrad);
-
-    // Propagate the jitter to the transform
-    Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
-    std::cout << "Initial RAS Transform: " << std::endl << Q_physical  << std::endl;
-
-    printf("ANL gradient: ");
-    for(int i = 0; i < xGrad.size(); i++)
-      printf("%11.4f ", xGrad[i]);
-    printf("\n");
-
-    vnl_vector<double> xGradN(acf.get_number_of_unknowns(), 0.0);
-    for(int i = 0; i < acf.get_number_of_unknowns(); i++)
+    if(param.flag_debug_deriv)
       {
-      // double eps = (i % VDim == 0) ? 1.0e-2 : 1.0e-5;
-      double eps = 1.0e-2;
-      double f1, f2, f3, f4;
-      vnl_vector<double> x1 = xLevel, x2 = xLevel, x3 = xLevel, x4 = xLevel;
-      x1[i] -= 2 * eps; x2[i] -= eps; x3[i] += eps; x4[i] += 2 * eps;
+      // Test the gradient computation
+      vnl_vector<double> xGrad(acf.get_number_of_unknowns(), 0.0);
+      double f0;
+      acf.compute(xLevel, &f0, &xGrad);
 
-      // Four-point derivative computation
-      acf.compute(x1, &f1, NULL);
-      acf.compute(x2, &f2, NULL);
-      acf.compute(x3, &f3, NULL);
-      acf.compute(x4, &f4, NULL);
+      // Propagate the jitter to the transform
+      Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
+      std::cout << "Initial RAS Transform: " << std::endl << Q_physical  << std::endl;
 
-      xGradN[i] = (f1 - 8 * f2 + 8 * f3 - f4) / (12 * eps);
+      printf("ANL gradient: ");
+      for(int i = 0; i < xGrad.size(); i++)
+        printf("%11.4f ", xGrad[i]);
+      printf("\n");
+
+      vnl_vector<double> xGradN(acf.get_number_of_unknowns(), 0.0);
+      for(int i = 0; i < acf.get_number_of_unknowns(); i++)
+        {
+        // double eps = (i % VDim == 0) ? 1.0e-2 : 1.0e-5;
+        double eps = 1.0e-2;
+        double f1, f2, f3, f4;
+        vnl_vector<double> x1 = xLevel, x2 = xLevel, x3 = xLevel, x4 = xLevel;
+        x1[i] -= 2 * eps; x2[i] -= eps; x3[i] += eps; x4[i] += 2 * eps;
+
+        // Four-point derivative computation
+        acf.compute(x1, &f1, NULL);
+        acf.compute(x2, &f2, NULL);
+        acf.compute(x3, &f3, NULL);
+        acf.compute(x4, &f4, NULL);
+
+        xGradN[i] = (f1 - 8 * f2 + 8 * f3 - f4) / (12 * eps);
+        }
+
+      printf("NUM gradient: ");
+      for(int i = 0; i < xGradN.size(); i++)
+        printf("%11.4f ", xGradN[i]);
+      printf("\n");
+
+      std::cout << "f = " << f0 << std::endl;
+
+      acf.GetTransform(xGrad, tLevel.GetPointer());
+      std::cout << "A: " << std::endl << tLevel << std::endl;
+
+      acf.GetTransform(xGradN, tLevel.GetPointer());
+      std::cout << "N: " << std::endl << tLevel << std::endl;
       }
 
-    printf("NUM gradient: ");
-    for(int i = 0; i < xGradN.size(); i++)
-      printf("%11.4f ", xGradN[i]);
-    printf("\n");
-
-    std::cout << "f = " << f0 << std::endl;
-
-    acf.GetTransform(xGrad, tLevel.GetPointer());
-    std::cout << "A: " << std::endl << tLevel << std::endl;
-
-    acf.GetTransform(xGradN, tLevel.GetPointer());
-    std::cout << "N: " << std::endl << tLevel << std::endl;
-
     // Run the minimization
-    if(dynamic_cast<vnl_powell *>(optimizer))
-      dynamic_cast<vnl_powell *>(optimizer)->minimize(xLevel);
-    else if(dynamic_cast<vnl_lbfgs *>(optimizer))
-      dynamic_cast<vnl_lbfgs *>(optimizer)->minimize(xLevel);
+    // Set up the optimizer
+    vnl_lbfgs *optimizer = new vnl_lbfgs(acf);
+    optimizer->set_f_tolerance(1e-9);
+    optimizer->set_x_tolerance(1e-4);
+    optimizer->set_g_tolerance(1e-6);
+    optimizer->set_trace(true);
+    optimizer->set_max_function_evals(param.iter_per_level[level]);
+
+    optimizer->minimize(xLevel);
 
     // Get the final transform
     typename TransformType::Pointer tFinal = TransformType::New();
@@ -1055,6 +1003,7 @@ int main(int argc, char *argv[])
   param.dim = 2;
   param.mode = GreedyParameters::GREEDY;
   param.flag_dump_moving = false;
+  param.flag_debug_deriv = false;
   param.dump_frequency = 1;
   param.epsilon = 1.0;
   param.sigma_pre = 3.0;
@@ -1137,6 +1086,10 @@ int main(int argc, char *argv[])
     else if(arg == "-dump-frequency" || arg == "-dump-freq")
       {
       param.dump_frequency = atoi(argv[++i]);
+      }
+    else if(arg == "-debug-deriv")
+      {
+      param.flag_debug_deriv = true;
       }
     else if(arg == "-threads")
       {
