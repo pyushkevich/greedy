@@ -366,6 +366,8 @@ public:
 
   const IndexType &GetIndex() { return m_Index; }
 
+  const vnl_vector<float> &GetSamplePos() { return m_SamplePos; }
+
 protected:
 
   MetricType *m_Metric;

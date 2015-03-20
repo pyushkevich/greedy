@@ -25,7 +25,7 @@
 #define MULTICOMPONENTNCCIMAGEMETRIC_H
 
 #include "MultiComponentImageMetricBase.h"
-
+#include "itkBarrier.h"
 
 /**
  * Normalized cross-correlation metric. This filter sets up a mini-pipeline with
@@ -58,7 +58,9 @@ public:
   typedef typename Superclass::InputPixelType                InputPixelType;
   typedef typename Superclass::InputComponentType            InputComponentType;
   typedef typename Superclass::MetricImageType               MetricImageType;
+  typedef typename Superclass::MetricPixelType               MetricPixelType;
   typedef typename Superclass::GradientImageType             GradientImageType;
+  typedef typename Superclass::GradientPixelType             GradientPixelType;
   typedef typename Superclass::MaskImageType                 MaskImageType;
 
 
@@ -89,9 +91,6 @@ public:
    */
   itkSetObjectMacro(WorkingImage, InputImageType)
 
-  /** Summary results after running the filter */
-  itkGetConstMacro(MetricValue, double)
-
   /**
    * Get the gradient scaling factor. To get the actual gradient of the metric, multiply the
    * gradient output of this filter by the scaling factor. Explanation: for efficiency, the
@@ -104,13 +103,15 @@ public:
 
 
 protected:
-  MultiComponentNCCImageMetric() {}
+  MultiComponentNCCImageMetric() { m_Radius.Fill(1); }
   ~MultiComponentNCCImageMetric() {}
 
-  /** SimpleWarpImageFilter is implemented as a multi-threaded filter.
-   * As such, it needs to provide and implementation for
-   * ThreadedGenerateData(). */
-  void GenerateData();
+  // TODO: set up for proper streaming
+  // virtual void GenerateInputRequestedRegion();
+
+  virtual void BeforeThreadedGenerateData();
+  virtual void ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread,
+                                    itk::ThreadIdType threadId);
 
 private:
   MultiComponentNCCImageMetric(const Self&); //purposely not implemented
@@ -122,10 +123,104 @@ private:
 
   // Radius of the cross-correlation
   SizeType m_Radius;
-
-  // Vector of accumulated data (difference, gradient of affine transform, etc)
-  double                          m_MetricValue;
 };
+
+
+
+
+
+
+/**
+ * \class MultiImageNCCPrecomputeFilter
+ * \brief Helps compute the NCC metric
+ *
+ * This filter takes a pair of images plus a warp and computes the components that
+ * are used to calculate the cross-correlation metric between them and
+ * the gradient. These components are in the form I, I*J, I * gradJ, and
+ * so on. These components must then be mean-filtered and combined to get the
+ * metric and the gradient.
+ *
+ * The output of this filter must be a vector image. The input may be a vector image.
+ *
+ */
+template <class TMetricTraits, class TOutputImage>
+class ITK_EXPORT MultiImageNCCPrecomputeFilter :
+    public itk::ImageToImageFilter<typename TMetricTraits::InputImageType, TOutputImage>
+{
+public:
+
+  /** The parent/owner class */
+  typedef MultiComponentNCCImageMetric<TMetricTraits> ParentType;
+
+  /** Inherit some types from the superclass. */
+  typedef typename ParentType::InputImageType         InputImageType;
+  typedef typename ParentType::InputPixelType         InputPixelType;
+  typedef typename ParentType::InputComponentType     InputComponentType;
+  typedef typename ParentType::DeformationVectorType  DeformationVectorType;
+  typedef typename ParentType::MetricPixelType        MetricPixelType;
+  typedef typename ParentType::GradientPixelType      GradientPixelType;
+  typedef typename ParentType::RealType               RealType;
+  typedef TOutputImage                                OutputImageType;
+  typedef typename OutputImageType::InternalPixelType OutputComponentType;
+
+  /** Standard class typedefs. */
+  typedef MultiImageNCCPrecomputeFilter                         Self;
+  typedef itk::ImageToImageFilter<InputImageType, TOutputImage> Superclass;
+  typedef itk::SmartPointer<Self>                               Pointer;
+  typedef itk::SmartPointer<const Self>                         ConstPointer;
+
+  /** Typedef to describe the output image region type. */
+  typedef typename Superclass::OutputImageRegionType         OutputImageRegionType;
+
+
+  typedef typename Superclass::DataObjectIdentifierType DataObjectIdentifierType;
+
+  /** Method for creation through the object factory. */
+  itkNewMacro(Self)
+
+  /** Run-time type information (and related methods) */
+  itkTypeMacro( MultiImageNCCPrecomputeFilter, ImageToImageFilter )
+
+  /** Determine the image dimension. */
+  itkStaticConstMacro(ImageDimension, unsigned int, TOutputImage::ImageDimension );
+
+  /** Set the parent class */
+  void SetParent(ParentType *parent)
+  {
+    m_Parent = parent;
+  }
+
+  /** Get the number of components in the output */
+  int GetNumberOfOutputComponents();
+
+
+protected:
+  MultiImageNCCPrecomputeFilter();
+  ~MultiImageNCCPrecomputeFilter() {}
+
+  /** SimpleWarpImageFilter is implemented as a multi-threaded filter.
+   * As such, it needs to provide and implementation for
+   * ThreadedGenerateData(). */
+  virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
+                            itk::ThreadIdType threadId );
+
+  /** Set up the output information */
+  virtual void GenerateOutputInformation();
+
+  /** Override input checks to allow fixed and moving to be in different space */
+  virtual void VerifyInputInformation() {}
+
+private:
+  MultiImageNCCPrecomputeFilter(const Self&); //purposely not implemented
+  void operator=(const Self&); //purposely not implemented
+
+  ParentType *m_Parent;
+};
+
+
+
+
+
 
 #ifndef ITK_MANUAL_INSTANTIATION
 #include "MultiComponentNCCImageMetric.txx"

@@ -23,46 +23,7 @@
 #include "itkVectorImage.h"
 #include "itkMatrixOffsetTransformBase.h"
 
-/**
- * Flatten an affine transform to a flat array
- */
-template<class TFloat, class TFloatArr, unsigned int VDim>
-static void flatten_affine_transform(
-    const itk::MatrixOffsetTransformBase<TFloat, VDim, VDim> *transform,
-    TFloatArr *flat_array)
-{
-  int pos = 0;
-  for(int i = 0; i < VDim; i++)
-    {
-    flat_array[pos++] = transform->GetOffset()[i];
-    for(int j = 0; j < VDim; j++)
-      flat_array[pos++] = transform->GetMatrix()(i,j);
-    }
-}
 
-/**
- * Unflatten a flat array to an affine transform
- */
-template<class TFloat, class TFloatArr, unsigned int VDim>
-static void unflatten_affine_transform(
-   const TFloatArr *flat_array,
-   itk::MatrixOffsetTransformBase<TFloat, VDim, VDim> *transform,
-   double scaling = 1.0)
-{
-  typename itk::MatrixOffsetTransformBase<TFloat, VDim, VDim>::MatrixType matrix;
-  typename itk::MatrixOffsetTransformBase<TFloat, VDim, VDim>::OffsetType offset;
-
-  int pos = 0;
-  for(int i = 0; i < VDim; i++)
-    {
-    offset[i] = flat_array[pos++] * scaling;
-    for(int j = 0; j < VDim; j++)
-      matrix(i, j) = flat_array[pos++] * scaling;
-    }
-
-  transform->SetMatrix(matrix);
-  transform->SetOffset(offset);
-}
 
 
 /**

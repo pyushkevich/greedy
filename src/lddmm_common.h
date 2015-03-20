@@ -41,4 +41,5 @@ typedef double myreal;
     return dynamic_cast<type *>(this->ProcessObject::GetOutput(key)); \
     }
 
+
 #endif

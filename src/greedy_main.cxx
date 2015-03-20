@@ -717,7 +717,7 @@ int GreedyApproach<VDim, TReal>
       if(param.metric == GreedyParameters::SSD)
         {
         vnl_vector<double> all_metrics =
-            of_helper.ComputeOpticalFlowField(level, uk, iTemp, uk1, param.epsilon);
+            of_helper.ComputeOpticalFlowField(level, uk, iTemp, uk1, param.epsilon)  / param.epsilon;
 
         printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
         total_energy = 0.0;
@@ -796,7 +796,7 @@ int GreedyApproach<VDim, TReal>
           }
           */
 
-        total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, param.epsilon);
+        total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, param.epsilon) / param.epsilon;
         printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
         }
 

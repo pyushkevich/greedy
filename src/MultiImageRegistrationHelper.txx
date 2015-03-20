@@ -24,8 +24,8 @@
 #include "itkContinuousIndex.h"
 #include "vnl/vnl_math.h"
 #include "lddmm_data.h"
-#include "MultiImageAffineMSDMetricFilter.h"
 #include "MultiImageOpticalFlowImageFilter.h"
+#include "MultiComponentNCCImageMetric.h"
 #include "itkVectorIndexSelectionCastImageFilter.h"
 #include "OneDimensionalInPlaceAccumulateFilter.h"
 #include "itkUnaryFunctorImageFilter.h"
@@ -291,8 +291,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
                         VectorImageType *out_gradient,
                         double result_scaling)
 {
-  // TODO: restore NCC!
-  /*
   typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
   typedef MultiComponentNCCImageMetric<TraitsType> FilterType;
 
@@ -314,15 +312,13 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetWeights(wscaled);
   filter->SetComputeGradient(true);
   filter->GetMetricOutput()->Graft(out_metric);
-  filter->GetGradientOutput()->Graft(out_gradient);
+  filter->GetDeformationGradientOutput()->Graft(out_gradient);
   filter->SetRadius(radius);
   filter->SetWorkingImage(m_NCCWorkingImage);
   filter->Update();
 
   // Get the vector of the normalized metrics
   return filter->GetMetricValue();
-  */
-  return 0;
 }
 
 
