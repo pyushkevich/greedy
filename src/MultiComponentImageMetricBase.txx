@@ -52,6 +52,11 @@ MultiComponentImageMetricBase<TMetricTraits>
 {
   this->ToggleOutput(m_ComputeGradient && !m_ComputeAffine, "phi_gradient");
   this->ToggleOutput(m_ComputeGradient && m_ComputeAffine, "tran_gradient");
+
+  if(m_ComputeAffine)
+    m_AffineTransformGradient = TransformType::New();
+  else
+    m_AffineTransformGradient = NULL;
 }
 
 template <class TMetricTraits>
@@ -108,6 +113,24 @@ MultiComponentImageMetricBase<TMetricTraits>
 
   // Report the normalized value
   m_MetricValue = m_AccumulatedData.metric / m_AccumulatedData.mask;
+
+  // Compute the affine gradient
+  if(m_ComputeAffine)
+    {
+    m_AffineTransformGradient = TransformType::New();
+
+    vnl_vector<double> grad_metric(m_AccumulatedData.gradient.size());
+    for(int j = 0; j < m_AccumulatedData.gradient.size(); j++)
+      {
+      grad_metric[j] =
+          (this->GetGradientScalingFactor() * m_AccumulatedData.gradient[j]
+           -m_MetricValue * m_AccumulatedData.grad_mask[j])
+          / m_AccumulatedData.mask;
+      }
+
+    // Pack into the output
+    unflatten_affine_transform(grad_metric.data_block(), m_AffineTransformGradient.GetPointer());
+    }
 }
 
 template <class TMetricTraits>
@@ -242,12 +265,11 @@ public:
       {
       for(int d = 0; d < ImageDimension; d++)
         {
-        m_SamplePos[d] = m_Metric->GetAffineTransform()->GetOffset()[d] - m_Index[d];
+        m_SamplePos[d] = m_Metric->GetAffineTransform()->GetOffset()[d];
         m_SampleStep[d] = m_Metric->GetAffineTransform()->GetMatrix()(d, 0);
         for(int j = 0; j < ImageDimension; j++)
           m_SamplePos[d] += m_Metric->GetAffineTransform()->GetMatrix()(d,j) * m_Index[j];
         }
-      m_SampleStep[0] -= 1.0;
       }
     else
       {

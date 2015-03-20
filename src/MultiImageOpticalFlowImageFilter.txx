@@ -148,7 +148,7 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
                 {
                 td.grad_mask[q++] += iter.GetMaskGradient()[i];
                 for(int j = 0; j < ImageDimension; j++)
-                  td.grad_mask[q] += iter.GetMaskGradient()[i] * iter.GetIndex()[j];
+                  td.grad_mask[q++] += iter.GetMaskGradient()[i] * iter.GetIndex()[j];
                 }
               }
             }

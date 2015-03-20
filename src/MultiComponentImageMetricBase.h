@@ -150,10 +150,11 @@ public:
   void SetAffineTransform(TransformType *transform)
   {
     this->m_AffineTransform = transform;
+    this->m_ComputeAffine = true;
     this->UpdateOutputs();
   }
 
-  itkNamedInputGetMacro(AffineTransform, TransformType, "tran")
+  itkGetMacro(AffineTransform, TransformType *)
 
   /** Set the weight vector - for different components in the input image */
   itkSetMacro(Weights, WeightVectorType)

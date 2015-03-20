@@ -353,6 +353,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetMovingImage(m_MovingComposite[level]);
   metric->SetWeights(wscaled);
   metric->SetAffineTransform(tran);
+  metric->SetComputeMovingDomainMask(true);
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad != NULL);
   metric->Update();
