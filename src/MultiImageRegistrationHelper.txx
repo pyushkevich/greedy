@@ -379,7 +379,41 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
                                    VectorImageType *wrkPhi,
                                    LinearTransformType *grad)
 {
-  // TODO: RESTORE NCC
+  // Scale the weights by epsilon
+  vnl_vector<float> wscaled(m_Weights.size());
+  for(int i = 0; i < wscaled.size(); i++)
+    wscaled[i] = m_Weights[i];
+
+  // Allocate a working image
+  if(m_NCCWorkingImage.IsNull())
+    m_NCCWorkingImage = MultiComponentImageType::New();
+
+  // Set up the optical flow computation
+  typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
+  typedef MultiComponentNCCImageMetric<TraitsType> MetricType;
+  typename MetricType::Pointer metric = MetricType::New();
+
+  metric->SetFixedImage(m_FixedComposite[level]);
+  metric->SetMovingImage(m_MovingComposite[level]);
+  metric->SetWeights(wscaled);
+  metric->SetAffineTransform(tran);
+  metric->SetComputeMovingDomainMask(false);
+  metric->GetMetricOutput()->Graft(wrkMetric);
+  metric->SetComputeGradient(grad != NULL);
+  metric->SetRadius(radius);
+  metric->SetWorkingImage(m_NCCWorkingImage);
+  metric->Update();
+
+  // Process the results
+  if(grad)
+    {
+    grad->SetMatrix(metric->GetAffineTransformGradient()->GetMatrix());
+    grad->SetOffset(metric->GetAffineTransformGradient()->GetOffset());
+    }
+
+  return metric->GetMetricValue();
+
+
   /*
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
@@ -459,8 +493,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   return affine_metric->GetMetricValue();
 */
-
-  return 0;
 }
 
 template <class TFloat, unsigned int VDim>

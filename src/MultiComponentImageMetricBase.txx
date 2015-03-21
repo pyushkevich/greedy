@@ -153,6 +153,11 @@ MultiComponentImageMetricBase<TMetricTraits>
 #include "ImageRegionConstIteratorWithIndexOverride.h"
 #include "FastLinearInterpolator.h"
 
+
+#define _FAKE_FUNC_
+
+
+
 /**
  * \class MultiComponentMetricWorker
  *
@@ -315,12 +320,29 @@ public:
 
   typename InterpType::InOut Interpolate()
   {
+    typename InterpType::InOut status;
+
     // Clear the moving sample
     for(int i = 0; i < m_FixedStep; i++)
       m_MovingSample[i] = 0.0;
 
+#ifdef _FAKE_FUNC_
+
+    for(int i = 0; i < m_FixedStep; i++)
+      {
+      // Fake a function
+      double x = m_SamplePos[0], y = m_SamplePos[1], z = m_SamplePos[2];
+      double a = 0.01, b = 0.005, c = 0.008, d = 0.004;
+      m_MovingSample[i] = sin(a * x * y + b * z) + cos(c * x + d * y * z);
+      m_MovingSampleGradient[i][0] = cos(a * x * y + b * z) * a * y - sin(c * x + d * y * z) * c;
+      m_MovingSampleGradient[i][1] = cos(a * x * y + b * z) * a * x - sin(c * x + d * y * z) * d * z;
+      m_MovingSampleGradient[i][2] = cos(a * x * y + b * z) * b     - sin(c * x + d * y * z) * d * y;
+      status = InterpType::INSIDE;
+      }
+
+#else
+
     // Interpolate the moving image
-    typename InterpType::InOut status;
     if(m_Gradient)
       {
       // Read out the status
@@ -346,6 +368,8 @@ public:
         m_Mask = m_Interpolator.GetMask();
         }
       }
+
+#endif
 
     return status;
   }

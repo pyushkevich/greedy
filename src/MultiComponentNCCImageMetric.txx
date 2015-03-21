@@ -72,14 +72,12 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
 
   // If we are not computing affine transform, then the gradient requires 3 comps per dimension
   if(!m_Parent->GetComputeAffine())
-    return 1 + nc * (5 + ImageDimension * 3);
+    return 1 + nc * (5 + 3 * ImageDimension);
 
   // Otherwise we need a ton of components, because for each gradient component we need it also
   // scaled by x, by y and by z.
-  return 1 + nc * (5 + ImageDimension * (4 + ImageDimension));
+  return 1 + nc * (5 + 3 * ImageDimension * (1 + ImageDimension));
 }
-
-// #define _FAKE_FUNC_
 
 /**
  * Compute the output for the region specified by outputRegionForThread.
@@ -112,20 +110,6 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
       {
       // Get the output pointer for this voxel
       OutputComponentType *out = iter.GetOutputLine();
-
-#ifdef _FAKE_FUNC_
-
-      // Fake a function
-      vnl_vector<float> cix = iter.GetSamplePos();
-      double x = cix[0], y = cix[1], z = cix[2];
-      double a = 0.01, b = 0.005, c = 0.008, d = 0.004;
-      interp_mov[0] = sin(a * x * y + b * z) + cos(c * x + d * y * z);
-      interp_mov_grad[0] = cos(a * x * y + b * z) * a * y - sin(c * x + d * y * z) * c;
-      interp_mov_grad[1] = cos(a * x * y + b * z) * a * x - sin(c * x + d * y * z) * d * z;
-      interp_mov_grad[2] = cos(a * x * y + b * z) * b     - sin(c * x + d * y * z) * d * y;
-      typename FastInterpolator::InOut status = FastInterpolator::INSIDE;
-
-#else
 
       // Interpolate the moving image at the current position. The worker knows
       // whether to interpolate the gradient or not
@@ -163,30 +147,28 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
             const InputComponentType *mov_grad = iter.GetMovingSampleGradient(k);
             for(int i = 0; i < ImageDimension; i++)
               {
-              *out++ = mov_grad[i];
-              *out++ = x_fix * mov_grad[i];
-              *out++ = x_mov * mov_grad[i];
-              }
+              InputComponentType mov_grad_i = mov_grad[i];
+              *out++ = mov_grad_i;
+              *out++ = x_fix * mov_grad_i;
+              *out++ = x_mov * mov_grad_i;
 
-            // If affine, tack on additional components
-            if(m_Parent->GetComputeAffine())
-              {
-              // TODO: figure this out!
-              for(int i = 0; i < ImageDimension; i++)
+              if(m_Parent->GetComputeAffine())
                 {
-                double x = iter.GetIndex()[i];
                 for(int j = 0; j < ImageDimension; j++)
                   {
-                  *out++ = mov_grad[j] * x;
-                  *out++ = x_fix * mov_grad[i] * x;
-                  *out++ = x_mov * mov_grad[i] * x;
+                  double x = iter.GetIndex()[j];
+                  *out++ = mov_grad_i * x;
+                  *out++ = x_fix * mov_grad_i * x;
+                  *out++ = x_mov * mov_grad_i * x;
                   }
                 }
               }
+
+            // If affine, tack on additional components
+
             }
           }
         }
-#endif
       }
     }
 }
@@ -273,6 +255,86 @@ MultiImageNNCPostComputeFunction(
 
   return ptr;
 }
+
+
+template <class TPixel, class TWeight, class TMetric, class TGradient>
+TPixel *
+MultiImageNNCPostComputeAffineGradientFunction(
+    TPixel *ptr, TPixel *ptr_end, TWeight *weights, TMetric *ptr_metric, TGradient *ptr_affine_gradient, int ImageDimension)
+{
+  // Get the size of the mean filter kernel
+  TPixel n = *ptr++, one_over_n = 1.0 / n;
+
+  // Loop over components
+  int i_wgt = 0;
+  const TPixel eps = 1e-8;
+
+  // Initialize metric to zero
+  *ptr_metric = 0;
+
+  for(; ptr < ptr_end; ++i_wgt)
+    {
+    TPixel x_fix = *ptr++;
+    TPixel x_mov = *ptr++;
+    TPixel x_fix_sq = *ptr++;
+    TPixel x_mov_sq = *ptr++;
+    TPixel x_fix_mov = *ptr++;
+
+    TPixel x_fix_over_n = x_fix * one_over_n;
+    TPixel x_mov_over_n = x_mov * one_over_n;
+
+    TPixel var_fix = x_fix_sq - x_fix * x_fix_over_n;
+    TPixel var_mov = x_mov_sq - x_mov * x_mov_over_n;
+
+    if(var_fix < eps || var_mov < eps)
+      {
+      if(ptr_affine_gradient)
+        ptr += 3 * (1 + ImageDimension) * ImageDimension;
+      continue;
+      }
+
+    TPixel cov_fix_mov = x_fix_mov - x_fix * x_mov_over_n;
+    TPixel one_over_denom = 1.0 / (var_fix * var_mov);
+    TPixel cov_fix_mov_over_denom = cov_fix_mov * one_over_denom;
+    TPixel ncc_fix_mov = cov_fix_mov * cov_fix_mov_over_denom;
+
+    // Weight - includes scaling of squared covariance by direction
+    TWeight w = (cov_fix_mov < 0) ? -weights[i_wgt] : weights[i_wgt];
+
+    if(ptr_affine_gradient)
+      {
+      // There are 12 components to compute
+      TGradient *paff = ptr_affine_gradient;
+
+      for(int i = 0; i < ImageDimension; i++)
+        {
+        for(int j = 0; j <= ImageDimension; j++)
+          {
+          TPixel x_grad_mov_i = *ptr++;
+          TPixel x_fix_grad_mov_i = *ptr++;
+          TPixel x_mov_grad_mov_i = *ptr++;
+
+          // Derivative of cov_fix_mov
+          TPixel grad_cov_fix_mov_i = x_fix_grad_mov_i - x_fix_over_n * x_grad_mov_i;
+
+          // One half derivative of var_mov
+          TPixel half_grad_var_mov_i = x_mov_grad_mov_i - x_mov_over_n * x_grad_mov_i;
+
+          TPixel grad_ncc_fix_mov_i =
+              2 * cov_fix_mov_over_denom * (grad_cov_fix_mov_i - var_fix * half_grad_var_mov_i * cov_fix_mov_over_denom);
+
+          *paff++ += w * grad_ncc_fix_mov_i;
+          }
+        }
+      }
+
+    // Accumulate the metric
+    *ptr_metric += w * ncc_fix_mov;
+    }
+
+  return ptr;
+}
+
 
 
 
@@ -405,7 +467,21 @@ MultiComponentNCCImageMetric<TMetricTraits>
       }
     else if(this->m_ComputeGradient && this->m_ComputeAffine)
       {
-      // TODO: write this code
+      // Loop over the pixels in the line
+      for(int i = 0; i < line_len; ++i)
+        {
+        // Clear the metric and the gradient
+        *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
+
+        // Apply the post computation
+        p_input = MultiImageNNCPostComputeAffineGradientFunction(
+                    p_input, p_input + nc, this->m_Weights.data_block(),
+                    p_metric, td.gradient.data_block(), ImageDimension);
+
+        // Accumulate the total metric
+        td.metric += *p_metric;
+        td.mask += 1.0;
+        }
       }
     else
       {
