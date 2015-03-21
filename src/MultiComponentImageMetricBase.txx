@@ -154,7 +154,7 @@ MultiComponentImageMetricBase<TMetricTraits>
 #include "FastLinearInterpolator.h"
 
 
-#define _FAKE_FUNC_
+// #define _FAKE_FUNC_
 
 
 

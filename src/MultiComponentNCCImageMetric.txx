@@ -118,10 +118,28 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
       // Outside interpolations are ignored
       if(status == FastInterpolator::OUTSIDE)
         {
-        // TODO: this is not really right, especially for affine!
-        out[0] = 1.0;
-        for(int q = 1; q < ncomp_out; q++)
-          out[q] = 0.0;
+        // Place a zero in the output
+        *out++ = 1.0;
+
+        // Iterate over the components
+        for(int k = 0; k < ncomp_in; k++)
+          {
+          InputComponentType x_fix = iter.GetFixedLine()[k];
+          *out++ = x_fix;
+          *out++ = 0.0;
+          *out++ = x_fix * x_fix;
+          *out++ = 0.0;
+          *out++ = 0.0;
+
+          int n = m_Parent->GetComputeGradient()
+                  ? ( m_Parent->GetComputeAffine()
+                      ? 3 * ImageDimension * (1 + ImageDimension)
+                      : 3 * ImageDimension)
+                  : 0;
+
+          for(int j = 0; j < n; j++)
+            *out++ = 0.0;
+          }
         }
       else
         {
@@ -267,7 +285,7 @@ MultiImageNNCPostComputeAffineGradientFunction(
 
   // Loop over components
   int i_wgt = 0;
-  const TPixel eps = 1e-8;
+  const TPixel eps = 1e-2;
 
   // Initialize metric to zero
   *ptr_metric = 0;
@@ -283,17 +301,10 @@ MultiImageNNCPostComputeAffineGradientFunction(
     TPixel x_fix_over_n = x_fix * one_over_n;
     TPixel x_mov_over_n = x_mov * one_over_n;
 
-    TPixel var_fix = x_fix_sq - x_fix * x_fix_over_n;
-    TPixel var_mov = x_mov_sq - x_mov * x_mov_over_n;
+    TPixel var_fix = x_fix_sq - x_fix * x_fix_over_n + eps;
+    TPixel var_mov = x_mov_sq - x_mov * x_mov_over_n + eps;
 
-    if(var_fix < eps || var_mov < eps)
-      {
-      if(ptr_affine_gradient)
-        ptr += 3 * (1 + ImageDimension) * ImageDimension;
-      continue;
-      }
-
-    TPixel cov_fix_mov = x_fix_mov - x_fix * x_mov_over_n;
+    TPixel cov_fix_mov = x_fix_mov - x_fix * x_mov_over_n + eps;
     TPixel one_over_denom = 1.0 / (var_fix * var_mov);
     TPixel cov_fix_mov_over_denom = cov_fix_mov * one_over_denom;
     TPixel ncc_fix_mov = cov_fix_mov * cov_fix_mov_over_denom;
@@ -446,27 +457,50 @@ MultiComponentNCCImageMetric<TMetricTraits>
                                        ? this->GetDeformationGradientOutput()->GetBufferPointer() + offset_in_pixels
                                        : NULL;
 
+
     // Case 1 - dense gradient field requested
-    if(this->m_ComputeGradient && !this->m_ComputeAffine)
+    if(!this->m_ComputeAffine)
       {
-      // Loop over the pixels in the line
-      for(int i = 0; i < line_len; ++i)
+      if(this->m_ComputeGradient)
         {
-        // Clear the metric and the gradient
-        *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
-        *p_grad_metric = itk::NumericTraits<GradientPixelType>::Zero;
+        // Loop over the pixels in the line
+        for(int i = 0; i < line_len; ++i)
+          {
+          // Clear the metric and the gradient
+          *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
+          *p_grad_metric = itk::NumericTraits<GradientPixelType>::Zero;
 
-        // Apply the post computation
-        p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, this->m_Weights.data_block(),
-                                                   p_metric, p_grad_metric++, ImageDimension);
+          // Apply the post computation
+          p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, this->m_Weights.data_block(),
+                                                     p_metric, p_grad_metric++, ImageDimension);
 
-        // Accumulate the total metric
-        td.metric += *p_metric;
-        td.mask += 1.0;
+          // Accumulate the total metric
+          td.metric += *p_metric;
+          td.mask += 1.0;
+          }
+        }
+      else
+        {
+        // Loop over the pixels in the line
+        for(int i = 0; i < line_len; ++i)
+          {
+          // Clear the metric and the gradient
+          *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
+
+          // Apply the post computation
+          p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, this->m_Weights.data_block(),
+                                                     p_metric, (GradientPixelType *)(NULL), ImageDimension);
+
+          // Accumulate the total metric
+          td.metric += *p_metric;
+          td.mask += 1.0;
+          }
         }
       }
-    else if(this->m_ComputeGradient && this->m_ComputeAffine)
+    else
       {
+      double *p_grad = this->m_ComputeGradient ? td.gradient.data_block() : NULL;
+
       // Loop over the pixels in the line
       for(int i = 0; i < line_len; ++i)
         {
@@ -476,24 +510,7 @@ MultiComponentNCCImageMetric<TMetricTraits>
         // Apply the post computation
         p_input = MultiImageNNCPostComputeAffineGradientFunction(
                     p_input, p_input + nc, this->m_Weights.data_block(),
-                    p_metric, td.gradient.data_block(), ImageDimension);
-
-        // Accumulate the total metric
-        td.metric += *p_metric;
-        td.mask += 1.0;
-        }
-      }
-    else
-      {
-      // Loop over the pixels in the line
-      for(int i = 0; i < line_len; ++i)
-        {
-        // Clear the metric and the gradient
-        *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
-
-        // Apply the post computation
-        p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, this->m_Weights.data_block(),
-                                                   p_metric, (GradientPixelType *)(NULL), ImageDimension);
+                    p_metric, p_grad, ImageDimension);
 
         // Accumulate the total metric
         td.metric += *p_metric;
