@@ -26,6 +26,7 @@
 #include "lddmm_data.h"
 #include "MultiImageOpticalFlowImageFilter.h"
 #include "MultiComponentNCCImageMetric.h"
+#include "MultiComponentMutualInfoImageMetric.h"
 #include "itkVectorIndexSelectionCastImageFilter.h"
 #include "OneDimensionalInPlaceAccumulateFilter.h"
 #include "itkUnaryFunctorImageFilter.h"
@@ -352,6 +353,81 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetComputeMovingDomainMask(true);
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad != NULL);
+  metric->Update();
+
+  // Process the results
+  if(grad)
+    {
+    grad->SetMatrix(metric->GetAffineTransformGradient()->GetMatrix());
+    grad->SetOffset(metric->GetAffineTransformGradient()->GetOffset());
+    }
+
+  return metric->GetMetricValue();
+}
+
+#include "itkRescaleIntensityImageFilter.h"
+
+template <class TFloat, unsigned int VDim>
+double
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeAffineMIMatchAndGradient(int level,
+                                  LinearTransformType *tran,
+                                  FloatImageType *wrkMetric,
+                                  FloatImageType *wrkMask,
+                                  VectorImageType *wrkGradMetric,
+                                  VectorImageType *wrkGradMask,
+                                  VectorImageType *wrkPhi,
+                                  LinearTransformType *grad)
+{
+  // Scale the weights by epsilon
+  vnl_vector<float> wscaled(m_Weights.size());
+  for(int i = 0; i < wscaled.size(); i++)
+    wscaled[i] = m_Weights[i];
+
+  // Set up the mutual information metric
+  typedef DefaultMultiComponentMutualInfoImageMetricTraits<TFloat, unsigned char, VDim> TraitsType;
+  typedef MultiComponentMutualInfoImageMetric<TraitsType> MetricType;
+
+  typedef itk::VectorImage<unsigned char, VDim> BinnedImageType;
+  typedef MutualInformationPreprocessingFilter<MultiComponentImageType, BinnedImageType> BinnerType;
+
+  // TODO: this is utter laziness, get rid of this garbage!
+  static typename BinnerType::Pointer binner_fixed = BinnerType::New();
+  static typename BinnerType::Pointer binner_moving = BinnerType::New();
+
+  binner_fixed->SetInput(m_FixedComposite[level]);
+  binner_fixed->SetBins(128);
+  binner_fixed->SetLowerQuantile(0.01);
+  binner_fixed->SetUpperQuantile(0.99);
+  binner_fixed->Update();
+
+  binner_moving->SetInput(m_MovingComposite[level]);
+  binner_moving->SetBins(128);
+  binner_moving->SetLowerQuantile(0.01);
+  binner_moving->SetUpperQuantile(0.99);
+  binner_moving->Update();
+
+  typename MetricType::Pointer metric = MetricType::New();
+
+  typedef itk::ImageFileWriter<BinnedImageType> W;
+  typename W::Pointer w1 = W::New();
+  w1->SetInput(binner_fixed->GetOutput());
+  w1->SetFileName("binfix.nii.gz");
+  w1->Update();
+
+  typename W::Pointer w2 = W::New();
+  w2->SetInput(binner_moving->GetOutput());
+  w2->SetFileName("binmov.nii.gz");
+  w2->Update();
+
+  metric->SetFixedImage(binner_fixed->GetOutput());
+  metric->SetMovingImage(binner_moving->GetOutput());
+  metric->SetWeights(wscaled);
+  metric->SetAffineTransform(tran);
+  metric->SetComputeMovingDomainMask(true);
+  metric->GetMetricOutput()->Graft(wrkMetric);
+  metric->SetComputeGradient(grad != NULL);
+  metric->SetBins(128);
   metric->Update();
 
   // Process the results

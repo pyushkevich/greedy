@@ -2,25 +2,30 @@
 #define __FastLinearInterpolator_h_
 
 #include "itkVectorImage.h"
+#include "itkNumericTraits.h"
 
 /**
  * Base class for the fast linear interpolators
  */
-template <class TFloat, unsigned int VDim>
+template<class TImage,
+         class TFloat = typename itk::NumericTraits<typename TImage::InternalPixelType>::RealType>
 class FastLinearInterpolatorBase
 {
 public:
-  typedef itk::VectorImage<TFloat, VDim>         ImageType;
-  typedef TFloat                                 InputComponentType;
+  typedef TImage                                 ImageType;
+  typedef TFloat                                 RealType;
+  typedef typename ImageType::InternalPixelType  InputComponentType;
+
+  /** Determine the image dimension. */
+  itkStaticConstMacro(ImageDimension, unsigned int, ImageType::ImageDimension );
 
   enum InOut { INSIDE, OUTSIDE, BORDER };
-
 
   FastLinearInterpolatorBase(ImageType *image)
   {
     buffer = image->GetBufferPointer();
     nComp = image->GetNumberOfComponentsPerPixel();
-    def_value_store = vnl_vector<TFloat>(nComp, (TFloat) 0.0);
+    def_value_store = vnl_vector<InputComponentType>(nComp, itk::NumericTraits<InputComponentType>::Zero);
     def_value = def_value_store.data_block();
   }
 
@@ -28,12 +33,16 @@ protected:
 
 
   int nComp;
-  const InputComponentType *buffer, *def_value;
+  const InputComponentType *buffer;
+
+  // Default value - for interpolation outside of the image bounds
+  const InputComponentType *def_value;
   vnl_vector<InputComponentType> def_value_store;
+
   InOut status;
 
 
-  inline TFloat lerp(TFloat a, TFloat l, TFloat h)
+  inline RealType lerp(RealType a, RealType l, RealType h)
   {
     return l+((h-l)*a);
   }
@@ -43,27 +52,31 @@ protected:
 /**
  * Arbitrary dimension fast linear interpolator - meant to be slow
  */
-template <class TFloat, unsigned int VDim>
-class FastLinearInterpolator : public FastLinearInterpolatorBase<TFloat, VDim>
+template<class TImage,
+         class TFloat = typename itk::NumericTraits<typename TImage::InternalPixelType>::RealType>
+class FastLinearInterpolator : public FastLinearInterpolatorBase<TImage, TFloat>
 {
 public:
-  typedef FastLinearInterpolatorBase<TFloat, VDim>     Superclass;
+  typedef FastLinearInterpolatorBase<TImage, TFloat>   Superclass;
   typedef typename Superclass::ImageType               ImageType;
   typedef typename Superclass::InputComponentType      InputComponentType;
+  typedef typename Superclass::RealType                RealType;
   typedef typename Superclass::InOut                   InOut;
 
   FastLinearInterpolator(ImageType *image) : Superclass(image) {}
 
-  InOut InterpolateWithGradient(float *cix, InputComponentType *out, InputComponentType **grad)
+  InOut InterpolateWithGradient(RealType *cix, RealType *out, RealType **grad)
     { return Superclass::INSIDE; }
 
-  InOut Interpolate(float *cix, InputComponentType *out)
+  InOut Interpolate(RealType *cix, RealType *out)
     { return Superclass::INSIDE; }
 
   TFloat GetMask() { return 0.0; }
 
-  TFloat GetMaskAndGradient(TFloat *mask_gradient) { return 0.0; }
+  TFloat GetMaskAndGradient(RealType *mask_gradient) { return 0.0; }
 
+  template <class THistContainer>
+  void PartialVolumeHistogramSample(RealType *cix, InputComponentType *fixptr, THistContainer &hist) {}
 
 protected:
 };
@@ -71,14 +84,16 @@ protected:
 /**
  * 3D fast linear interpolator - optimized for speed
  */
-template <class TFloat>
-class FastLinearInterpolator<TFloat, 3> : public FastLinearInterpolatorBase<TFloat, 3>
+template <class TPixel, class TFloat>
+class FastLinearInterpolator<itk::VectorImage<TPixel, 3>, TFloat>
+    : public FastLinearInterpolatorBase<itk::VectorImage<TPixel, 3>, TFloat>
 {
 public:
-  typedef FastLinearInterpolatorBase<TFloat, 3>        Superclass;
-  typedef typename Superclass::ImageType               ImageType;
-  typedef typename Superclass::InputComponentType      InputComponentType;
-  typedef typename Superclass::InOut                   InOut;
+  typedef itk::VectorImage<TPixel, 3>                   ImageType;
+  typedef FastLinearInterpolatorBase<ImageType, TFloat> Superclass;
+  typedef typename Superclass::InputComponentType       InputComponentType;
+  typedef typename Superclass::RealType                 RealType;
+  typedef typename Superclass::InOut                    InOut;
 
   FastLinearInterpolator(ImageType *image) : Superclass(image)
   {
@@ -90,7 +105,7 @@ public:
   /**
    * Compute the pointers to the eight corners of the interpolating cube
    */
-  InOut ComputeCorners(float *cix)
+  InOut ComputeCorners(RealType *cix)
   {
     const InputComponentType *dp;
 
@@ -153,11 +168,11 @@ public:
    * Interpolate at position cix, placing the intensity values in out and gradient
    * values in grad (in strides of VDim)
    */
-  InOut InterpolateWithGradient(float *cix, InputComponentType *out, InputComponentType **grad)
+  InOut InterpolateWithGradient(RealType *cix, RealType *out, RealType **grad)
   {
-    double dx00, dx01, dx10, dx11, dxy0, dxy1;
-    double dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
-    double dxy0_y, dxy1_y;
+    RealType dx00, dx01, dx10, dx11, dxy0, dxy1;
+    RealType dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
+    RealType dxy0_y, dxy1_y;
 
     // Compute the corners
     this->ComputeCorners(cix);
@@ -200,9 +215,9 @@ public:
     return this->status;
   }
 
-  InOut Interpolate(float *cix, InputComponentType *out)
+  InOut Interpolate(RealType *cix, RealType *out)
   {
-    double dx00, dx01, dx10, dx11, dxy0, dxy1;
+    RealType dx00, dx01, dx10, dx11, dxy0, dxy1;
 
     // Compute the corners
     this->ComputeCorners(cix);
@@ -228,7 +243,57 @@ public:
     return this->status;
   }
 
-  TFloat GetMask()
+  template <class THistContainer>
+  void PartialVolumeHistogramSample(RealType *cix, InputComponentType *fixptr, THistContainer &hist)
+  {
+    // Compute the corners
+    this->ComputeCorners(cix);
+
+    if(this->status != Superclass::OUTSIDE)
+      {
+      // Compute the corner weights using 4 multiplications (not 16)
+      RealType fxy = fx * fy, fyz = fy * fz, fxz = fx * fz, fxyz = fxy * fz;
+
+      double w111 = fxyz;
+      double w011 = fyz - fxyz;
+      double w101 = fxz - fxyz;
+      double w110 = fxy - fxyz;
+      double w001 = fz - fxz - w011;
+      double w010 = fy - fyz - w110;
+      double w100 = fx - fxy - w101;
+      double w000 = 1.0 - fx - fy + fxy - w001;
+
+      // Loop over the components
+      for(int iComp = 0; iComp < this->nComp; iComp++,
+          d000++, d001++, d010++, d011++,
+          d100++, d101++, d110++, d111++, fixptr++)
+        {
+        // Just this line in the histogram
+        RealType *hist_line = hist[iComp][*fixptr];
+
+        // Assign the appropriate weight to each part of the histogram
+        hist_line[*d000] += w000;
+        hist_line[*d001] += w001;
+        hist_line[*d010] += w010;
+        hist_line[*d011] += w011;
+        hist_line[*d100] += w100;
+        hist_line[*d101] += w101;
+        hist_line[*d110] += w110;
+        hist_line[*d111] += w111;
+        }
+      }
+    else
+      {
+      for(int iComp = 0; iComp < this->nComp; iComp++, fixptr++)
+        {
+        // Just this line in the histogram
+        RealType *hist_line = hist[iComp][*fixptr];
+        hist_line[0] += 1.0;
+        }
+      }
+  }
+
+  RealType GetMask()
   {
     // Interpolate the mask
     double dx00, dx01, dx10, dx11, dxy0, dxy1;
@@ -241,7 +306,7 @@ public:
     return this->lerp(fz, dxy0, dxy1);
   }
 
-  TFloat GetMaskAndGradient(TFloat *mask_gradient)
+  RealType GetMaskAndGradient(RealType *mask_gradient)
   {
     // Interpolate the mask
     double dx00, dx01, dx10, dx11, dxy0, dxy1;
@@ -275,7 +340,7 @@ public:
 
 protected:
 
-  inline const InputComponentType *border_check(int X, int Y, int Z, InputComponentType &mask)
+  inline const InputComponentType *border_check(int X, int Y, int Z, RealType &mask)
   {
     if(X >= 0 && X < xsize && Y >= 0 && Y < ysize && Z >= 0 && Z < zsize)
       {
@@ -299,9 +364,9 @@ protected:
 
   // State of current interpolation
   const InputComponentType *d000, *d001, *d010, *d011, *d100, *d101, *d110, *d111;
-  InputComponentType m000, m001, m010, m011, m100, m101, m110, m111;
+  RealType m000, m001, m010, m011, m100, m101, m110, m111;
 
-  double fx, fy, fz;
+  RealType fx, fy, fz;
   int	 x0, y0, z0, x1, y1, z1;
 
 };

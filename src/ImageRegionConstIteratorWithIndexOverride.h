@@ -18,9 +18,26 @@ public:
   IteratorExtender(ImageType *image, const RegionType &region)
     : Superclass(image, region) {}
 
+  IteratorExtender(const ImageType *image, const RegionType &region)
+    : Superclass(const_cast<ImageType *>(image), region) {}
+
   const InternalPixelType *GetPosition() { return this->m_Position; }
 
   const InternalPixelType *GetBeginPosition() { return this->m_Begin; }
+
+  template <class TImage>
+  typename TImage::InternalPixelType *GetPixelPointer(TImage *image)
+    {
+      long offset_in_pixels = this->m_Position - this->m_Image->GetBufferPointer();
+      return image->GetBufferPointer() + offset_in_pixels * image->GetNumberOfComponentsPerPixel();
+    }
+
+  template <class TImage>
+  const typename TImage::InternalPixelType *GetPixelPointer(const TImage *image)
+    {
+      long offset_in_pixels = this->m_Position - this->m_Image->GetBufferPointer();
+      return image->GetBufferPointer() + offset_in_pixels * image->GetNumberOfComponentsPerPixel();
+    }
 
 };
 

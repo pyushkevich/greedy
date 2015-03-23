@@ -22,6 +22,8 @@ SET(HEADERS
   src/MultiImageOpticalFlowImageFilter.txx
   src/MultiImageRegistrationHelper.h
   src/MultiImageRegistrationHelper.txx
+  src/MultiComponentMutualInfoImageMetric.h
+  src/MultiComponentMutualInfoImageMetric.txx
   src/MultiComponentNCCImageMetric.h
   src/MultiComponentNCCImageMetric.txx
   src/OneDimensionalInPlaceAccumulateFilter.h

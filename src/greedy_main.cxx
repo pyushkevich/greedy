@@ -71,7 +71,7 @@ struct ImagePairSpec
 
 struct GreedyParameters
 {
-  enum MetricType { SSD = 0, NCC };
+  enum MetricType { SSD = 0, NCC, MI };
   enum TimeStepMode { CONST=0, SCALE, SCALEDOWN };
   enum Mode { GREEDY=0, AFFINE, BRUTE };
 
@@ -325,6 +325,18 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
       (*g) *= -10000.0;
       val *= -10000.0;
       }
+    else if(m_Param->metric == GreedyParameters::MI)
+      {
+      val = m_OFHelper->ComputeAffineMIMatchAndGradient(
+              m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
+
+      flatten_affine_transform(grad.GetPointer(), g_scaled.data_block());
+      *g = element_quotient(g_scaled, scaling);
+
+      val *= -1.0;
+      (*g) *= -1.0;
+
+      }
     }
   else
     {
@@ -341,6 +353,13 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
 
       // NCC should be maximized
       val *= -10000.0;
+      }
+    else if(m_Param->metric == GreedyParameters::MI)
+      {
+      val = m_OFHelper->ComputeAffineMIMatchAndGradient(
+              m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
+
+      val *= -1.0;
       }
     }
 
@@ -595,15 +614,34 @@ int GreedyApproach<VDim, TReal>
       }
 
     // Run the minimization
-    // Set up the optimizer
-    vnl_lbfgs *optimizer = new vnl_lbfgs(acf);
-    optimizer->set_f_tolerance(1e-9);
-    optimizer->set_x_tolerance(1e-4);
-    optimizer->set_g_tolerance(1e-6);
-    optimizer->set_trace(true);
-    optimizer->set_max_function_evals(param.iter_per_level[level]);
 
-    optimizer->minimize(xLevel);
+    if(param.metric == GreedyParameters::MI)
+      {
+      // Set up the optimizer
+      vnl_powell *optimizer = new vnl_powell(&acf);
+      optimizer->set_f_tolerance(1e-9);
+      optimizer->set_x_tolerance(1e-4);
+      optimizer->set_g_tolerance(1e-6);
+      optimizer->set_trace(true);
+      optimizer->set_verbose(true);
+      optimizer->set_max_function_evals(param.iter_per_level[level]);
+
+      optimizer->minimize(xLevel);
+      delete optimizer;
+      }
+    else
+      {
+      // Set up the optimizer
+      vnl_lbfgs *optimizer = new vnl_lbfgs(acf);
+      optimizer->set_f_tolerance(1e-9);
+      optimizer->set_x_tolerance(1e-4);
+      optimizer->set_g_tolerance(1e-6);
+      optimizer->set_trace(true);
+      optimizer->set_max_function_evals(param.iter_per_level[level]);
+
+      optimizer->minimize(xLevel);
+      delete optimizer;
+      }
 
     // Get the final transform
     typename TransformType::Pointer tFinal = TransformType::New();
@@ -612,7 +650,6 @@ int GreedyApproach<VDim, TReal>
     Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tFinal);
     std::cout << "Final RAS Transform: " << std::endl << Q_physical << std::endl;
 
-    delete optimizer;
     }
 
   // Write the final affine transform
@@ -1044,6 +1081,10 @@ int main(int argc, char *argv[])
         {
         param.metric = GreedyParameters::NCC;
         read_cmdl_vector(argv[++i], param.metric_radius);
+        }
+      else if(metric_name == "MI" || metric_name == "mi")
+        {
+        param.metric = GreedyParameters::MI;
         }
       }
     else if(arg == "-tscale")

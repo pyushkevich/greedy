@@ -191,7 +191,7 @@ public:
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, InputImageType::ImageDimension );
 
-  typedef FastLinearInterpolator<typename TMetricTraits::RealType, ImageDimension> InterpType;
+  typedef FastLinearInterpolator<InputImageType, RealType> InterpType;
 
   typedef typename InputImageType::IndexType IndexType;
   typedef itk::ContinuousIndex<double, ImageDimension>  ContIndexType;
@@ -219,8 +219,8 @@ public:
       m_MovingSampleGradient[i] = new RealType[ImageDimension];
     m_MaskGradient = new RealType[ImageDimension];
 
-    m_SamplePos = vnl_vector<float>(ImageDimension, 0.0f);
-    m_SampleStep = vnl_vector<float>(ImageDimension, 0.0f);
+    m_SamplePos = vnl_vector<RealType>(ImageDimension, 0.0);
+    m_SampleStep = vnl_vector<RealType>(ImageDimension, 0.0);
 
     this->SetupLine();
   }
@@ -374,6 +374,12 @@ public:
     return status;
   }
 
+  template <class THistContainer>
+  void PartialVolumeHistogramSample(THistContainer &hist)
+  {
+    m_Interpolator.PartialVolumeHistogramSample(m_SamplePos.data_block(), m_FixedLine, hist);
+  }
+
   long GetOffsetInPixels() { return m_OffsetInPixels; }
 
   InputComponentType *GetFixedLine() { return m_FixedLine; }
@@ -408,7 +414,7 @@ protected:
   long m_OffsetInPixels;
 
   IndexType m_Index;
-  vnl_vector<float> m_SamplePos, m_SampleStep;
+  vnl_vector<RealType> m_SamplePos, m_SampleStep;
 
   InterpType m_Interpolator;
 
