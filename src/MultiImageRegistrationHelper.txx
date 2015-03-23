@@ -278,6 +278,68 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   return filter->GetAllMetricValues();
 }
 
+template <class TFloat, unsigned int VDim>
+vnl_vector<double>
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeMIFlowField(int level,
+                     VectorImageType *def,
+                     FloatImageType *out_metric,
+                     VectorImageType *out_gradient,
+                     double result_scaling)
+{
+  // Scale the weights by epsilon
+  vnl_vector<float> wscaled(m_Weights.size());
+  for(int i = 0; i < wscaled.size(); i++)
+    wscaled[i] = m_Weights[i] * result_scaling;
+
+  // Set up the mutual information metric
+  typedef DefaultMultiComponentMutualInfoImageMetricTraits<TFloat, unsigned char, VDim> TraitsType;
+  typedef MultiComponentMutualInfoImageMetric<TraitsType> MetricType;
+
+  typedef itk::VectorImage<unsigned char, VDim> BinnedImageType;
+  typedef MutualInformationPreprocessingFilter<MultiComponentImageType, BinnedImageType> BinnerType;
+
+  // TODO: this is utter laziness, get rid of this garbage!
+  static typename BinnerType::Pointer binner_fixed;
+  static typename BinnerType::Pointer binner_moving;
+
+  if(binner_fixed.IsNull()
+     || binner_fixed->GetOutput()->GetBufferedRegion()
+     != m_FixedComposite[level]->GetBufferedRegion())
+    {
+    binner_fixed = BinnerType::New();
+    binner_fixed->SetInput(m_FixedComposite[level]);
+    binner_fixed->SetBins(128);
+    binner_fixed->SetLowerQuantile(0.01);
+    binner_fixed->SetUpperQuantile(0.99);
+    binner_fixed->Update();
+
+    binner_moving = BinnerType::New();
+    binner_moving->SetInput(m_MovingComposite[level]);
+    binner_moving->SetBins(128);
+    binner_moving->SetLowerQuantile(0.01);
+    binner_moving->SetUpperQuantile(0.99);
+    binner_moving->Update();
+    }
+
+
+  typename MetricType::Pointer metric = MetricType::New();
+
+  metric->SetFixedImage(binner_fixed->GetOutput());
+  metric->SetMovingImage(binner_moving->GetOutput());
+  metric->SetDeformationField(def);
+  metric->SetWeights(wscaled);
+  metric->SetComputeGradient(true);
+  metric->GetMetricOutput()->Graft(out_metric);
+  metric->GetDeformationGradientOutput()->Graft(out_gradient);
+  metric->GetMetricOutput()->Graft(out_metric);
+  metric->SetBins(128);
+  metric->Update();
+
+  // Process the results
+  return metric->GetAllMetricValues();
+}
+
 #undef DUMP_NCC
 // #define DUMP_NCC 1
 
@@ -392,33 +454,29 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   typedef MutualInformationPreprocessingFilter<MultiComponentImageType, BinnedImageType> BinnerType;
 
   // TODO: this is utter laziness, get rid of this garbage!
-  static typename BinnerType::Pointer binner_fixed = BinnerType::New();
-  static typename BinnerType::Pointer binner_moving = BinnerType::New();
+  static typename BinnerType::Pointer binner_fixed;
+  static typename BinnerType::Pointer binner_moving;
 
-  binner_fixed->SetInput(m_FixedComposite[level]);
-  binner_fixed->SetBins(128);
-  binner_fixed->SetLowerQuantile(0.01);
-  binner_fixed->SetUpperQuantile(0.99);
-  binner_fixed->Update();
+  if(binner_fixed.IsNull()
+     || binner_fixed->GetOutput()->GetBufferedRegion()
+     != m_FixedComposite[level]->GetBufferedRegion())
+    {
+    binner_fixed = BinnerType::New();
+    binner_fixed->SetInput(m_FixedComposite[level]);
+    binner_fixed->SetBins(128);
+    binner_fixed->SetLowerQuantile(0.01);
+    binner_fixed->SetUpperQuantile(0.99);
+    binner_fixed->Update();
 
-  binner_moving->SetInput(m_MovingComposite[level]);
-  binner_moving->SetBins(128);
-  binner_moving->SetLowerQuantile(0.01);
-  binner_moving->SetUpperQuantile(0.99);
-  binner_moving->Update();
+    binner_moving = BinnerType::New();
+    binner_moving->SetInput(m_MovingComposite[level]);
+    binner_moving->SetBins(128);
+    binner_moving->SetLowerQuantile(0.01);
+    binner_moving->SetUpperQuantile(0.99);
+    binner_moving->Update();
+    }
 
   typename MetricType::Pointer metric = MetricType::New();
-
-  typedef itk::ImageFileWriter<BinnedImageType> W;
-  typename W::Pointer w1 = W::New();
-  w1->SetInput(binner_fixed->GetOutput());
-  w1->SetFileName("binfix.nii.gz");
-  w1->Update();
-
-  typename W::Pointer w2 = W::New();
-  w2->SetInput(binner_moving->GetOutput());
-  w2->SetFileName("binmov.nii.gz");
-  w2->Update();
 
   metric->SetFixedImage(binner_fixed->GetOutput());
   metric->SetMovingImage(binner_moving->GetOutput());

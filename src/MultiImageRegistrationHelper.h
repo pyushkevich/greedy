@@ -79,6 +79,11 @@ public:
       int level, VectorImageType *def, FloatImageType *out_metric,
       VectorImageType *out_gradient, double result_scaling = 1.0);
 
+  /** Perform interpolation - compute mutual information metric */
+  vnl_vector<double> ComputeMIFlowField(
+      int level, VectorImageType *def, FloatImageType *out_metric,
+      VectorImageType *out_gradient, double result_scaling = 1.0);
+
   /** Compute the NCC metric without gradient */
   double ComputeNCCMetricImage(int level, VectorImageType *def, const SizeType &radius,
                               FloatImageType *out_metric, VectorImageType *out_gradient = NULL,

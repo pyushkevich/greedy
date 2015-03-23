@@ -41,24 +41,29 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
   // Create the per-thread histograms
   for(int k = 0; k < this->GetNumberOfThreads(); k++)
     {
-    MutualInfoThreadData td;
-    for(int c = 0; c < ncomp; c++)
-      {
-      // Create a histogram for this component
-      std::vector<double *> chist;
-      for(int b = 0; b < m_Bins; b++)
-        {
-        chist.push_back(new double[m_Bins]);
-        for(int d = 0; d < m_Bins; d++)
-          chist.back()[d] = 0.0;
-        }
-      td.m_Histogram.push_back(chist);
-      }
-    m_MIThreadData.push_back(td);
+    m_MIThreadData.push_back(MutualInfoThreadData());
+    m_MIThreadData.back().m_Histogram.Initialize(ncomp, m_Bins);
     }
+
+  // Initialize the weight storage
+  if(this->m_ComputeGradient)
+    m_GradWeights.Initialize(ncomp, m_Bins);
 
   m_Barrier = itk::Barrier::New();
   m_Barrier->Initialize(this->GetNumberOfThreads());
+}
+
+template <class TMetricTraits>
+void
+MultiComponentMutualInfoImageMetric<TMetricTraits>
+::AfterThreadedGenerateData()
+{
+  Superclass::AfterThreadedGenerateData();
+  for(int k = 0; k < this->GetNumberOfThreads(); k++)
+    {
+    m_MIThreadData.back().m_Histogram.Deallocate();
+    m_MIThreadData.pop_back();
+    }
 }
 
 
@@ -147,11 +152,17 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
           double Pfm = hc.Pfm(bf, bm);
           if(Pfm > 0)
             {
-            double v = Pfm * log(Pfm / (hc.Pf(bf) * hc.Pm(bm)));
+            double q = log(Pfm / (hc.Pf(bf) * hc.Pm(bm)));
+            double v = Pfm * q;
             m_comp += v;
             m_total += v;
-            if(vnl_math_isinf(v) || vnl_math_isnan(v))
-              std::cout << "HOHO" << std::endl;
+
+            // If computing the gradient, also compute the additional weight information
+            if(this->m_ComputeGradient)
+              {
+              // TODO: scale by weights!
+              m_GradWeights[c][bf][bm] = 1.0 + q - Pfm / hc.Pm(bm);
+              }
             }
           }
         }
@@ -165,6 +176,31 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
   m_Barrier->Wait();
 
   // At this point, we should be computing the gradient using the probability values computed above
+  if(this->m_ComputeGradient && !this->m_ComputeAffine)
+    {
+    GradientPixelType *grad_buffer = this->GetDeformationGradientOutput()->GetBufferPointer();
+
+    // Iterate one more time through the voxels
+    InterpType iter_g(this, this->GetMetricOutput(), outputRegionForThread);
+    for(; !iter_g.IsAtEnd(); iter_g.NextLine())
+      {
+      // Get the output gradient pointer at the beginning of this line
+      GradientPixelType *grad_line = iter_g.GetOffsetInPixels() + grad_buffer;
+
+      // Iterate over the pixels in the line
+      for(; !iter_g.IsAtEndOfLine(); ++iter_g, grad_line++)
+        {
+        // Reference to the gradient pointer
+        GradientPixelType &grad_x = *grad_line;
+
+        // Get the current histogram corners
+        iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
+        }
+      }
+
+
+
+    }
 
 }
 

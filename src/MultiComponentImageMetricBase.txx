@@ -380,17 +380,34 @@ public:
     m_Interpolator.PartialVolumeHistogramSample(m_SamplePos.data_block(), m_FixedLine, hist);
   }
 
+  template <class THistContainer>
+  void PartialVolumeHistogramGradientSample(const THistContainer &weights, RealType *out_ptr)
+  {
+    m_Interpolator.PartialVolumeHistogramGradientSample(m_SamplePos.data_block(), m_FixedLine, weights, out_ptr);
+  }
+
+
   long GetOffsetInPixels() { return m_OffsetInPixels; }
 
   InputComponentType *GetFixedLine() { return m_FixedLine; }
 
   OutputComponentType *GetOutputLine() { return m_OutputLine; }
 
+  template <class TImage>
+  typename TImage::InternalPixelType *GetImageLine(TImage *image)
+    { return m_WrappedIter.GetPixelPointer(image); }
+
+  template <class TImage>
+  const typename TImage::InternalPixelType *GetImageLine(const TImage *image)
+    { return m_WrappedIter.GetPixelPointer(image); }
+
+
   const RealType *GetMovingSample() { return m_MovingSample; }
 
   const RealType *GetMovingSampleGradient(int k) { return m_MovingSampleGradient[k]; }
 
   const RealType *GetMaskGradient() { return m_MaskGradient; }
+
 
   RealType GetMask() { return m_Mask; }
 

@@ -121,7 +121,7 @@ public:
 protected:
 
   virtual void BeforeThreadedGenerateData();
-  // virtual void AfterThreadedGenerateData();
+  virtual void AfterThreadedGenerateData();
   virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
                                     itk::ThreadIdType threadId );
 
@@ -133,8 +133,32 @@ private:
   MultiComponentMutualInfoImageMetric(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
 
-  // Histogram type for MI
-  typedef std::vector< std::vector<double *> > HistogramAccumType;
+  // Histogram accumulation type for MI - used to interface with FastInterpolator
+  struct HistogramAccumType : public std::vector< std::vector<RealType *> >
+  {
+    HistogramAccumType() {}
+
+    void Initialize(int n_comp, int n_bins)
+    {
+      this->resize(n_comp, std::vector<RealType *>(n_bins, NULL));
+      for(int i = 0; i < n_comp; i++)
+        {
+        for(int j = 0; j < n_bins; j++)
+          {
+          (*this)[i][j] = new RealType[n_bins];
+          for(int k = 0; k < n_bins; k++)
+            (*this)[i][j][k] = 0.0;
+          }
+        }
+    }
+
+    void Deallocate()
+    {
+      for(int i = 0; i < this->size(); i++)
+        for(int j = 0; j < (*this)[i].size(); j++)
+          delete (*this)[i][j];
+    }
+  };
 
   typename itk::Barrier::Pointer m_Barrier;
 
@@ -144,9 +168,9 @@ private:
   // Combined histogram representation
   struct Histogram
   {
-    vnl_matrix<double> Pfm;
+    vnl_matrix<double> Pfm, Wfm;
     vnl_vector<double> Pf, Pm;
-    Histogram(int bins) : Pfm(bins, bins, 0.0), Pf(bins, 0.0), Pm(bins, 0.0) {}
+    Histogram(int bins) : Pfm(bins, bins, 0.0), Pf(bins, 0.0), Pm(bins, 0.0), Wfm(bins, bins, 0.0) {}
   };
 
   // Thread data specific to mutual information
@@ -154,6 +178,9 @@ private:
   {
     HistogramAccumType m_Histogram;
   };
+
+  // Weights for gradient computation - derived from the histogram
+  HistogramAccumType m_GradWeights;
 
   std::vector<MutualInfoThreadData> m_MIThreadData;
 

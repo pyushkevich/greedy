@@ -766,6 +766,20 @@ int GreedyApproach<VDim, TReal>
         printf("]  Tot: %8.6f\n", total_energy);
         }
 
+      else if(param.metric == GreedyParameters::MI)
+        {
+        vnl_vector<double> all_metrics = of_helper.ComputeMIFlowField(level, uk, iTemp, uk1, param.epsilon);
+
+        printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
+        total_energy = 0.0;
+        for(int i = 0;  i < all_metrics.size(); i++)
+          {
+          printf("  %8.6f", all_metrics[i]);
+          total_energy += all_metrics[i];
+          }
+        printf("]  Tot: %8.6f\n", total_energy);
+        }
+
       else
         {
         itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
