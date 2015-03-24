@@ -353,8 +353,8 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
 {
   // Determine the size of the heap
   int total_pixels = this->GetInput()->GetBufferedRegion().GetNumberOfPixels();
-  int heap_size_upper = 1 + (1.0 - m_UpperQuantile) * total_pixels;
-  int heap_size_lower = 1 + m_LowerQuantile * total_pixels;
+  int heap_size_upper = 1 + (int)((1.0 - m_UpperQuantile) * total_pixels);
+  int heap_size_lower = 1 + (int)(m_LowerQuantile * total_pixels);
   int line_length = outputRegionForThread.GetSize(0);
 
   // Thread data for this thread
@@ -433,7 +433,7 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
       // Iterate over the line
       for(int p = 0; p < line_length; p++, line+=ncomp, out_line+=ncomp)
         {
-        int bin = std::floor(*line * scale - shift);
+        int bin = (int) (*line * scale - shift);
         if(bin < 0)
           *out_line = 0;
         else if(bin >= m_Bins)

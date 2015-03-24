@@ -69,7 +69,7 @@ int usage()
   printf("  -debug-deriv-eps            : epsilon for derivative debugging \n");
   printf("  -dump-moving                : dump moving image at each iter\n");
   printf("  -dump-freq N                : dump frequency\n");
-  printf("  -powell                     : use Powell's method instead of LGBFS");
+  printf("  -powell                     : use Powell's method instead of LGBFS\n");
 
   return -1;
 }

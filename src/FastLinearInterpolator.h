@@ -113,9 +113,9 @@ public:
   {
     const InputComponentType *dp;
 
-    x0 = floor(cix[0]); fx = cix[0] - x0;
-    y0 = floor(cix[1]); fy = cix[1] - y0;
-    z0 = floor(cix[2]); fz = cix[2] - z0;
+    x0 = (int) floor(cix[0]); fx = cix[0] - x0;
+    y0 = (int) floor(cix[1]); fy = cix[1] - y0;
+    z0 = (int) floor(cix[2]); fz = cix[2] - z0;
 
     x1 = x0 + 1;
     y1 = y0 + 1;

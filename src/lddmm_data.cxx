@@ -768,7 +768,7 @@ LDDMMData<TFloat, VDim>
   // Compute the size of the new image
   typename ImageType::SizeType sz;
   for(int i = 0; i < VDim; i++)
-    sz[i] = vcl_ceil(src->GetBufferedRegion().GetSize()[i] / factor);
+    sz[i] = (unsigned long) vcl_ceil(src->GetBufferedRegion().GetSize()[i] / factor);
 
   // Compute the spacing of the new image
   typename ImageType::SpacingType spc_pre = src->GetSpacing();
