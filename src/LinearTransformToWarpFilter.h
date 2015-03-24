@@ -37,7 +37,7 @@ class LinearTransformToWarpFilter
 public:
 
   /** Standard class typedefs. */
-  typedef LinearTransformToWarpFilter                              Self;
+  typedef LinearTransformToWarpFilter<TInputImage,TDeformationField,TTransform> Self;
   typedef itk::ImageToImageFilter<TInputImage,TDeformationField>   Superclass;
   typedef itk::SmartPointer<Self>                                  Pointer;
   typedef itk::SmartPointer<const Self>                            ConstPointer;
