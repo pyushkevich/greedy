@@ -58,6 +58,8 @@ int usage()
   printf("  -gm mask.nii                : mask for gradient computation\n");
   printf("For developers: \n");
   printf("  -debug-deriv                : enable periodic checks of derivatives (debug) \n");
+  printf("  -debug-deriv-eps            : epsilon for derivative debugging \n");
+  printf("  -powell                     : use Powell's method instead of LGBFS");
 
   return -1;
 }
@@ -84,9 +86,10 @@ struct GreedyParameters
   // Registration mode
   Mode mode;
 
-  bool flag_dump_moving, flag_debug_deriv;
+  bool flag_dump_moving, flag_debug_deriv, flag_powell;
   int dump_frequency, threads;
   double epsilon, sigma_pre, sigma_post;
+  double deriv_epsilon;
 
   MetricType metric;
   TimeStepMode time_step_mode;
@@ -333,8 +336,8 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
       flatten_affine_transform(grad.GetPointer(), g_scaled.data_block());
       *g = element_quotient(g_scaled, scaling);
 
-      val *= -1.0;
-      (*g) *= -1.0;
+      val *= -10000.0;
+      (*g) *= -10000.0;
 
       }
     }
@@ -359,7 +362,7 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
       val = m_OFHelper->ComputeAffineMIMatchAndGradient(
               m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
 
-      val *= -1.0;
+      val *= -10000.0;
       }
     }
 
@@ -396,7 +399,24 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
   if(f)
     *f = val;
 }
+*
+*
 */
+
+template <typename TReal, unsigned int VDim>
+vnl_matrix<TReal> ReadAffineMatrix(const char *filename)
+{
+  vnl_matrix<TReal> Qp(VDim+1, VDim+1);
+  std::ifstream fin(filename);
+  for(size_t i = 0; i < VDim+1; i++)
+    for(size_t j = 0; j < VDim+1; j++)
+      if(fin.good())
+        {
+        fin >> Qp[i][j];
+        }
+  fin.close();
+  return Qp;
+}
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
@@ -541,19 +561,30 @@ int GreedyApproach<VDim, TReal>
     // Set up the initial transform
     if(level == 0)
       {
-      // Set the initial transform
-      tLevel->SetIdentity();
+      // Use the provided initial affine as the starting point
+      if(param.initial_affine.length())
+        {
+        // Read the initial affine transform from a file
+        vnl_matrix<double> Qp = ReadAffineMatrix<double, VDim>(param.initial_affine.c_str());
 
-      // Apply some random jitter to the initial transform
-      vnl_vector<double> xInit = acf.GetCoefficients(tLevel);
+        // Convert the transform to voxel units
+        MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tLevel);
+        }
+      else
+        {
+        // Set the initial transform
+        tLevel->SetIdentity();
 
-      vnl_random rndy(12345);
+        // Apply some random jitter to the initial transform
+        vnl_vector<double> xInit = acf.GetCoefficients(tLevel);
 
-      for(int i = 0; i < xInit.size(); i++)
-        xInit[i] += rndy.drand32(-0.4, 0.4);
+        vnl_random rndy(12345);
+        for(int i = 0; i < xInit.size(); i++)
+          xInit[i] += rndy.drand32(-0.4, 0.4);
 
-      // Map back into transform format
-      acf.GetTransform(xInit, tLevel);
+        // Map back into transform format
+        acf.GetTransform(xInit, tLevel);
+        }
       }
     else
       {
@@ -585,7 +616,7 @@ int GreedyApproach<VDim, TReal>
       for(int i = 0; i < acf.get_number_of_unknowns(); i++)
         {
         // double eps = (i % VDim == 0) ? 1.0e-2 : 1.0e-5;
-        double eps = 1.0e-2;
+        double eps = param.deriv_epsilon;
         double f1, f2, f3, f4;
         vnl_vector<double> x1 = xLevel, x2 = xLevel, x3 = xLevel, x4 = xLevel;
         x1[i] -= 2 * eps; x2[i] -= eps; x3[i] += eps; x4[i] += 2 * eps;
@@ -615,7 +646,7 @@ int GreedyApproach<VDim, TReal>
 
     // Run the minimization
 
-    if(param.metric == GreedyParameters::MI)
+    if(param.flag_powell)
       {
       // Set up the optimizer
       vnl_powell *optimizer = new vnl_powell(&acf);
@@ -628,6 +659,7 @@ int GreedyApproach<VDim, TReal>
 
       optimizer->minimize(xLevel);
       delete optimizer;
+
       }
     else
       {
@@ -722,15 +754,7 @@ int GreedyApproach<VDim, TReal>
     else if(param.initial_affine.length())
       {
       // Read the initial affine transform from a file
-      vnl_matrix<double> Qp(VDim+1, VDim+1);
-      std::ifstream fin(param.initial_affine.c_str());
-      for(size_t i = 0; i < VDim+1; i++)
-        for(size_t j = 0; j < VDim+1; j++)
-          if(fin.good())
-            {
-            fin >> Qp[i][j];
-            }
-      fin.close();
+      vnl_matrix<double> Qp = ReadAffineMatrix<double, VDim>(param.initial_affine.c_str());
 
       // Convert the transform to voxel units
       typename OFHelperType::LinearTransformType::Pointer tran = OFHelperType::LinearTransformType::New();
@@ -1062,6 +1086,8 @@ int main(int argc, char *argv[])
   param.threads = 0;
   param.metric = GreedyParameters::SSD;
   param.time_step_mode = GreedyParameters::CONST;
+  param.deriv_epsilon = 1e-4;
+  param.flag_powell = false;
 
   param.iter_per_level.push_back(100);
   param.iter_per_level.push_back(100);
@@ -1138,6 +1164,10 @@ int main(int argc, char *argv[])
       {
       param.flag_dump_moving = true;
       }
+    else if(arg == "-powell")
+      {
+      param.flag_powell = true;
+      }
     else if(arg == "-dump-frequency" || arg == "-dump-freq")
       {
       param.dump_frequency = atoi(argv[++i]);
@@ -1145,6 +1175,10 @@ int main(int argc, char *argv[])
     else if(arg == "-debug-deriv")
       {
       param.flag_debug_deriv = true;
+      }
+    else if(arg == "-debug-deriv-eps")
+      {
+      param.deriv_epsilon = atof(argv[++i]);
       }
     else if(arg == "-threads")
       {

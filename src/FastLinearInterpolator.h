@@ -303,6 +303,12 @@ public:
     // Compute the corners
     this->ComputeCorners(cix);
 
+    if(this->status == Superclass::OUTSIDE)
+      {
+      d000 = d001 = d010 = d011 = this->def_value;
+      d100 = d101 = d110 = d111 = this->def_value;
+      }
+
     // Compute the corner weights using 4 multiplications (not 16)
     RealType fxy = fx * fy, fyz = fy * fz, fxz = fx * fz;
 
@@ -326,18 +332,6 @@ public:
         d000++, d001++, d010++, d011++,
         d100++, d101++, d110++, d111++, fixptr++)
       {
-
-
-      // TODO: remove this!!!!
-      /*
-      if(*d000 >= 128 || *d001 >= 128 || *d010 >= 128 || *d011 >= 128 ||
-         *d100 >= 128 || *d101 >= 128 || *d110 >= 128 || *d111 >= 128 ||
-         *fixptr >= 128)
-        {
-        printf("shit\n");
-        }
-        */
-
       // Just this line in the histogram
       RealType *f = hist_w[iComp][*fixptr];
 

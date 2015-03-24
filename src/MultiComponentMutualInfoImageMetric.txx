@@ -49,8 +49,21 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
   if(this->m_ComputeGradient)
     m_GradWeights.Initialize(ncomp, m_Bins);
 
+
+  // Code to determine the actual number of threads used below
+  itk::ThreadIdType nbOfThreads = this->GetNumberOfThreads();
+  if ( itk::MultiThreader::GetGlobalMaximumNumberOfThreads() != 0 )
+    {
+    nbOfThreads = vnl_math_min( this->GetNumberOfThreads(), itk::MultiThreader::GetGlobalMaximumNumberOfThreads() );
+    }
+
+  itk::ImageRegion<ImageDimension> splitRegion;  // dummy region - just to call
+                                                  // the following method
+  nbOfThreads = this->SplitRequestedRegion(0, nbOfThreads, splitRegion);
+
+  // Initialize the barrier
   m_Barrier = itk::Barrier::New();
-  m_Barrier->Initialize(this->GetNumberOfThreads());
+  m_Barrier->Initialize(nbOfThreads);
 }
 
 template <class TMetricTraits>
@@ -150,8 +163,10 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
         for(int bm = 0; bm < m_Bins; bm++)
           {
           double Pfm = hc.Pfm(bf, bm);
+
           if(Pfm > 0)
             {
+            // TODO: temp change
             double q = log(Pfm / (hc.Pf(bf) * hc.Pm(bm)));
             double v = Pfm * q;
             m_comp += v;
@@ -161,11 +176,51 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
             if(this->m_ComputeGradient)
               {
               // TODO: scale by weights!
-              m_GradWeights[c][bf][bm] = 1.0 + q - Pfm / hc.Pm(bm);
+              m_GradWeights[c][bf][bm] = log(Pfm / hc.Pm(bm));
+              }
+            }
+          }
+          /* // code with epsilon trick
+          double Pfm = hc.Pfm(bf, bm);
+          double Pm = hc.Pm(bm), Pf = hc.Pf(bf);
+          double eps = 1.0e-8;
+
+          double v = (Pfm + eps) * log(Pfm + eps) -
+                     ((Pf + eps) * log(Pf + eps) + (Pm + eps) * log(Pm + eps)) / m_Bins;
+
+          m_comp += v;
+          m_total += v;
+
+          if(this->m_ComputeGradient)
+            {
+            m_GradWeights[c][bf][bm] = log((Pfm + eps) / (Pm + eps));
+            }
+          } */
+        }
+
+          /*
+          if(Pfm > 0)
+            {
+            // TODO: temp change
+            double q = log(Pfm / (hc.Pf(bf) * hc.Pm(bm)));
+            // double q = log(Pfm);
+            double v = Pfm * q;
+            m_comp += v;
+            m_total += v;
+
+            // If computing the gradient, also compute the additional weight information
+            if(this->m_ComputeGradient)
+              {
+              // TODO: scale by weights!
+              // TODO: temp change
+              // m_GradWeights[c][bf][bm] = 1.0 + q - Pfm / hc.Pm(bm);
+              // m_GradWeights[c][bf][bm] = 1.0 + q;
+              m_GradWeights[c][bf][bm] = log(Pfm) - log(hc.Pm(bm));
               }
             }
           }
         }
+            */
       }
 
     // The last thing is to set the normalizing constant to 1
@@ -197,9 +252,36 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
         iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
         }
       }
+    }
 
+  else if(this->m_ComputeGradient && this->m_ComputeAffine)
+    {
+    GradientPixelType grad_x;
+    typename Superclass::ThreadData &tds = this->m_ThreadData[threadId];
 
+    int nvox = this->GetInput()->GetBufferedRegion().GetNumberOfPixels();
 
+    // Iterate one more time through the voxels
+    InterpType iter_g(this, this->GetMetricOutput(), outputRegionForThread);
+    for(; !iter_g.IsAtEnd(); iter_g.NextLine())
+      {
+      // Iterate over the pixels in the line
+      for(; !iter_g.IsAtEndOfLine(); ++iter_g)
+        {
+        // Get the current histogram corners
+        iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
+
+        // Add the gradient
+        for(int i = 0, q = 0; i < ImageDimension; i++)
+          {
+          double v = grad_x[i] / nvox;
+          tds.gradient[q++] += v;
+          for(int j = 0; j < ImageDimension; j++)
+            tds.gradient[q++] += v * iter_g.GetIndex()[j];
+          }
+
+        }
+      }
     }
 
 }
@@ -245,8 +327,20 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
   m_ThreadData.clear();
   m_ThreadData.resize(this->GetNumberOfThreads());
 
+  // Code to determine the actual number of threads used below
+  itk::ThreadIdType nbOfThreads = this->GetNumberOfThreads();
+  if ( itk::MultiThreader::GetGlobalMaximumNumberOfThreads() != 0 )
+    {
+    nbOfThreads = vnl_math_min( this->GetNumberOfThreads(), itk::MultiThreader::GetGlobalMaximumNumberOfThreads() );
+    }
+
+  typename TOutputImage::RegionType splitRegion;  // dummy region - just to call
+                                                  // the following method
+  nbOfThreads = this->SplitRequestedRegion(0, nbOfThreads, splitRegion);
+
+
   m_Barrier = itk::Barrier::New();
-  m_Barrier->Initialize(this->GetNumberOfThreads());
+  m_Barrier->Initialize(nbOfThreads);
 
   m_LowerQuantileValues.resize(this->GetInput()->GetNumberOfComponentsPerPixel());
   m_UpperQuantileValues.resize(this->GetInput()->GetNumberOfComponentsPerPixel());
