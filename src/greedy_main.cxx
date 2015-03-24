@@ -1127,6 +1127,7 @@ int GreedyApproach<VDim, TReal>
 
 #include "itkWarpVectorImageFilter.h"
 #include "itkWarpImageFilter.h"
+#include "itkNearestNeighborInterpolateImageFunction.h"
 
 /**
  * Run the reslice code - simply apply a warp or set of warps to images
@@ -1247,15 +1248,20 @@ int GreedyApproach<VDim, TReal>
     ImagePointer mov = ImageType::New();
     LDDMMType::img_read(r_param.images[i].moving.c_str(), mov);
 
-    itk::Index<VDim> test;
-    test[0] = 40; test[1] = 50; test[2] = 60;
-    std::cout << warp->GetPixel(test) << std::endl;
 
     typedef itk::WarpImageFilter<ImageType, ImageType, VectorImageType> DefType;
     typename DefType::Pointer def = DefType::New();
     def->SetInput(mov);
     def->SetDisplacementField(warp);
     def->SetOutputParametersFromImage(warp);
+
+    if(r_param.images[i].interp.mode == InterpSpec::NEAREST)
+      {
+      typedef itk::NearestNeighborInterpolateImageFunction<ImageType> NNType;
+      typename NNType::Pointer nn = NNType::New();
+      def->SetInterpolator(nn);
+      }
+
     def->Update();
 
     LDDMMType::img_write(def->GetOutput(), r_param.images[i].output.c_str());
