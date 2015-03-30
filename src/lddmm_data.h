@@ -85,21 +85,25 @@ public:
   static void image_gradient(ImageType *src, VectorImageType *grad);
 
   // Basic math
-  static void vimg_add_in_place(VectorImagePointer &trg, VectorImageType *a);
-  static void vimg_subtract_in_place(VectorImagePointer &trg, VectorImageType *a);
-  static void vimg_scale_in_place(VectorImagePointer &trg, TFloat s);
+  static void vimg_add_in_place(VectorImageType *trg, VectorImageType *a);
+  static void vimg_subtract_in_place(VectorImageType *trg, VectorImageType *a);
+  static void vimg_scale_in_place(VectorImageType *trg, TFloat s);
 
   // compute trg = trg + s * a
-  static void vimg_add_scaled_in_place(VectorImagePointer &trg, VectorImageType *a, TFloat s);
+  static void vimg_add_scaled_in_place(VectorImageType *trg, VectorImageType *a, TFloat s);
 
-  static void vimg_scale(VectorImageType *src, TFloat s, VectorImagePointer &trg);
-  static void vimg_multiply_in_place(VectorImagePointer &trg, ImageType *s);
+  static void vimg_scale(VectorImageType *src, TFloat s, VectorImageType *trg);
+  static void vimg_multiply_in_place(VectorImageType *trg, ImageType *s);
   static void vimg_euclidean_inner_product(ImagePointer &trg, VectorImageType *a, VectorImageType *b);
   static TFloat vimg_euclidean_norm_sq(VectorImageType *trg);
 
+  // Compute the range of the norm of a vector field
+  static void vimg_norm_min_max(VectorImageType *image, ImagePointer &normsqr,
+                      TFloat &min_norm, TFloat &max_norm);
+
   // Update a vector image to make its maxumum length equal to given value. The
   // second parameter is a working image that will return unnormalized lengths squared
-  static void vimg_normalize_to_fixed_max_length(VectorImagePointer &trg,
+  static void vimg_normalize_to_fixed_max_length(VectorImageType *trg,
                                                  ImagePointer &normsqr,
                                                  double max_displacement,
                                                  bool scale_down_only);
@@ -132,6 +136,7 @@ public:
   static void vfield_read(uint nt, const char *fnpat, VelocityField &v);
 
   static void vimg_copy(const VectorImageType *src, VectorImageType *trg);
+  static void img_copy(const ImageType *src, ImageType *trg);
 
   // Compute a array from v
   void compute_semi_lagrangean_a();

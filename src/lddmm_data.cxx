@@ -21,6 +21,7 @@
 #include "itkVectorResampleImageFilter.h"
 #include "itkNearestNeighborInterpolateImageFunction.h"
 #include "itkVectorNearestNeighborInterpolateImageFunction.h"
+#include "FastWarpCompositeImageFilter.h"
 
 template <class TFloat, uint VDim>
 void 
@@ -127,6 +128,13 @@ LDDMMData<TFloat, VDim>
 ::interp_vimg(VectorImageType *data, VectorImageType *field,
   TFloat def_scale, VectorImageType *out, bool use_nn)
 {
+  /*
+   * THIS IS OLD CODE for VECTOR INTERPOLATION
+   * TODO: there is a small discrepancy between this and the new code
+   * that I never figured out
+   */
+
+  /*
   // Create a warp filter
   typedef itk::SimpleWarpImageFilter<
     VectorImageType, VectorImageType, VectorImageType, TFloat> WarpFilterType;
@@ -154,7 +162,16 @@ LDDMMData<TFloat, VDim>
   flt->SetDeformationField(field);
   flt->SetDeformationScaling(def_scale);
   flt->Update();
+  */
 
+  typedef FastWarpCompositeImageFilter<VectorImageType, VectorImageType, VectorImageType> WF;
+  typename WF::Pointer wf = WF::New();
+  wf->SetDeformationField(field);
+  wf->SetMovingImage(data);
+  wf->GraftOutput(out);
+  wf->SetDeformationScaling(def_scale);
+  wf->SetUseNearestNeighbor(use_nn);
+  wf->Update();
 }
 
 template <class TFloat, uint VDim>
@@ -162,6 +179,15 @@ void
 LDDMMData<TFloat, VDim>
 ::interp_img(ImageType *data, VectorImageType *field, ImageType *out, bool use_nn)
 {
+  typedef FastWarpCompositeImageFilter<ImageType, ImageType, VectorImageType> WF;
+  typename WF::Pointer wf = WF::New();
+  wf->SetDeformationField(field);
+  wf->SetMovingImage(data);
+  wf->GraftOutput(out);
+  wf->SetUseNearestNeighbor(use_nn);
+  wf->Update();
+
+/*
   // Create a warp filter
   typedef itk::SimpleWarpImageFilter<
     ImageType, ImageType, VectorImageType, TFloat> WarpFilterType;
@@ -186,50 +212,48 @@ LDDMMData<TFloat, VDim>
   flt->SetDeformationField(field);
   flt->SetDeformationScaling(1.0);
   flt->Update();
+  */
 }
 
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::vimg_add_in_place(VectorImagePointer &trg, VectorImageType *a)
+::vimg_add_in_place(VectorImageType *trg, VectorImageType *a)
 {
   typedef itk::AddImageFilter<VectorImageType> AddFilter;
   typename AddFilter::Pointer flt = AddFilter::New();
   flt->SetInput(0,trg);
   flt->SetInput(1,a);
-  flt->InPlaceOn();
+  flt->GraftOutput(trg);
   flt->Update();
-  trg = flt->GetOutput();
 }
 
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::vimg_subtract_in_place(VectorImagePointer &trg, VectorImageType *a)
+::vimg_subtract_in_place(VectorImageType *trg, VectorImageType *a)
 {
   typedef itk::SubtractImageFilter<VectorImageType> SubtractFilter;
   typename SubtractFilter::Pointer flt = SubtractFilter::New();
   flt->SetInput(0,trg);
   flt->SetInput(1,a);
-  flt->InPlaceOn();
+  flt->GraftOutput(trg);
   flt->Update();
-  trg = flt->GetOutput();
 }
 
 // Scalar math
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::vimg_multiply_in_place(VectorImagePointer &trg, ImageType *s)
+::vimg_multiply_in_place(VectorImageType *trg, ImageType *s)
 {
   typedef itk::MultiplyImageFilter<
     VectorImageType, ImageType, VectorImageType> MultiplyFilter;
   typename MultiplyFilter::Pointer flt = MultiplyFilter::New();
   flt->SetInput1(trg);
   flt->SetInput2(s);
-  flt->InPlaceOn();
+  flt->GraftOutput(trg);
   flt->Update();
-  trg = flt->GetOutput();
 }
 
 // Scalar math
@@ -242,9 +266,8 @@ LDDMMData<TFloat, VDim>
   typename SubtractFilter::Pointer flt = SubtractFilter::New();
   flt->SetInput(0,trg);
   flt->SetInput(1,a);
-  flt->InPlaceOn();
+  flt->GraftOutput(trg);
   flt->Update();
-  trg = flt->GetOutput();
 }
 
 template <class TFloat, uint VDim>
@@ -256,9 +279,8 @@ LDDMMData<TFloat, VDim>
   typename MultiplyFilter::Pointer flt = MultiplyFilter::New();
   flt->SetInput(0,trg);
   flt->SetInput(1,a);
-  flt->InPlaceOn();
+  flt->GraftOutput(trg);
   flt->Update();
-  trg = flt->GetOutput();
 }
 
 template <class TFloat, uint VDim>
@@ -340,7 +362,7 @@ public:
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::vimg_scale_in_place(VectorImagePointer &trg, TFloat s)
+::vimg_scale_in_place(VectorImageType *trg, TFloat s)
 {
   typedef VectorScaleFunctor<TFloat, VDim> Functor;
   typedef itk::UnaryFunctorImageFilter<
@@ -351,16 +373,14 @@ LDDMMData<TFloat, VDim>
   func.Scale = s;
   flt->SetFunctor(func);
   flt->SetInput(trg);
-  flt->InPlaceOn();
+  flt->GraftOutput(trg);
   flt->Update();
-
-  trg = flt->GetOutput();
 }
 
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::vimg_scale(VectorImageType*src, TFloat s, VectorImagePointer &trg)
+::vimg_scale(VectorImageType*src, TFloat s, VectorImageType *trg)
 {
   typedef VectorScaleFunctor<TFloat, VDim> Functor;
   typedef itk::UnaryFunctorImageFilter<
@@ -371,7 +391,6 @@ LDDMMData<TFloat, VDim>
   func.Scale = s;
   flt->SetFunctor(func);
   flt->SetInput(src);
-  flt->InPlaceOff();
   flt->GraftOutput(trg);
   flt->Update();
 }
@@ -398,7 +417,7 @@ public:
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::vimg_add_scaled_in_place(VectorImagePointer &trg, VectorImageType *a, TFloat s)
+::vimg_add_scaled_in_place(VectorImageType *trg, VectorImageType *a, TFloat s)
 {
   typedef VectorScaleAddFunctor<TFloat, VDim> Functor;
   typedef itk::BinaryFunctorImageFilter<
@@ -410,10 +429,8 @@ LDDMMData<TFloat, VDim>
   flt->SetFunctor(func);
   flt->SetInput1(trg);
   flt->SetInput2(a);
-  flt->InPlaceOn();
+  flt->GraftOutput(trg);
   flt->Update();
-
-  trg = flt->GetOutput();
 }
 
 template <class TFloat, uint VDim>
@@ -592,7 +609,28 @@ struct VectorSquareNormFunctor
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::vimg_normalize_to_fixed_max_length(VectorImagePointer &trg, ImagePointer &normsqr,
+::vimg_norm_min_max(VectorImageType *image, ImagePointer &normsqr,
+                    TFloat &min_norm, TFloat &max_norm)
+{
+  // Compute the squared norm of the displacement
+  typedef VectorSquareNormFunctor<TFloat, VDim> NormFunctor;
+  typedef itk::UnaryFunctorImageFilter<VectorImageType, ImageType, NormFunctor> NormFilter;
+  typename NormFilter::Pointer fltNorm = NormFilter::New();
+  fltNorm->SetInput(image);
+  fltNorm->GraftOutput(normsqr);
+  fltNorm->Update();
+
+  // Compute the maximum squared norm of the displacement
+  img_min_max(normsqr, min_norm, max_norm);
+
+  min_norm = sqrt(min_norm);
+  max_norm = sqrt(max_norm);
+}
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::vimg_normalize_to_fixed_max_length(VectorImageType *trg, ImagePointer &normsqr,
                                      double max_displacement, bool scale_down_only)
 {
   // Compute the squared norm of the displacement
@@ -704,7 +742,18 @@ LDDMMData<TFloat, VDim>
   typedef itk::CastImageFilter<VectorImageType, VectorImageType> CastFilter;
   typename CastFilter::Pointer fltCast = CastFilter::New();
   fltCast->SetInput(src);
-  fltCast->InPlaceOff();
+  fltCast->GraftOutput(trg);
+  fltCast->Update();
+}
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::img_copy(const LDDMMData::ImageType *src, LDDMMData::ImageType *trg)
+{
+  typedef itk::CastImageFilter<ImageType, ImageType> CastFilter;
+  typename CastFilter::Pointer fltCast = CastFilter::New();
+  fltCast->SetInput(src);
   fltCast->GraftOutput(trg);
   fltCast->Update();
 }

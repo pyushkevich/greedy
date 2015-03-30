@@ -761,4 +761,67 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->Update();
 }
 
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeDeformationFieldInverse(
+    VectorImageType *warp, VectorImageType *uInverse, int n_sqrt)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  // Create a copy of the forward warp
+  VectorImagePointer uForward = VectorImageType::New();
+  LDDMMType::alloc_vimg(uForward, warp);
+  LDDMMType::vimg_copy(warp, uForward);
+
+  // Create a working image for the square root computation
+  VectorImagePointer uWork = VectorImageType::New();
+  LDDMMType::alloc_vimg(uWork, warp);
+
+  // Compute the square root
+  for(int k = 0; k < n_sqrt; k++)
+    {
+    for(int i = 0; i < 20; i++)
+      {
+      LDDMMType::interp_vimg(uInverse, uInverse, 1.0, uWork);
+      LDDMMType::vimg_scale_in_place(uWork, -1.0);
+      LDDMMType::vimg_add_scaled_in_place(uWork, uInverse, -1.0);
+      LDDMMType::vimg_add_in_place(uWork, uForward);
+
+      // Check the maximum delta
+      // LDDMMType::vimg_norm_min_max(uDelta, iTemp, norm_min, norm_max);
+      // std::cout << "sqrt iter " << i << " max_delta " << norm_max << std::endl;
+
+      LDDMMType::vimg_add_scaled_in_place(uInverse, uWork, 0.5);
+      }
+
+    LDDMMType::vimg_copy(uInverse, uForward);
+    uInverse->FillBuffer(itk::NumericTraits<typename VectorImageType::PixelType>::Zero);
+    }
+
+  // At this point, uForward holds the small deformation
+  // Try to compute the inverse of the current forward transformation
+  for(int i = 0; i < 20; i++)
+    {
+    // We are using uPhys as temporary storage
+    LDDMMType::interp_vimg(uForward, uInverse, 1.0, uWork);
+    LDDMMType::vimg_scale_in_place(uWork, -1.0);
+
+    // Compute the maximum change from last iteration
+    LDDMMType::vimg_subtract_in_place(uInverse, uWork);
+
+    // std::cout << "inverse iter " << i << " change " << norm_max << std::endl;
+    LDDMMType::vimg_copy(uWork, uInverse);
+    }
+
+  // Compose the inverses
+  for(int i = 0; i < n_sqrt; i++)
+    {
+    LDDMMType::interp_vimg(uInverse, uInverse, 1.0, uWork);
+    LDDMMType::vimg_add_in_place(uInverse, uWork);
+    }
+}
+
+
 #endif

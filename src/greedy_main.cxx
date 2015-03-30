@@ -16,6 +16,7 @@
 #include <itkShrinkImageFilter.h>
 
 #include "MultiImageRegistrationHelper.h"
+#include "FastWarpCompositeImageFilter.h"
 #include <vnl/vnl_cost_function.h>
 #include <vnl/vnl_random.h>
 #include <vnl/algo/vnl_powell.h>
@@ -58,6 +59,9 @@ int usage()
   printf("Specific to deformable mode: \n");
   printf("  -tscale MODE                : time step behavior mode: CONST, SCALE [def], SCALEDOWN\n");
   printf("  -s sigma1 sigma2            : smoothing for the greedy update step (3.0, 1.0)\n");
+  printf("  -oinv image.nii             : compute and write the inverse of the warp field into image.nii\n");
+  printf("  -invexp VALUE               : how many times to take the square root of the forward");
+  printf("                                transform when computing inverse (default=2)");
   printf("Specific to affine mode: \n");
   printf("  -ia filename                : initial affine transform (c3d format)\n");
   printf("Specific to reslice mode: \n");
@@ -148,6 +152,10 @@ struct GreedyParameters
 
   // Mask for gradient
   std::string gradient_mask;
+
+  // Inverse warp
+  std::string inverse_warp;
+  int inverse_exponent;
 };
 
 
@@ -963,14 +971,12 @@ int GreedyApproach<VDim, TReal>
       else if (param.time_step_mode == GreedyParameters::SCALEDOWN)
         LDDMMType::vimg_normalize_to_fixed_max_length(viTemp, iTemp, param.epsilon, true);
 
-
       // Dump the smoothed gradient image if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
         {
         char fname[256];
         sprintf(fname, "dump_optflow_lev%02d_iter%04d.nii.gz", level, iter);
         LDDMMType::vimg_write(viTemp, fname);
-        // LDDMMType::vimg_write(uk1, fname);
         }
 
       // Compute the updated deformation field - in uk1
@@ -985,19 +991,8 @@ int GreedyApproach<VDim, TReal>
         LDDMMType::vimg_write(uk1, fname);
         }
 
-      // Swap uk and uk1 pointers
-      // VectorImagePointer tmpptr = uk1; uk1 = uk; uk = tmpptr;
-
-      // Another layer of smoothing - really?
+      // Another layer of smoothing
       LDDMMType::vimg_smooth(uk1, uk, param.sigma_post * shrink_factor);
-
-      // Compute the Jacobian determinant of the updated field (temporary)
-          /*
-        */
-
-      // Report the energy
-      // printf("Iter %5d:    Energy = %8.4f     DetJac Range: %8.4f  to %8.4f \n", iter, total_energy, jac_min, jac_max);
-      // printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
       }
 
     // Store the end result
@@ -1020,6 +1015,147 @@ int GreedyApproach<VDim, TReal>
   of_helper.VoxelWarpToPhysicalWarp(nlevels - 1, uLevel, uPhys);
   LDDMMType::vimg_write(uPhys, param.output.c_str());
 
+  // If an inverse is requested, compute the inverse using the Chen 2008 fixed method.
+  // A modification of this method is that if convergence is slow, we take the square
+  // root of the forward transform.
+  //
+  // TODO: it would be more efficient to check the Lipschitz condition rather than
+  // the brute force approach below
+  //
+  // TODO: the maximum checks should only be done over the region where the warp is
+  // not going outside of the image. Right now, they are meaningless and we are doing
+  // extra work when computing the inverse.
+  if(param.inverse_warp.size())
+    {
+    // Compute the inverse
+    VectorImagePointer uInverse = VectorImageType::New();
+    LDDMMType::alloc_vimg(uInverse, uLevel);
+    of_helper.ComputeDeformationFieldInverse(uLevel, uInverse, param.inverse_exponent);
+
+    /*
+    // Start with the current estimate of the forward transformation being uLevel
+    int exponent = 1, max_exponent = param.inverse_exponent + 1;
+    double eps = 1e-2;
+    bool done = false;
+
+    VectorImagePointer uForward = VectorImageType::New();
+    LDDMMType::alloc_vimg(uForward, uLevel);
+    LDDMMType::vimg_copy(uLevel, uForward);
+
+    VectorImagePointer uInverse = VectorImageType::New();
+    LDDMMType::alloc_vimg(uInverse, uLevel);
+
+    ImagePointer iTemp = ImageType::New();
+    LDDMMType::alloc_img(iTemp, uLevel);
+
+    ImagePointer iMaskMov = ImageType::New();
+    LDDMMType::alloc_img(iMaskMov, uLevel);
+    iMaskMov->FillBuffer(1.0);
+
+    ImagePointer iMaskPrev = ImageType::New();
+    LDDMMType::alloc_img(iMaskPrev, uLevel);
+    iMaskPrev->FillBuffer(1.0);
+
+    ImagePointer iMaskCurr = ImageType::New();
+    LDDMMType::alloc_img(iMaskCurr, uLevel);
+
+    VectorImagePointer uSqrt = VectorImageType::New();
+    LDDMMType::alloc_vimg(uSqrt, uLevel);
+
+    VectorImagePointer uDelta = VectorImageType::New();
+    LDDMMType::alloc_vimg(uDelta, uLevel);
+
+    TReal norm_min, norm_max;
+
+    while(true)
+      {
+      // Try to compute the inverse of the current forward transformation
+      for(int i = 0; i < 20; i++)
+        {
+        // We are using uPhys as temporary storage
+        LDDMMType::interp_vimg(uForward, uInverse, 1.0, uPhys);
+        LDDMMType::vimg_scale_in_place(uPhys, -1.0);
+
+        // Get the mask for the current round
+        LDDMMType::interp_img(iMaskMov, uInverse, iMaskCurr);
+
+        // Compute the maximum change from last iteration
+        LDDMMType::vimg_subtract_in_place(uInverse, uPhys);
+
+        LDDMMType::img_copy(iMaskCurr, iTemp);
+        LDDMMType::img_multiply_in_place(iTemp, iMaskPrev);
+        LDDMMType::vimg_multiply_in_place(uInverse, iTemp);
+
+        // LDDMMType::vimg_multiply_in_place(uInverse, iMaskCurr);
+        // LDDMMType::vimg_multiply_in_place(uInverse, iMaskPrev);
+        LDDMMType::vimg_norm_min_max(uInverse, iTemp, norm_min, norm_max);
+
+        std::cout << "inverse iter " << i << " change " << norm_max << std::endl;
+        LDDMMType::vimg_copy(uPhys, uInverse);
+        LDDMMType::img_copy(iMaskCurr, iMaskPrev);
+
+        // If the change is below epsilon, we are done
+        if(norm_max < eps)
+          {
+          done = true;
+          break;
+          }
+        }
+
+      char buf[1256];
+      sprintf(buf, "inverse_%d.nii.gz", exponent);
+      LDDMMType::img_write(iTemp, buf);
+
+      sprintf(buf, "mask_%d.nii.gz", exponent);
+      LDDMMType::img_write(iMaskCurr, buf);
+
+
+      // If done, or if exponent is already 3, break out
+      if(done || exponent >= max_exponent)
+        break;
+
+      // If we are not done, we need to take the square root of the deformation field and
+      // repeat the inversion
+
+      // Reuse the storage in uInverse and uPhys
+      // VectorImageType *uSqrt = uInverse, *uDelta = uPhys;
+      for(int i = 0; i < 20; i++)
+        {
+        LDDMMType::interp_vimg(uSqrt, uSqrt, 1.0, uDelta);
+        LDDMMType::vimg_scale_in_place(uDelta, -1.0);
+        LDDMMType::vimg_add_scaled_in_place(uDelta, uSqrt, -1.0);
+        LDDMMType::vimg_add_in_place(uDelta, uForward);
+
+        // Check the maximum delta
+        LDDMMType::vimg_norm_min_max(uDelta, iTemp, norm_min, norm_max);
+        std::cout << "sqrt iter " << i << " max_delta " << norm_max << std::endl;
+
+        LDDMMType::vimg_add_scaled_in_place(uSqrt, uDelta, 0.5);
+
+        if(norm_max < eps)
+          break;
+        }
+
+      // Now copy the square root into the forward deformation and increase exponent
+      LDDMMType::vimg_copy(uSqrt, uForward);
+      uInverse->FillBuffer(itk::NumericTraits<typename VectorImageType::PixelType>::Zero);
+      exponent++;
+      }
+
+    // If exponent is higher than one, we need to square the field
+    while(exponent > 1)
+      {
+      LDDMMType::interp_vimg(uInverse, uInverse, 1.0, uPhys);
+      LDDMMType::vimg_add_in_place(uInverse, uPhys);
+      exponent--;
+      }
+      */
+
+    // Finally, map the inverse into a physical space warp
+    of_helper.VoxelWarpToPhysicalWarp(nlevels - 1, uInverse, uPhys);
+    LDDMMType::vimg_write(uPhys, param.inverse_warp.c_str());
+
+    }
   return 0;
 }
 
@@ -1523,6 +1659,7 @@ int main(int argc, char *argv[])
   param.time_step_mode = GreedyParameters::SCALE;
   param.deriv_epsilon = 1e-4;
   param.flag_powell = false;
+  param.inverse_exponent = 2;
 
   // reslice mode parameters
   InterpSpec interp_current;
@@ -1654,6 +1791,14 @@ int main(int argc, char *argv[])
       else if(arg == "-rf")
         {
         param.reslice_param.ref_image = cl.read_existing_filename();
+        }
+      else if(arg == "-oinv")
+        {
+        param.inverse_warp = cl.read_output_filename();
+        }
+      else if(arg == "-invexp")
+        {
+        param.inverse_exponent = cl.read_integer();
         }
       else if(arg == "-ri")
         {

@@ -191,7 +191,7 @@ public:
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, InputImageType::ImageDimension );
 
-  typedef FastLinearInterpolator<InputImageType, RealType> InterpType;
+  typedef FastLinearInterpolator<InputImageType, RealType, ImageDimension> InterpType;
 
   typedef typename InputImageType::IndexType IndexType;
   typedef itk::ContinuousIndex<double, ImageDimension>  ContIndexType;

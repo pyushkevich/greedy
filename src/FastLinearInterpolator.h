@@ -4,29 +4,81 @@
 #include "itkVectorImage.h"
 #include "itkNumericTraits.h"
 
+template <class TFloat, class TInputComponentType>
+struct FastLinearInterpolatorOutputTraits
+{
+};
+
+template <class TInputComponentType>
+struct FastLinearInterpolatorOutputTraits<float, TInputComponentType>
+{
+  typedef typename itk::NumericTraits<TInputComponentType>::FloatType OutputComponentType;
+};
+
+template <class TInputComponentType>
+struct FastLinearInterpolatorOutputTraits<double, TInputComponentType>
+{
+  typedef typename itk::NumericTraits<TInputComponentType>::RealType OutputComponentType;
+};
+
+template <class TImageType>
+struct FastWarpCompositeImageFilterInputImageTraits
+{
+};
+
+template <class TPixel, unsigned int VDim>
+struct FastWarpCompositeImageFilterInputImageTraits< itk::Image<TPixel, VDim> >
+{
+  static int GetPointerIncrementSize(const itk::Image<TPixel, VDim> *) { return 1; }
+};
+
+template <class TPixel, unsigned int VDim>
+struct FastWarpCompositeImageFilterInputImageTraits< itk::VectorImage<TPixel, VDim> >
+{
+  static int GetPointerIncrementSize(const itk::VectorImage<TPixel, VDim> *image)
+  {
+    return image->GetNumberOfComponentsPerPixel();
+  }
+};
+
+
 /**
  * Base class for the fast linear interpolators
  */
-template<class TImage,
-         class TFloat = typename itk::NumericTraits<typename TImage::InternalPixelType>::RealType>
+template<class TImage, class TFloat, unsigned int VDim>
 class FastLinearInterpolatorBase
 {
 public:
-  typedef TImage                                 ImageType;
-  typedef TFloat                                 RealType;
-  typedef typename ImageType::InternalPixelType  InputComponentType;
+  typedef TImage                                                  ImageType;
+  typedef TFloat                                                  RealType;
+  typedef typename ImageType::InternalPixelType                   InputComponentType;
+  typedef FastLinearInterpolatorOutputTraits<TFloat, InputComponentType>  OutputTraits;
+  typedef typename OutputTraits::OutputComponentType              OutputComponentType;
 
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, ImageType::ImageDimension );
 
   enum InOut { INSIDE, OUTSIDE, BORDER };
 
+  /**
+   * Get the number that should be added to the input pointer when parsing the input and
+   * output images. This will be 1 for itk::Image and Ncomp for itk::VectorImage
+   */
+  int GetPointerIncrement() const { return nComp; }
+
   FastLinearInterpolatorBase(ImageType *image)
   {
     buffer = image->GetBufferPointer();
-    nComp = image->GetNumberOfComponentsPerPixel();
-    def_value_store = vnl_vector<InputComponentType>(nComp, itk::NumericTraits<InputComponentType>::Zero);
-    def_value = def_value_store.data_block();
+    nComp = FastWarpCompositeImageFilterInputImageTraits<TImage>::GetPointerIncrementSize(image);
+    def_value_store = new InputComponentType[nComp];
+    for(int i = 0; i < nComp; i++)
+      def_value_store[i] = itk::NumericTraits<InputComponentType>::Zero;
+    def_value = def_value_store;
+  }
+
+  ~FastLinearInterpolatorBase()
+  {
+    delete [] def_value_store;
   }
 
 protected:
@@ -37,12 +89,13 @@ protected:
 
   // Default value - for interpolation outside of the image bounds
   const InputComponentType *def_value;
-  vnl_vector<InputComponentType> def_value_store;
+  InputComponentType *def_value_store;
 
   InOut status;
 
 
-  inline RealType lerp(RealType a, RealType l, RealType h)
+  template <class TInput>
+  inline OutputComponentType lerp(RealType a, const TInput &l, const TInput &h)
   {
     return l+((h-l)*a);
   }
@@ -52,23 +105,26 @@ protected:
 /**
  * Arbitrary dimension fast linear interpolator - meant to be slow
  */
-template<class TImage,
-         class TFloat = typename itk::NumericTraits<typename TImage::InternalPixelType>::RealType>
-class FastLinearInterpolator : public FastLinearInterpolatorBase<TImage, TFloat>
+template<class TImage, class TFloat, unsigned int VDim>
+class FastLinearInterpolator : public FastLinearInterpolatorBase<TImage, TFloat, VDim>
 {
 public:
-  typedef FastLinearInterpolatorBase<TImage, TFloat>   Superclass;
+  typedef FastLinearInterpolatorBase<TImage, TFloat, VDim>   Superclass;
   typedef typename Superclass::ImageType               ImageType;
   typedef typename Superclass::InputComponentType      InputComponentType;
+  typedef typename Superclass::OutputComponentType     OutputComponentType;
   typedef typename Superclass::RealType                RealType;
   typedef typename Superclass::InOut                   InOut;
 
   FastLinearInterpolator(ImageType *image) : Superclass(image) {}
 
-  InOut InterpolateWithGradient(RealType *cix, RealType *out, RealType **grad)
+  InOut InterpolateWithGradient(RealType *cix, OutputComponentType *out, OutputComponentType **grad)
     { return Superclass::INSIDE; }
 
-  InOut Interpolate(RealType *cix, RealType *out)
+  InOut Interpolate(RealType *cix, OutputComponentType *out)
+    { return Superclass::INSIDE; }
+
+  InOut InterpolateNearestNeighbor(RealType *cix, OutputComponentType *out)
     { return Superclass::INSIDE; }
 
   TFloat GetMask() { return 0.0; }
@@ -88,16 +144,17 @@ protected:
 /**
  * 3D fast linear interpolator - optimized for speed
  */
-template <class TPixel, class TFloat>
-class FastLinearInterpolator<itk::VectorImage<TPixel, 3>, TFloat>
-    : public FastLinearInterpolatorBase<itk::VectorImage<TPixel, 3>, TFloat>
+template <class TImage, class TFloat>
+class FastLinearInterpolator<TImage, TFloat, 3>
+    : public FastLinearInterpolatorBase<TImage, TFloat, 3>
 {
 public:
-  typedef itk::VectorImage<TPixel, 3>                   ImageType;
-  typedef FastLinearInterpolatorBase<ImageType, TFloat> Superclass;
-  typedef typename Superclass::InputComponentType       InputComponentType;
-  typedef typename Superclass::RealType                 RealType;
-  typedef typename Superclass::InOut                    InOut;
+  typedef TImage                                             ImageType;
+  typedef FastLinearInterpolatorBase<ImageType, TFloat, 3>   Superclass;
+  typedef typename Superclass::InputComponentType            InputComponentType;
+  typedef typename Superclass::OutputComponentType           OutputComponentType;
+  typedef typename Superclass::RealType                      RealType;
+  typedef typename Superclass::InOut                         InOut;
 
   FastLinearInterpolator(ImageType *image) : Superclass(image)
   {
@@ -172,7 +229,7 @@ public:
    * Interpolate at position cix, placing the intensity values in out and gradient
    * values in grad (in strides of VDim)
    */
-  InOut InterpolateWithGradient(RealType *cix, RealType *out, RealType **grad)
+  InOut InterpolateWithGradient(RealType *cix, OutputComponentType *out, OutputComponentType **grad)
   {
     RealType dx00, dx01, dx10, dx11, dxy0, dxy1;
     RealType dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
@@ -219,9 +276,9 @@ public:
     return this->status;
   }
 
-  InOut Interpolate(RealType *cix, RealType *out)
+  InOut Interpolate(RealType *cix, OutputComponentType *out)
   {
-    RealType dx00, dx01, dx10, dx11, dxy0, dxy1;
+    OutputComponentType dx00, dx01, dx10, dx11, dxy0, dxy1;
 
     // Compute the corners
     this->ComputeCorners(cix);
@@ -246,6 +303,27 @@ public:
 
     return this->status;
   }
+
+  InOut InterpolateNearestNeighbor(RealType *cix, OutputComponentType *out)
+  {
+    x0 = (int) floor(cix[0] + 0.5);
+    y0 = (int) floor(cix[1] + 0.5);
+    z0 = (int) floor(cix[2] + 0.5);
+
+    if (x0 >= 0 && x0 < xsize &&
+        y0 >= 0 && y0 < ysize &&
+        z0 >= 0 && z0 < zsize)
+      {
+      const InputComponentType *dp = dens(x0, y0, z0);
+      for(int iComp = 0; iComp < this->nComp; iComp++)
+        {
+        out[iComp] = dp[iComp];
+        }
+      return Superclass::INSIDE;
+      }
+    else return Superclass::OUTSIDE;
+  }
+
 
   template <class THistContainer>
   void PartialVolumeHistogramSample(RealType *cix, const InputComponentType *fixptr, THistContainer &hist)

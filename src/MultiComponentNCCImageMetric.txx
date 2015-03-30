@@ -89,7 +89,7 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
   const OutputImageRegionType& outputRegionForThread,
   itk::ThreadIdType threadId )
 {
-  typedef FastLinearInterpolator<InputImageType, RealType> FastInterpolator;
+  typedef FastLinearInterpolator<InputImageType, RealType, ImageDimension> FastInterpolator;
 
   // Get the number of input and output components
   int ncomp_in = m_Parent->GetFixedImage()->GetNumberOfComponentsPerPixel();

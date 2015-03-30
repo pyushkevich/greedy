@@ -25,20 +25,33 @@ public:
 
   const InternalPixelType *GetBeginPosition() { return this->m_Begin; }
 
-  template <class TImage>
-  typename TImage::InternalPixelType *GetPixelPointer(TImage *image)
+  template <class TPixel, unsigned int VDim>
+  TPixel *GetPixelPointer(itk::Image<TPixel, VDim> *image)
+    {
+      long offset_in_pixels = this->m_Position - this->m_Image->GetBufferPointer();
+      return image->GetBufferPointer() + offset_in_pixels;
+    }
+
+  template <class TPixel, unsigned int VDim>
+  const TPixel *GetPixelPointer(const itk::Image<TPixel, VDim> *image)
+    {
+      long offset_in_pixels = this->m_Position - this->m_Image->GetBufferPointer();
+      return image->GetBufferPointer() + offset_in_pixels;
+    }
+
+  template <class TPixel, unsigned int VDim>
+  TPixel *GetPixelPointer(itk::VectorImage<TPixel, VDim> *image)
     {
       long offset_in_pixels = this->m_Position - this->m_Image->GetBufferPointer();
       return image->GetBufferPointer() + offset_in_pixels * image->GetNumberOfComponentsPerPixel();
     }
 
-  template <class TImage>
-  const typename TImage::InternalPixelType *GetPixelPointer(const TImage *image)
+  template <class TPixel, unsigned int VDim>
+  const TPixel *GetPixelPointer(const itk::VectorImage<TPixel, VDim> *image)
     {
       long offset_in_pixels = this->m_Position - this->m_Image->GetBufferPointer();
       return image->GetBufferPointer() + offset_in_pixels * image->GetNumberOfComponentsPerPixel();
     }
-
 };
 
 template <class TIterator>

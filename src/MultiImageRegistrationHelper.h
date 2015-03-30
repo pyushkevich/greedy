@@ -39,6 +39,10 @@ public:
   typedef itk::Image<VectorType, VDim> VectorImageType;
   typedef itk::ImageBase<VDim> ImageBaseType;
 
+  typedef typename MultiComponentImageType::Pointer MultiComponentImagePointer;
+  typedef typename FloatImageType::Pointer FloatImagePointer;
+  typedef typename VectorImageType::Pointer VectorImagePointer;
+
   typedef std::vector<int> PyramidFactorsType;
   typedef itk::Size<VDim> SizeType;
 
@@ -121,6 +125,12 @@ public:
   static void AffineToField(LinearTransformType *tran, VectorImageType *def);
 
   void VoxelWarpToPhysicalWarp(int level, VectorImageType *warp, VectorImageType *result);
+
+  /**
+   * Invert a deformation field by first dividing it into small transformations using the
+   * square root command, and then inverting the small transformations
+   */
+  void ComputeDeformationFieldInverse(VectorImageType *warp, VectorImageType *result, int n_sqrt);
 
 protected:
 
