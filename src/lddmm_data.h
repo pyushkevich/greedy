@@ -74,6 +74,9 @@ public:
   // Apply deformation to data
   static void interp_img(ImageType *data, VectorImageType *field, ImageType *out, bool use_nn = false);
 
+  // Apply deformation to data
+  static void interp_cimg(CompositeImageType *data, VectorImageType *field, CompositeImageType *out, bool use_nn = false);
+
   // Take Jacobian of deformation field
   static void field_jacobian_det(VectorImageType *vec, ImageType *out);
 

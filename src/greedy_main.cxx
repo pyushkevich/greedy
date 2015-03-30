@@ -699,43 +699,44 @@ int GreedyApproach<VDim, TReal>
       }
 
     // Run the minimization
-
-    if(param.flag_powell)
+    if(param.iter_per_level[level] > 0)
       {
-      // Set up the optimizer
-      vnl_powell *optimizer = new vnl_powell(&acf);
-      optimizer->set_f_tolerance(1e-9);
-      optimizer->set_x_tolerance(1e-4);
-      optimizer->set_g_tolerance(1e-6);
-      optimizer->set_trace(true);
-      optimizer->set_verbose(true);
-      optimizer->set_max_function_evals(param.iter_per_level[level]);
+      if(param.flag_powell)
+        {
+        // Set up the optimizer
+        vnl_powell *optimizer = new vnl_powell(&acf);
+        optimizer->set_f_tolerance(1e-9);
+        optimizer->set_x_tolerance(1e-4);
+        optimizer->set_g_tolerance(1e-6);
+        optimizer->set_trace(true);
+        optimizer->set_verbose(true);
+        optimizer->set_max_function_evals(param.iter_per_level[level]);
 
-      optimizer->minimize(xLevel);
-      delete optimizer;
+        optimizer->minimize(xLevel);
+        delete optimizer;
 
+        }
+      else
+        {
+        // Set up the optimizer
+        vnl_lbfgs *optimizer = new vnl_lbfgs(acf);
+        optimizer->set_f_tolerance(1e-9);
+        optimizer->set_x_tolerance(1e-4);
+        optimizer->set_g_tolerance(1e-6);
+        optimizer->set_trace(true);
+        optimizer->set_max_function_evals(param.iter_per_level[level]);
+
+        optimizer->minimize(xLevel);
+        delete optimizer;
+        }
+
+      // Get the final transform
+      typename TransformType::Pointer tFinal = TransformType::New();
+      acf.GetTransform(xLevel, tFinal.GetPointer());
+      Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tFinal);
       }
-    else
-      {
-      // Set up the optimizer
-      vnl_lbfgs *optimizer = new vnl_lbfgs(acf);
-      optimizer->set_f_tolerance(1e-9);
-      optimizer->set_x_tolerance(1e-4);
-      optimizer->set_g_tolerance(1e-6);
-      optimizer->set_trace(true);
-      optimizer->set_max_function_evals(param.iter_per_level[level]);
 
-      optimizer->minimize(xLevel);
-      delete optimizer;
-      }
-
-    // Get the final transform
-    typename TransformType::Pointer tFinal = TransformType::New();
-    acf.GetTransform(xLevel, tFinal.GetPointer());
-
-    Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tFinal);
     std::cout << "Final RAS Transform: " << std::endl << Q_physical << std::endl;
-
     }
 
   // Write the final affine transform
