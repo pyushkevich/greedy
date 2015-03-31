@@ -62,6 +62,7 @@ public:
   static void alloc_vf(VelocityField &vf, uint nt, ImageBaseType *ref);
   static void alloc_img(ImagePointer &img, ImageBaseType *ref);
   static void alloc_vimg(VectorImagePointer &vimg, ImageBaseType *ref);
+  static void alloc_cimg(CompositeImagePointer &img, ImageBaseType *ref, int n_comp);
 
   // Initialize LDDMM data 
   static void init(LDDMMData<TFloat, VDim> &, 
@@ -71,13 +72,16 @@ public:
   // Apply deformation to data
   static void interp_vimg(
     VectorImageType *data, VectorImageType *field, 
-    TFloat def_scale, VectorImageType *out, bool use_nn = false);
+    TFloat def_scale, VectorImageType *out,
+    bool use_nn = false, bool phys_space = false);
 
   // Apply deformation to data
-  static void interp_img(ImageType *data, VectorImageType *field, ImageType *out, bool use_nn = false);
+  static void interp_img(ImageType *data, VectorImageType *field, ImageType *out,
+                         bool use_nn = false, bool phys_space = false);
 
   // Apply deformation to data
-  static void interp_cimg(CompositeImageType *data, VectorImageType *field, CompositeImageType *out, bool use_nn = false);
+  static void interp_cimg(CompositeImageType *data, VectorImageType *field, CompositeImageType *out,
+                          bool use_nn = false, bool phys_space = false);
 
   // Take Jacobian of deformation field
   static void field_jacobian_det(VectorImageType *vec, ImageType *out);

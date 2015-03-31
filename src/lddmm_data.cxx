@@ -46,6 +46,23 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::alloc_cimg(CompositeImagePointer &img, ImageBaseType *ref, int n_comp)
+{
+  img = CompositeImageType::New();
+  img->SetRegions(ref->GetBufferedRegion());
+  img->CopyInformation(ref);
+  img->SetNumberOfComponentsPerPixel(n_comp);
+  img->Allocate();
+
+  typename CompositeImageType::PixelType cpix;
+  cpix.SetSize(n_comp);
+  cpix.Fill(0.0);
+  img->FillBuffer(cpix);
+}
+
+template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
 ::alloc_img(ImagePointer &img, ImageBaseType *ref)
@@ -126,7 +143,7 @@ template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
 ::interp_vimg(VectorImageType *data, VectorImageType *field,
-  TFloat def_scale, VectorImageType *out, bool use_nn)
+  TFloat def_scale, VectorImageType *out, bool use_nn, bool phys_space)
 {
   /*
    * THIS IS OLD CODE for VECTOR INTERPOLATION
@@ -171,13 +188,14 @@ LDDMMData<TFloat, VDim>
   wf->GraftOutput(out);
   wf->SetDeformationScaling(def_scale);
   wf->SetUseNearestNeighbor(use_nn);
+  wf->SetUsePhysicalSpace(phys_space);
   wf->Update();
 }
 
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::interp_img(ImageType *data, VectorImageType *field, ImageType *out, bool use_nn)
+::interp_img(ImageType *data, VectorImageType *field, ImageType *out, bool use_nn, bool phys_space)
 {
   typedef FastWarpCompositeImageFilter<ImageType, ImageType, VectorImageType> WF;
   typename WF::Pointer wf = WF::New();
@@ -185,6 +203,7 @@ LDDMMData<TFloat, VDim>
   wf->SetMovingImage(data);
   wf->GraftOutput(out);
   wf->SetUseNearestNeighbor(use_nn);
+  wf->SetUsePhysicalSpace(phys_space);
   wf->Update();
 
 /*
@@ -218,7 +237,8 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::interp_cimg(CompositeImageType *data, VectorImageType *field, CompositeImageType *out, bool use_nn)
+::interp_cimg(CompositeImageType *data, VectorImageType *field, CompositeImageType *out,
+              bool use_nn, bool phys_space)
 {
   typedef FastWarpCompositeImageFilter<CompositeImageType, CompositeImageType, VectorImageType> WF;
   typename WF::Pointer wf = WF::New();
@@ -226,6 +246,7 @@ LDDMMData<TFloat, VDim>
   wf->SetMovingImage(data);
   wf->GraftOutput(out);
   wf->SetUseNearestNeighbor(use_nn);
+  wf->SetUsePhysicalSpace(phys_space);
   wf->Update();
 }
 

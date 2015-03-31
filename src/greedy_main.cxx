@@ -56,6 +56,7 @@ int usage()
   printf("  -n NxNxN                    : number of iterations per level of multi-res (100x100) \n");
   printf("  -threads N                  : set the number of allowed concurrent threads\n");
   printf("  -gm mask.nii                : mask for gradient computation\n");
+  printf("  -it filenames               : sequence of transforms to apply to the moving image first \n");
   printf("Specific to deformable mode: \n");
   printf("  -tscale MODE                : time step behavior mode: CONST, SCALE [def], SCALEDOWN\n");
   printf("  -s sigma1 sigma2            : smoothing for the greedy update step (3.0, 1.0)\n");
@@ -64,7 +65,7 @@ int usage()
   printf("                                transform when computing inverse (default=2)");
   printf("  -wp VALUE                   : Saved warp precision (in voxels; def=0.1; 0 for no compression).\n");
   printf("Specific to affine mode: \n");
-  printf("  -ia filename                : initial affine transform (c3d format)\n");
+  printf("  -ia filename                : initial affine matrix for optimization (not the same as -it) \n");
   printf("Specific to reslice mode: \n");
   printf("   -rf fixed.nii              : fixed image for reslicing\n");
   printf("   -rm moving.nii output.nii  : moving/output image pair (may be repeated)\n");
@@ -147,6 +148,9 @@ struct GreedyParameters
   std::vector<int> metric_radius;
 
   std::vector<int> brute_search_radius;
+
+  // List of transforms to apply to the moving image before registration
+  std::vector<std::string> moving_pre_transforms;
 
   // Initial affine transform
   std::string initial_affine;
@@ -231,6 +235,10 @@ protected:
                              const std::vector<ImagePair> &imgRaw,
                              std::vector<ImagePair> &img,
                              int level);
+
+  static void ReadTransformChain(const std::vector<std::string> &tran_chain,
+                                 ImageBaseType *ref_space,
+                                 VectorImagePointer &out_warp);
 
   static vnl_matrix<double> MapAffineToPhysicalRASSpace(
       OFHelperType &of_helper, int level,
@@ -480,6 +488,9 @@ template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
 ::ReadImages(GreedyParameters &param, OFHelperType &ofhelper)
 {
+  // If the parameters include a sequence of transforms, apply it first
+  VectorImagePointer moving_pre_warp;
+
   // Read the input images and stick them into an image array
   for(int i = 0; i < param.inputs.size(); i++)
     {
@@ -495,8 +506,30 @@ void GreedyApproach<VDim, TReal>
     readmov->SetFileName(param.inputs[i].moving);
     readmov->Update();
 
-    // Add to the helper object
-    ofhelper.AddImagePair(readfix->GetOutput(), readmov->GetOutput(), param.inputs[i].weight);
+    // Read the pre-warps (only once)
+    if(param.moving_pre_transforms.size() && moving_pre_warp.IsNull())
+      {
+      ReadTransformChain(param.moving_pre_transforms, readfix->GetOutput(), moving_pre_warp);
+      }
+
+    if(moving_pre_warp.IsNotNull())
+      {
+      // Create an image to store the warp
+      CompositeImagePointer warped_moving;
+      LDDMMType::alloc_cimg(warped_moving, readfix->GetOutput(),
+                            readmov->GetOutput()->GetNumberOfComponentsPerPixel());
+
+      // Interpolate the moving image using the transform chain
+      LDDMMType::interp_cimg(readmov->GetOutput(), moving_pre_warp, warped_moving, false, true);
+
+      // Add the image pair to the helper
+      ofhelper.AddImagePair(readfix->GetOutput(), warped_moving, param.inputs[i].weight);
+      }
+    else
+      {
+      // Add to the helper object
+      ofhelper.AddImagePair(readfix->GetOutput(), readmov->GetOutput(), param.inputs[i].weight);
+      }
     }
 
   // Read the masks
@@ -1146,73 +1179,40 @@ int GreedyApproach<VDim, TReal>
 #include "itkWarpImageFilter.h"
 #include "itkNearestNeighborInterpolateImageFunction.h"
 
-/**
- * Run the reslice code - simply apply a warp or set of warps to images
- */
+
 template <unsigned int VDim, typename TReal>
-int GreedyApproach<VDim, TReal>
-::RunReslice(GreedyParameters &param)
+void GreedyApproach<VDim, TReal>
+::ReadTransformChain(const std::vector<std::string> &tran_chain,
+                     ImageBaseType *ref_space,
+                     VectorImagePointer &out_warp)
 {
-  typedef typename OFHelperType::LinearTransformType TransformType;
-
-  GreedyResliceParameters r_param = param.reslice_param;
-
-  // Read the fixed as a plain image (we don't care if it's composite)
-  ImagePointer ref = ImageType::New();
-  LDDMMType::img_read(r_param.ref_image.c_str(), ref);
-  itk::ImageBase<VDim> *ref_space = ref;
-
   // Create the initial transform and set it to zero
-  VectorImagePointer warp = VectorImageType::New();
-  LDDMMType::alloc_vimg(warp, ref_space);
-
-  // Create a temporary warp
-  VectorImagePointer warp_tmp = VectorImageType::New();
-  LDDMMType::alloc_vimg(warp_tmp, ref_space);
+  out_warp = VectorImageType::New();
+  LDDMMType::alloc_vimg(out_warp, ref_space);
 
   // Read the sequence of transforms
-  for(int i = 0; i < r_param.transforms.size(); i++)
+  for(int i = 0; i < tran_chain.size(); i++)
     {
     // Read the next parameter
-    std::string tran = r_param.transforms[i];
-
-    // Get the current warp
-    VectorImagePointer warp_i;
+    std::string tran = tran_chain[i];
 
     // Determine if it's an affine transform
     if(itk::ImageIOFactory::CreateImageIO(tran.c_str(), itk::ImageIOFactory::ReadMode))
       {
+      // Create a temporary warp
+      VectorImagePointer warp_tmp = VectorImageType::New();
+      LDDMMType::alloc_vimg(warp_tmp, ref_space);
+
       // Read the next warp
-      warp_i = VectorImageType::New();
+      VectorImagePointer warp_i = VectorImageType::New();
       LDDMMType::vimg_read(tran.c_str(), warp_i);
 
       // Now we need to compose the current transform and the overall warp.
-      typedef FastWarpCompositeImageFilter<VectorImageType, VectorImageType, VectorImageType> WF;
-      typename WF::Pointer wf = WF::New();
-      wf->SetDeformationField(warp);
-      wf->SetMovingImage(warp_i);
-      wf->GraftOutput(warp_tmp);
-      wf->SetUseNearestNeighbor(false);
-      wf->SetUsePhysicalSpace(true);
-      wf->Update();
-
-      // Copy back to warp TODO: fix this
-      LDDMMType::vimg_add_in_place(warp, warp_tmp);
+      LDDMMType::interp_vimg(warp_i, out_warp, 1.0, warp_tmp, false, true);
+      LDDMMType::vimg_add_in_place(out_warp, warp_tmp);
       }
     else
       {
-      // The filter that turns the transform into a warp is using voxel indices to create a deformation
-      // field W(x) = (A - I) x + b , where x is the voxel coordinate.
-      // In our case, we want W(x) to be (A - I) y(x) + b, where y is the physical coordinate.
-      // So we must solve (A' - I) x + b' = (A - I) y(x) + b
-      // If y(x) = P x + q then
-      // (A' - I) x + b' = (A - I) (Px + q) + b = APx - Px + Aq - q + b
-      //                 = ((AP - P + I) - I) x + (Aq - q + b)
-      // In addition, there is a NIFTI/DICOM change, so we really want to solve
-      // (A' - I) x + b' = W * ((A - I) y(x) + b)   , where W = diag(-1, -1, 1)
-      //                 = W * (APx - Px + Aq - q + b)
-      //                 = ((WAP - WP + I) - I) x + W (Aq - q + b)
-
       // Read the transform as a matrix
       vnl_matrix<TReal> mat = ReadAffineMatrix<TReal, VDim>(tran.c_str());
       vnl_matrix<double>  A = mat.extract(VDim, VDim);
@@ -1220,14 +1220,14 @@ int GreedyApproach<VDim, TReal>
 
       // TODO: stick this in a filter to take advantage of threading!
       typedef itk::ImageRegionIteratorWithIndex<VectorImageType> IterType;
-      for(IterType it(warp, warp->GetBufferedRegion()); !it.IsAtEnd(); ++it)
+      for(IterType it(out_warp, out_warp->GetBufferedRegion()); !it.IsAtEnd(); ++it)
         {
         typename VectorImageType::PointType pt, pt2;
         typename VectorImageType::IndexType idx = it.GetIndex();
 
         // Get the physical position
         // TODO: this calls IsInside() internally, which limits efficiency
-        warp->TransformIndexToPhysicalPoint(idx, pt);
+        out_warp->TransformIndexToPhysicalPoint(idx, pt);
 
         // Add the displacement (in DICOM coordinates) and
         for(int i = 0; i < VDim; i++)
@@ -1245,31 +1245,47 @@ int GreedyApproach<VDim, TReal>
           it.Value()[i] = q[i] - pt[i];
         }
       }
-
-
-//    LDDMMType::vimg_copy(warp_tmp, warp);
     }
+}
+
+/**
+ * Run the reslice code - simply apply a warp or set of warps to images
+ */
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::RunReslice(GreedyParameters &param)
+{
+  typedef typename OFHelperType::LinearTransformType TransformType;
+
+  GreedyResliceParameters r_param = param.reslice_param;
+
+  // Read the fixed as a plain image (we don't care if it's composite)
+  ImagePointer ref = ImageType::New();
+  LDDMMType::img_read(r_param.ref_image.c_str(), ref);
+  itk::ImageBase<VDim> *ref_space = ref;
+
+  // Read the transform chain
+  VectorImagePointer warp;
+  ReadTransformChain(param.reslice_param.transforms, ref_space, warp);
 
   // Process image pairs
   for(int i = 0; i < r_param.images.size(); i++)
     {
     // Read the input image
-    CompositeImagePointer moving;
+    CompositeImagePointer moving, warped;
     itk::ImageIOBase::IOComponentType comp =
         LDDMMType::cimg_read(r_param.images[i].moving.c_str(), moving);
 
+    // Allocate the warped image
+    LDDMMType::alloc_cimg(warped, ref_space, moving->GetNumberOfComponentsPerPixel());
+
     // Perform the warp
-    typedef FastWarpCompositeImageFilter<CompositeImageType, CompositeImageType, VectorImageType> WF;
-    typename WF::Pointer wf = WF::New();
-    wf->SetDeformationField(warp);
-    wf->SetMovingImage(moving);
-    wf->SetUseNearestNeighbor(r_param.images[i].interp.mode == InterpSpec::NEAREST);
-    wf->SetUsePhysicalSpace(true);
-    wf->SetExtrapolateBorders(false); // for compatibility with ANTS
-    wf->Update();
+    LDDMMType::interp_cimg(moving, warp, warped,
+                           r_param.images[i].interp.mode == InterpSpec::NEAREST,
+                           true);
 
     // Write, casting to the input component type
-    LDDMMType::cimg_write(wf->GetOutput(), r_param.images[i].output.c_str(), comp);
+    LDDMMType::cimg_write(warped, r_param.images[i].output.c_str(), comp);
     }
 
 
@@ -1600,6 +1616,12 @@ int main(int argc, char *argv[])
       else if(arg == "-ia")
         {
         param.initial_affine = cl.read_existing_filename();
+        }
+      else if(arg == "-it")
+        {
+        int nFiles = cl.command_arg_count();
+        for(int i = 0; i < nFiles; i++)
+          param.moving_pre_transforms.push_back(cl.read_existing_filename());
         }
       else if(arg == "-gm")
         {
