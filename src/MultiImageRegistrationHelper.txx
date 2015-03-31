@@ -781,7 +781,7 @@ public:
     if(m_Precision > 0)
       {
       for(int i = 0; i < TInputWarp::ImageDimension; i++)
-        w[i] = std::floor(v[i] * m_ScaleFactor + 0.5);
+        w[i] = std::floor(v[i] * m_ScaleFactor + 0.5) * m_Precision;
       }
 
     // Map to physical space
@@ -821,7 +821,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::WriteWarp(int level, VectorImageType *warp, const char *filename, double precision)
+::WriteCompressedWarpInPhysicalSpace(int level, VectorImageType *warp, const char *filename, double precision)
 {
   // Define a _float_ output type, even if working with double precision (less space on disk)
   typedef itk::CovariantVector<float, VDim> OutputVectorType;

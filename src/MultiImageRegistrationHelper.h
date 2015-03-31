@@ -128,7 +128,7 @@ public:
   void VoxelWarpToPhysicalWarp(int level, VectorImageType *warp, VectorImageType *result);
 
   /** Write a warp to a file. The warp must be in voxel space, not physical space */
-  void WriteWarp(int level, VectorImageType *warp, const char *filename, double precision);
+  void WriteCompressedWarpInPhysicalSpace(int level, VectorImageType *warp, const char *filename, double precision);
 
   /**
    * Invert a deformation field by first dividing it into small transformations using the

@@ -1015,7 +1015,7 @@ int GreedyApproach<VDim, TReal>
   // into physical offset units - just scaled by the spacing?
 
   // Write the resulting transformation field
-  of_helper.WriteWarp(nlevels - 1, uLevel, param.output.c_str(), param.warp_precision);
+  of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevel, param.output.c_str(), param.warp_precision);
 
   // If an inverse is requested, compute the inverse using the Chen 2008 fixed method.
   // A modification of this method is that if convergence is slow, we take the square
@@ -1035,7 +1035,7 @@ int GreedyApproach<VDim, TReal>
     of_helper.ComputeDeformationFieldInverse(uLevel, uInverse, param.inverse_exponent);
 
     // Write the warp using compressed format
-    of_helper.WriteWarp(nlevels - 1, uInverse, param.inverse_warp.c_str(), param.warp_precision);
+    of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uInverse, param.inverse_warp.c_str(), param.warp_precision);
     }
   return 0;
 }
