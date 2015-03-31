@@ -1302,8 +1302,37 @@ int GreedyApproach<VDim, TReal>
     // Determine if it's an affine transform
     if(itk::ImageIOFactory::CreateImageIO(tran.c_str(), itk::ImageIOFactory::ReadMode))
       {
+      // Read the next warp
       warp_i = VectorImageType::New();
       LDDMMType::vimg_read(tran.c_str(), warp_i);
+
+      // Now we need to compose the current transform and the overall warp. However, the
+      // warps are defined in physical space, so we must be careful!
+
+      typedef FastWarpCompositeImageFilter<VectorImageType, VectorImageType, VectorImageType> WF;
+      typename WF::Pointer wf = WF::New();
+      wf->SetDeformationField(warp);
+      wf->SetMovingImage(warp_i);
+      wf->GraftOutput(warp_tmp);
+      wf->SetUseNearestNeighbor(false);
+      wf->SetUsePhysicalSpace(true);
+      wf->Update();
+
+
+      /*
+      typedef itk::WarpVectorImageFilter<VectorImageType, VectorImageType, VectorImageType> DefType;
+      typename DefType::Pointer def = DefType::New();
+      def->SetInput(warp_i);
+      def->SetDisplacementField(warp);
+      def->GraftOutput(warp_tmp);
+      def->SetOutputSpacing(warp->GetSpacing());
+      def->SetOutputOrigin(warp->GetOrigin());
+      def->SetOutputDirection(warp->GetDirection());
+      def->Update();
+      */
+
+      // Copy back to warp TODO: fix this
+      LDDMMType::vimg_add_in_place(warp, warp_tmp);
       }
     else
       {
@@ -1319,63 +1348,38 @@ int GreedyApproach<VDim, TReal>
       //                 = W * (APx - Px + Aq - q + b)
       //                 = ((WAP - WP + I) - I) x + W (Aq - q + b)
 
-      vnl_matrix<double> P, A, Id(VDim, VDim), W(VDim, VDim), A_prime;
-      vnl_vector<double> q, b, b_prime;
-
-      // Get the voxel to physical mapping
-      GetVoxelSpaceToNiftiSpaceTransform(ref_space, P, q);
-
       // Read the transform as a matrix
       vnl_matrix<TReal> mat = ReadAffineMatrix<TReal, VDim>(tran.c_str());
-      A = mat.extract(VDim, VDim);
-      b = mat.get_column(VDim).extract(VDim);
+      vnl_matrix<double>  A = mat.extract(VDim, VDim);
+      vnl_vector<double> b = mat.get_column(VDim).extract(VDim), q;
 
-      // Compute the new matrix and offset
-      Id.set_identity();
-      W.set_identity();
+      typedef itk::ImageRegionIteratorWithIndex<VectorImageType> IterType;
+      for(IterType it(warp, warp->GetBufferedRegion()); !it.IsAtEnd(); ++it)
+        {
+        typename VectorImageType::PointType pt, pt2;
+        typename VectorImageType::IndexType idx = it.GetIndex();
 
-      // NIFTI/DICOM business
-      W(0,0) = W(1,1) = -1.0;
+        // Get the physical position
+        warp->TransformIndexToPhysicalPoint(idx, pt);
 
-      A_prime = W * A * P - W * P + Id;
-      b_prime = W * (A * q - q + b);
+        // Add the displacement (in DICOM coordinates) and
+        for(int i = 0; i < VDim; i++)
+          pt2[i] = pt[i] + it.Value()[i];
 
-      // Convert to a transform
-      typename TransformType::MatrixType tran_A;
-      typename TransformType::OffsetType tran_b;
-      tran_A = A_prime;
-      tran_b.SetVnlVector(b_prime);
+        // Switch to NIFTI coordinates
+        pt2[0] = -pt2[0]; pt2[1] = -pt2[1];
 
-      typename TransformType::Pointer tran = TransformType::New();
-      tran->SetMatrix(tran_A);
-      tran->SetOffset(tran_b);
+        // Apply the matrix - get the transformed coordinate in DICOM space
+        q = A * pt2.GetVnlVector() + b;
+        q[0] = -q[0]; q[1] = -q[1];
 
-      std::cout << tran << std::endl;
-
-      // Map the transform into a deformation field
-      typedef LinearTransformToWarpFilter<VectorImageType, VectorImageType, TransformType> Filter;
-      typename Filter::Pointer flt = Filter::New();
-      flt->SetInput(warp);
-      flt->SetTransform(tran);
-      flt->Update();
-
-      warp_i = flt->GetOutput();
+        // Compute the difference in DICOM space
+        for(int i = 0; i < VDim; i++)
+          it.Value()[i] = q[i] - pt[i];
+        }
       }
 
-    // Now we need to compose the current transform and the overall warp. However, the
-    // warps are defined in physical space, so we must be careful!
-    typedef itk::WarpVectorImageFilter<VectorImageType, VectorImageType, VectorImageType> DefType;
-    typename DefType::Pointer def = DefType::New();
-    def->SetInput(warp_i);
-    def->SetDisplacementField(warp);
-    def->GraftOutput(warp_tmp);
-    def->SetOutputSpacing(warp->GetSpacing());
-    def->SetOutputOrigin(warp->GetOrigin());
-    def->SetOutputDirection(warp->GetDirection());
-    def->Update();
 
-    // Copy back to warp TODO: fix this
-    LDDMMType::vimg_add_in_place(warp, warp_tmp);
 //    LDDMMType::vimg_copy(warp_tmp, warp);
     }
 

@@ -87,7 +87,7 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
           pd[j] = p[j] + phi[i][j] * m_DeformationScaling;
           p[j] += p_step[j];
           }
-        def->TransformPhysicalPointToContinuousIndex(pd, cix);
+        input->TransformPhysicalPointToContinuousIndex(pd, cix);
         }
       else
         {

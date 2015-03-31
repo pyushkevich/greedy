@@ -106,6 +106,8 @@ protected:
   void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
                             itk::ThreadIdType threadId );
 
+  virtual void VerifyInputInformation() {}
+
   bool m_UsePhysicalSpace, m_UseNearestNeighbor;
   DeforamtionScalarType m_DeformationScaling;
 
