@@ -10,6 +10,8 @@
 #include <vnl/vnl_math.h>
 #include <vector>
 
+#include <itkImageIOBase.h>
+
 #include <fftw3.h>
 
 template<class TFloat, uint VDim>
@@ -131,10 +133,23 @@ public:
   static void warp_voxel_to_physical(VectorImageType *src, ImageBaseType *ref_space, VectorImageType *trg);
   
   // Some IO methods
-  static void img_read(const char *fn, ImagePointer &trg);
-  static void img_write(ImageType *src, const char *fn);
-  static void vimg_read(const char *fn, VectorImagePointer &trg);
-  static void vimg_write(VectorImageType *src, const char *fn);
+  typedef itk::ImageIOBase::IOComponentType IOComponentType;
+
+  static IOComponentType img_read(const char *fn, ImagePointer &trg);
+  static IOComponentType vimg_read(const char *fn, VectorImagePointer &trg);
+  static IOComponentType cimg_read(const char *fn, CompositeImagePointer &trg);
+
+  // Write scalar image, with optional output format specification
+  static void img_write(ImageType *src, const char *fn,
+                        IOComponentType comp = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE);
+
+  // Write vector image, with optional output format specification
+  static void vimg_write(VectorImageType *src, const char *fn,
+                         IOComponentType comp = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE);
+
+  // Write composite image, with optional output format specification
+  static void cimg_write(CompositeImageType *src, const char *fn,
+                         IOComponentType comp = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE);
 
   static void vfield_read(uint nt, const char *fnpat, VelocityField &v);
 

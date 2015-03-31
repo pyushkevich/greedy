@@ -1253,32 +1253,27 @@ int GreedyApproach<VDim, TReal>
   // Process image pairs
   for(int i = 0; i < r_param.images.size(); i++)
     {
-    ImagePointer mov = ImageType::New();
-    LDDMMType::img_read(r_param.images[i].moving.c_str(), mov);
+    // Read the input image
+    CompositeImagePointer moving;
+    itk::ImageIOBase::IOComponentType comp =
+        LDDMMType::cimg_read(r_param.images[i].moving.c_str(), moving);
 
+    // Perform the warp
+    typedef FastWarpCompositeImageFilter<CompositeImageType, CompositeImageType, VectorImageType> WF;
+    typename WF::Pointer wf = WF::New();
+    wf->SetDeformationField(warp);
+    wf->SetMovingImage(moving);
+    wf->SetUseNearestNeighbor(r_param.images[i].interp.mode == InterpSpec::NEAREST);
+    wf->SetUsePhysicalSpace(true);
+    wf->Update();
 
-    typedef itk::WarpImageFilter<ImageType, ImageType, VectorImageType> DefType;
-    typename DefType::Pointer def = DefType::New();
-    def->SetInput(mov);
-    def->SetDisplacementField(warp);
-    def->SetOutputParametersFromImage(warp);
-
-    if(r_param.images[i].interp.mode == InterpSpec::NEAREST)
-      {
-      typedef itk::NearestNeighborInterpolateImageFunction<ImageType> NNType;
-      typename NNType::Pointer nn = NNType::New();
-      def->SetInterpolator(nn);
-      }
-
-    def->Update();
-
-    LDDMMType::img_write(def->GetOutput(), r_param.images[i].output.c_str());
+    // Write, casting to the input component type
+    LDDMMType::cimg_write(wf->GetOutput(), r_param.images[i].output.c_str(), comp);
     }
 
 
   return 0;
 }
-
 
 
 /**

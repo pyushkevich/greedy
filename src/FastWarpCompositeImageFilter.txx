@@ -113,5 +113,25 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
     }
 }
 
+template <class TInputImage, class TOutputImage, class TDeformationField>
+void
+FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
+::FastWarpCompositeImageFilter::GenerateInputRequestedRegion()
+{
+  this->GetDeformationField()->SetRequestedRegion(this->GetOutput()->GetRequestedRegion());
+  this->GetMovingImage()->SetRequestedRegionToLargestPossibleRegion();
+
+}
+
+template <class TInputImage, class TOutputImage, class TDeformationField>
+void
+FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
+::GenerateOutputInformation()
+{
+  Superclass::GenerateOutputInformation();
+  this->GetOutput()->SetNumberOfComponentsPerPixel(this->GetMovingImage()->GetNumberOfComponentsPerPixel());
+}
+
+
 
 #endif // FASTWARPCOMPOSITEIMAGEFILTER_TXX

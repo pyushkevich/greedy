@@ -108,6 +108,10 @@ protected:
 
   virtual void VerifyInputInformation() {}
 
+  virtual void GenerateInputRequestedRegion();
+
+  virtual void GenerateOutputInformation();
+
   bool m_UsePhysicalSpace, m_UseNearestNeighbor;
   DeforamtionScalarType m_DeformationScaling;
 

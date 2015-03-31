@@ -670,8 +670,97 @@ LDDMMData<TFloat, VDim>
 }
 
 
+
+namespace lddmm_data_io {
+
+template <class TInputImage, class TOutputImage>
+void
+write_cast(TInputImage *image, const char *filename)
+{
+  typedef itk::CastImageFilter<TInputImage, TOutputImage> CastType;
+  typename CastType::Pointer cast = CastType::New();
+  cast->SetInput(image);
+
+  typedef itk::ImageFileWriter<TOutputImage> WriterType;
+  typename WriterType::Pointer writer = WriterType::New();
+  writer->SetInput(cast->GetOutput());
+  writer->SetFileName(filename);
+  writer->Update();
+}
+
+template <class TInputImage, class TOutputComponent>
+struct image_type_cast
+{
+};
+
+template <class TPixel, unsigned int VDim, class TOutputComponent>
+struct image_type_cast< itk::Image<TPixel, VDim>, TOutputComponent>
+{
+  typedef itk::Image<TOutputComponent, VDim> OutputImageType;
+};
+
+template <class TPixel, unsigned int VDim, class TOutputComponent>
+struct image_type_cast< itk::Image<itk::CovariantVector<TPixel>, VDim>, TOutputComponent>
+{
+  typedef itk::Image<itk::CovariantVector<TOutputComponent>, VDim> OutputImageType;
+};
+
+template <class TPixel, unsigned int VDim, class TOutputComponent>
+struct image_type_cast< itk::VectorImage<TPixel, VDim>, TOutputComponent>
+{
+  typedef itk::VectorImage<TOutputComponent, VDim> OutputImageType;
+};
+
+template <class TInputImage>
+void write_cast_to_iocomp(TInputImage *image, const char *filename,
+                          itk::ImageIOBase::IOComponentType comp)
+{
+  switch(comp)
+    {
+    case itk::ImageIOBase::UCHAR :
+      write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned char>::OutputImageType>(image, filename);
+      break;
+    case itk::ImageIOBase::CHAR :
+      write_cast<TInputImage, typename image_type_cast<TInputImage, char>::OutputImageType>(image, filename);
+      break;
+    case itk::ImageIOBase::USHORT :
+      write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned short>::OutputImageType>(image, filename);
+      break;
+    case itk::ImageIOBase::SHORT :
+      write_cast<TInputImage, typename image_type_cast<TInputImage, short>::OutputImageType>(image, filename);
+      break;
+    case itk::ImageIOBase::UINT :
+      write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned int>::OutputImageType>(image, filename);
+      break;
+    case itk::ImageIOBase::INT :
+      write_cast<TInputImage, typename image_type_cast<TInputImage, int>::OutputImageType>(image, filename);
+      break;
+    case itk::ImageIOBase::ULONG :
+      write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned long>::OutputImageType>(image, filename);
+      break;
+    case itk::ImageIOBase::LONG :
+      write_cast<TInputImage, typename image_type_cast<TInputImage, long>::OutputImageType>(image, filename);
+      break;
+    case itk::ImageIOBase::FLOAT :
+      write_cast<TInputImage, typename image_type_cast<TInputImage, float>::OutputImageType>(image, filename);
+      break;
+    case itk::ImageIOBase::DOUBLE :
+      write_cast<TInputImage, typename image_type_cast<TInputImage, double>::OutputImageType>(image, filename);
+      break;
+    default:
+      typedef itk::ImageFileWriter<TInputImage> WriterType;
+      typename WriterType::Pointer writer = WriterType::New();
+      writer->SetInput(image);
+      writer->SetFileName(filename);
+      writer->Update();
+    }
+}
+
+} // namespace
+
+
 template <class TFloat, uint VDim>
-void 
+typename LDDMMData<TFloat, VDim>::IOComponentType
 LDDMMData<TFloat, VDim>
 ::img_read(const char *fn, ImagePointer &trg)
 {
@@ -680,22 +769,29 @@ LDDMMData<TFloat, VDim>
   reader->SetFileName(fn);
   reader->Update();
   trg = reader->GetOutput();
+
+  return reader->GetImageIO()->GetComponentType();
 }
 
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::img_write(ImageType *src, const char *fn)
+::img_write(ImageType *src, const char *fn, IOComponentType comp)
 {
-  typedef itk::ImageFileWriter<ImageType> WriterType;
-  typename WriterType::Pointer writer = WriterType::New();
-  writer->SetFileName(fn);
-  writer->SetInput(src);
-  writer->Update();
+  lddmm_data_io::write_cast_to_iocomp(src, fn, comp);
 }
 
 template <class TFloat, uint VDim>
-void 
+void
+LDDMMData<TFloat, VDim>
+::cimg_write(CompositeImageType *src, const char *fn, IOComponentType comp)
+{
+  lddmm_data_io::write_cast_to_iocomp(src, fn, comp);
+}
+
+
+template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::IOComponentType
 LDDMMData<TFloat, VDim>
 ::vimg_read(const char *fn, VectorImagePointer &trg)
 {
@@ -704,12 +800,14 @@ LDDMMData<TFloat, VDim>
   reader->SetFileName(fn);
   reader->Update();
   trg = reader->GetOutput();
+
+  return reader->GetImageIO()->GetComponentType();
 }
 
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::vimg_write(VectorImageType *src, const char *fn)
+::vimg_write(VectorImageType *src, const char *fn, IOComponentType comp)
 {
   // Cast to vector image type
   typedef itk::VectorImage<TFloat, VDim> OutputImageType;
@@ -723,13 +821,22 @@ LDDMMData<TFloat, VDim>
     (TFloat *) src->GetBufferPointer(), 
     VDim * src->GetPixelContainer()->Size(), false);
 
-  // Write the vector data
-  typedef itk::ImageFileWriter<OutputImageType> WriterType;
-  typename WriterType::Pointer writer = WriterType::New();
-  writer->SetFileName(fn);
-  writer->SetInput(output);
-  writer->Update();
+  // Write
+  lddmm_data_io::write_cast_to_iocomp(output.GetPointer(), fn, comp);
+}
 
+template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::IOComponentType
+LDDMMData<TFloat, VDim>
+::cimg_read(const char *fn, CompositeImagePointer &trg)
+{
+  typedef itk::ImageFileReader<CompositeImageType> ReaderType;
+  typename ReaderType::Pointer reader = ReaderType::New();
+  reader->SetFileName(fn);
+  reader->Update();
+  trg = reader->GetOutput();
+
+  return reader->GetImageIO()->GetComponentType();
 }
 
 template <class TFloat, uint VDim>
