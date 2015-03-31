@@ -98,9 +98,20 @@ public:
   itkSetMacro(UseNearestNeighbor, bool)
   itkGetMacro(UseNearestNeighbor, bool)
 
+  /**
+   * When the warp is slightly outside of the moving image, should we
+   * perform linear interpolation between border pixels and outside value (0)
+   * or just report the outside value
+   */
+  itkSetMacro(ExtrapolateBorders, bool)
+  itkGetMacro(ExtrapolateBorders, bool)
+
 protected:
 
-  FastWarpCompositeImageFilter() : m_UsePhysicalSpace(false), m_DeformationScaling(1.0), m_UseNearestNeighbor(false) { }
+  FastWarpCompositeImageFilter()
+  : m_UsePhysicalSpace(false), m_DeformationScaling(1.0),
+    m_UseNearestNeighbor(false), m_ExtrapolateBorders(true) { }
+
   ~FastWarpCompositeImageFilter() {}
 
   void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
@@ -112,7 +123,7 @@ protected:
 
   virtual void GenerateOutputInformation();
 
-  bool m_UsePhysicalSpace, m_UseNearestNeighbor;
+  bool m_UsePhysicalSpace, m_UseNearestNeighbor, m_ExtrapolateBorders;
   DeforamtionScalarType m_DeformationScaling;
 
 

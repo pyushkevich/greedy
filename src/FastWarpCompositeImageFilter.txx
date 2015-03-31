@@ -104,11 +104,16 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
           ? fi.InterpolateNearestNeighbor(cix.GetDataPointer(), out)
           : fi.Interpolate(cix.GetDataPointer(), out);
 
-      if(status != FastInterpolator::OUTSIDE)
+      if(status == FastInterpolator::INSIDE ||
+         (status == FastInterpolator::BORDER && m_ExtrapolateBorders))
+        {
         out += ncomp;
+        }
       else
+        {
         for(int k = 0; k < ncomp; k++)
           *out++ = itk::NumericTraits<OutputComponentType>::Zero;
+        }
       }
     }
 }

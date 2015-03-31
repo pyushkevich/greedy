@@ -1265,6 +1265,7 @@ int GreedyApproach<VDim, TReal>
     wf->SetMovingImage(moving);
     wf->SetUseNearestNeighbor(r_param.images[i].interp.mode == InterpSpec::NEAREST);
     wf->SetUsePhysicalSpace(true);
+    wf->SetExtrapolateBorders(false); // for compatibility with ANTS
     wf->Update();
 
     // Write, casting to the input component type
