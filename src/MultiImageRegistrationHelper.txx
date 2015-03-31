@@ -707,8 +707,9 @@ protected:
 };
 
 template <class TWarpImage>
-struct VoxelToPhysicalWarpFunctor
+class VoxelToPhysicalWarpFunctor
 {
+public:
   typedef itk::ImageBase<TWarpImage::ImageDimension> ImageBaseType;
   typedef typename TWarpImage::PixelType VectorType;
   typedef itk::Index<TWarpImage::ImageDimension> IndexType;
@@ -737,9 +738,67 @@ struct VoxelToPhysicalWarpFunctor
     return y;
   }
 
+  VoxelToPhysicalWarpFunctor(TWarpImage *warp, ImageBaseType *moving)
+    : m_Warp(warp), m_MovingSpace(moving) {}
+
+  VoxelToPhysicalWarpFunctor() {}
+
+protected:
 
   TWarpImage *m_Warp;
   ImageBaseType *m_MovingSpace;
+};
+
+/**
+ * This functor is used to compress a warp before saving it. The input
+ * to this functor is a voxel-space warp, and the output is a physical
+ * space warp, with the precision of the voxel-space warp reduced to a
+ * prescribed value. The functor will also cast the warp to desired
+ * output type
+ */
+template <class TInputWarp, class TOutputWarp>
+class CompressWarpFunctor
+{
+public:
+  typedef VoxelToPhysicalWarpFunctor<TInputWarp> PhysFunctor;
+  typedef typename PhysFunctor::ImageBaseType ImageBaseType;
+
+  typedef typename TInputWarp::IndexType IndexType;
+  typedef typename TInputWarp::PixelType InputVectorType;
+  typedef typename TOutputWarp::PixelType OutputVectorType;
+
+  CompressWarpFunctor() {}
+
+  CompressWarpFunctor(TInputWarp *input, ImageBaseType *mov_space, double precision)
+    : m_InputWarp(input), m_Precision(precision), m_ScaleFactor(1.0 / m_Precision),
+      m_PhysFunctor(input, mov_space) {}
+
+  OutputVectorType operator()(const InputVectorType &v, const IndexType &pos)
+  {
+    InputVectorType w;
+
+    // Round to precision
+    if(m_Precision > 0)
+      {
+      for(int i = 0; i < TInputWarp::ImageDimension; i++)
+        w[i] = std::floor(v[i] * m_ScaleFactor + 0.5);
+      }
+
+    // Map to physical space
+    w = m_PhysFunctor(w, pos);
+
+    // Cast to output type
+    InputVectorType y;
+    for(int i = 0; i < TInputWarp::ImageDimension; i++)
+      y[i] = static_cast<typename OutputVectorType::ValueType>(w[i]);
+
+    return y;
+  }
+
+protected:
+  TInputWarp *m_InputWarp;
+  double m_Precision, m_ScaleFactor;
+  PhysFunctor m_PhysFunctor;
 };
 
 
@@ -750,9 +809,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 {
   typedef VoxelToPhysicalWarpFunctor<VectorImageType> Functor;
   typedef UnaryPositionBasedFunctorImageFilter<VectorImageType,VectorImageType,Functor> Filter;
-  Functor functor;
-  functor.m_Warp = warp;
-  functor.m_MovingSpace = this->GetMovingReferenceSpace(level);
+  Functor functor(warp, this->GetMovingReferenceSpace(level));
 
   typename Filter::Pointer filter = Filter::New();
   filter->SetFunctor(functor);
@@ -760,6 +817,28 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->GraftOutput(result);
   filter->Update();
 }
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::WriteWarp(int level, VectorImageType *warp, const char *filename, double precision)
+{
+  // Define a _float_ output type, even if working with double precision (less space on disk)
+  typedef itk::CovariantVector<float, VDim> OutputVectorType;
+  typedef itk::Image<OutputVectorType, VDim> OutputWarpType;
+  typedef CompressWarpFunctor<VectorImageType, OutputWarpType> Functor;
+
+  typedef UnaryPositionBasedFunctorImageFilter<VectorImageType,OutputWarpType,Functor> Filter;
+  Functor functor(warp, this->GetMovingReferenceSpace(level), precision);
+
+  typename Filter::Pointer filter = Filter::New();
+  filter->SetFunctor(functor);
+  filter->SetInput(warp);
+  filter->Update();
+
+  LDDMMData<float, VDim>::vimg_write(filter->GetOutput(), filename);
+}
+
 
 
 template <class TFloat, unsigned int VDim>
