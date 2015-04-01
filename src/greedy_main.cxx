@@ -230,7 +230,7 @@ public:
 protected:
 
   static void ReadImages(GreedyParameters &param, OFHelperType &ofhelper);
-  static void ReadImages(GreedyParameters &param, std::vector<ImagePair> &imgRaw);
+
   static void ResampleImages(GreedyParameters &param,
                              const std::vector<ImagePair> &imgRaw,
                              std::vector<ImagePair> &img,

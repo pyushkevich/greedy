@@ -497,13 +497,23 @@ MultiComponentNCCImageMetric<TMetricTraits>
           }
         }
       }
+    // Computing affine
     else
       {
       double *p_grad = this->m_ComputeGradient ? td.gradient.data_block() : NULL;
 
+      // Is there a mask?
+      typename MaskImageType::PixelType *mask_line = NULL;
+      if(this->GetFixedMaskImage())
+        mask_line = this->GetFixedMaskImage()->GetBufferPointer() + offset_in_pixels;
+
       // Loop over the pixels in the line
       for(int i = 0; i < line_len; ++i)
         {
+        // Use mask
+        if(mask_line && mask_line[i] == 0.0)
+          continue;
+
         // Clear the metric and the gradient
         *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
 

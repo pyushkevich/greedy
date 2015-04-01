@@ -415,6 +415,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetComputeMovingDomainMask(true);
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad != NULL);
+  metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
   metric->Update();
 
   // Process the results
@@ -485,6 +486,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetComputeMovingDomainMask(true);
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad != NULL);
+  metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
   metric->SetBins(128);
   metric->Update();
 
@@ -536,6 +538,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetComputeGradient(grad != NULL);
   metric->SetRadius(radius);
   metric->SetWorkingImage(m_NCCWorkingImage);
+  metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
   metric->Update();
 
   // Process the results
