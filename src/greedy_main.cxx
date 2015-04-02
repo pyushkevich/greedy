@@ -14,6 +14,8 @@
 #include <itkResampleImageFilter.h>
 #include <itkIdentityTransform.h>
 #include <itkShrinkImageFilter.h>
+#include <itkAffineTransform.h>
+#include <itkTransformFactory.h>
 
 #include "MultiImageRegistrationHelper.h"
 #include "FastWarpCompositeImageFilter.h"
@@ -32,6 +34,32 @@ public:
       sz[i] = t[i];
     return sz;
   }
+
+};
+
+/**
+ * A simple exception class with string formatting
+ */
+class GreedyException : public std::exception
+{
+public:
+
+  GreedyException(const char *format, ...)
+  {
+    buffer = new char[4096];
+    va_list args;
+    va_start (args, format);
+    vsprintf (buffer,format, args);
+    va_end (args);
+  }
+
+  virtual const char* what() const throw() { return buffer; }
+
+  virtual ~GreedyException() throw() { delete buffer; }
+
+private:
+
+  char *buffer;
 
 };
 
@@ -104,6 +132,15 @@ struct ResliceSpec
   InterpSpec interp;
 };
 
+struct TransformSpec
+{
+  // Transform file
+  std::string filename;
+
+  // Optional exponent (-1 for inverse, 0.5 for square root)
+  double exponent;
+};
+
 struct GreedyResliceParameters
 {
   // For reslice mode
@@ -113,7 +150,7 @@ struct GreedyResliceParameters
   std::string ref_image;
 
   // Chain of transforms
-  std::vector<std::string> transforms;
+  std::vector<TransformSpec> transforms;
 };
 
 struct GreedyParameters
@@ -150,10 +187,10 @@ struct GreedyParameters
   std::vector<int> brute_search_radius;
 
   // List of transforms to apply to the moving image before registration
-  std::vector<std::string> moving_pre_transforms;
+  std::vector<TransformSpec> moving_pre_transforms;
 
   // Initial affine transform
-  std::string initial_affine;
+  TransformSpec initial_affine;
 
   // Mask for gradient
   std::string gradient_mask;
@@ -236,7 +273,7 @@ protected:
                              std::vector<ImagePair> &img,
                              int level);
 
-  static void ReadTransformChain(const std::vector<std::string> &tran_chain,
+  static void ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
                                  ImageBaseType *ref_space,
                                  VectorImagePointer &out_warp);
 
@@ -469,18 +506,92 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
 *
 */
 
+#include "itkTransformFileReader.h"
+
 template <typename TReal, unsigned int VDim>
-vnl_matrix<TReal> ReadAffineMatrix(const char *filename)
+vnl_matrix<TReal> ReadAffineMatrix(const TransformSpec &ts)
 {
+  // Physical (RAS) space transform matrix
   vnl_matrix<TReal> Qp(VDim+1, VDim+1);
-  std::ifstream fin(filename);
-  for(size_t i = 0; i < VDim+1; i++)
-    for(size_t j = 0; j < VDim+1; j++)
-      if(fin.good())
+
+  // Open the file and read the first line
+  std::ifstream fin(ts.filename.c_str());
+  std::string header_line, itk_header = "#Insight Transform File";
+  std::getline(fin, header_line);
+
+  if(header_line.substr(0, itk_header.size()) == itk_header)
+    {
+    fin.close();
+    try
+      {
+      // First we try to load the transform using ITK code
+      // This code is from c3d_affine_tool
+      typedef itk::MatrixOffsetTransformBase<TReal, VDim, VDim> MOTBType;
+      typedef itk::AffineTransform<TReal, VDim> AffTran;
+      itk::TransformFactory<MOTBType>::RegisterTransform();
+      itk::TransformFactory<AffTran>::RegisterTransform();
+
+      itk::TransformFileReader::Pointer fltReader = itk::TransformFileReader::New();
+      fltReader->SetFileName(ts.filename.c_str());
+      fltReader->Update();
+
+      itk::TransformBase *base = fltReader->GetTransformList()->front();
+      typedef itk::MatrixOffsetTransformBase<TReal, VDim, VDim> MOTBType;
+      MOTBType *motb = dynamic_cast<MOTBType *>(base);
+
+      Qp.set_identity();
+      if(motb)
         {
-        fin >> Qp[i][j];
+        for(size_t r = 0; r < VDim; r++)
+          {
+          for(size_t c = 0; c < VDim; c++)
+            {
+            Qp(r,c) = motb->GetMatrix()(r,c);
+            }
+          Qp(r,3) = motb->GetOffset()[r];
+          }
+
+        // RAS - LPI nonsense
+        if(VDim == 3)
+          {
+          Qp(2,0) *= -1; Qp(2,1) *= -1;
+          Qp(0,2) *= -1; Qp(1,2) *= -1;
+          Qp(0,3) *= -1; Qp(1,3) *= -1;
+          }
         }
-  fin.close();
+      }
+    catch(...)
+      {
+      throw GreedyException("Unable to read ITK transform file %s", ts.filename.c_str());
+      }
+    }
+  else
+    {
+    // Try reading C3D matrix format
+    fin.seekg(0);
+    for(size_t i = 0; i < VDim+1; i++)
+      for(size_t j = 0; j < VDim+1; j++)
+        if(fin.good())
+          {
+          fin >> Qp[i][j];
+          }
+    fin.close();
+    }
+
+  // Compute the exponent
+  if(ts.exponent == 1.0)
+    {
+    return Qp;
+    }
+  else if(ts.exponent == -1.0)
+    {
+    return vnl_matrix_inverse<TReal>(Qp);
+    }
+  else
+    {
+    throw GreedyException("Transform exponent values of +1 and -1 are the only ones currently supported");
+    }
+
   return Qp;
 }
 
@@ -653,10 +764,10 @@ int GreedyApproach<VDim, TReal>
     if(level == 0)
       {
       // Use the provided initial affine as the starting point
-      if(param.initial_affine.length())
+      if(param.initial_affine.filename.length())
         {
         // Read the initial affine transform from a file
-        vnl_matrix<double> Qp = ReadAffineMatrix<double, VDim>(param.initial_affine.c_str());
+        vnl_matrix<double> Qp = ReadAffineMatrix<double, VDim>(param.initial_affine);
 
         // Convert the transform to voxel units
         MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tLevel);
@@ -863,10 +974,10 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::vimg_scale_in_place(uk, 2.0);
       uLevel = uk;
       }
-    else if(param.initial_affine.length())
+    else if(param.initial_affine.filename.length())
       {
       // Read the initial affine transform from a file
-      vnl_matrix<double> Qp = ReadAffineMatrix<double, VDim>(param.initial_affine.c_str());
+      vnl_matrix<double> Qp = ReadAffineMatrix<double, VDim>(param.initial_affine);
 
       // Convert the transform to voxel units
       typename OFHelperType::LinearTransformType::Pointer tran = OFHelperType::LinearTransformType::New();
@@ -1182,7 +1293,7 @@ int GreedyApproach<VDim, TReal>
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
-::ReadTransformChain(const std::vector<std::string> &tran_chain,
+::ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
                      ImageBaseType *ref_space,
                      VectorImagePointer &out_warp)
 {
@@ -1194,7 +1305,7 @@ void GreedyApproach<VDim, TReal>
   for(int i = 0; i < tran_chain.size(); i++)
     {
     // Read the next parameter
-    std::string tran = tran_chain[i];
+    std::string tran = tran_chain[i].filename;
 
     // Determine if it's an affine transform
     if(itk::ImageIOFactory::CreateImageIO(tran.c_str(), itk::ImageIOFactory::ReadMode))
@@ -1214,7 +1325,7 @@ void GreedyApproach<VDim, TReal>
     else
       {
       // Read the transform as a matrix
-      vnl_matrix<TReal> mat = ReadAffineMatrix<TReal, VDim>(tran.c_str());
+      vnl_matrix<TReal> mat = ReadAffineMatrix<TReal, VDim>(tran_chain[i]);
       vnl_matrix<double>  A = mat.extract(VDim, VDim);
       vnl_vector<double> b = mat.get_column(VDim).extract(VDim), q;
 
@@ -1293,31 +1404,7 @@ int GreedyApproach<VDim, TReal>
 }
 
 
-/**
- * A simple exception class with string formatting
- */
-class GreedyException : public std::exception
-{
-public:
 
-  GreedyException(const char *format, ...)
-  {
-    buffer = new char[4096];
-    va_list args;
-    va_start (args, format);
-    vsprintf (buffer,format, args);
-    va_end (args);
-  }
-
-  virtual const char* what() const throw() { return buffer; }
-
-  virtual ~GreedyException() throw() { delete buffer; }
-
-private:
-
-  char *buffer;
-
-};
 
 #include "itksys/SystemTools.hxx"
 
@@ -1402,6 +1489,36 @@ public:
       throw GreedyException("File '%s' does not exist", file.c_str());
 
     return file;
+  }
+
+  /**
+   * Read a transform specification, format file,number
+   */
+  TransformSpec read_transform_spec()
+  {
+    std::string spec = read_arg();
+    size_t pos = spec.find_first_of(',');
+
+    TransformSpec ts;
+    ts.filename = spec.substr(0, pos);
+    ts.exponent = 1.0;
+
+    if(!itksys::SystemTools::FileExists(ts.filename.c_str()))
+      throw GreedyException("File '%s' does not exist", ts.filename.c_str());
+
+    if(pos != std::string::npos)
+      {
+      errno = 0; char *pend;
+      std::string expstr = spec.substr(pos+1);
+      ts.exponent = std::strtod(expstr.c_str(), &pend);
+
+      if(errno || *pend)
+        throw GreedyException("Expected a floating point number after comma in transform specification '%s', instead got '%s'",
+                              current_command.c_str(), spec.substr(pos).c_str());
+
+      }
+
+    return ts;
   }
 
   /**
@@ -1615,13 +1732,13 @@ int main(int argc, char *argv[])
         }
       else if(arg == "-ia")
         {
-        param.initial_affine = cl.read_existing_filename();
+        param.initial_affine = cl.read_transform_spec();
         }
       else if(arg == "-it")
         {
         int nFiles = cl.command_arg_count();
         for(int i = 0; i < nFiles; i++)
-          param.moving_pre_transforms.push_back(cl.read_existing_filename());
+          param.moving_pre_transforms.push_back(cl.read_transform_spec());
         }
       else if(arg == "-gm")
         {
@@ -1669,7 +1786,7 @@ int main(int argc, char *argv[])
         param.mode = GreedyParameters::RESLICE;
         int nFiles = cl.command_arg_count();
         for(int i = 0; i < nFiles; i++)
-          param.reslice_param.transforms.push_back(cl.read_existing_filename());
+          param.reslice_param.transforms.push_back(cl.read_transform_spec());
         }
       else if(arg == "-rm")
         {
