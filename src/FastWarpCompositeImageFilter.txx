@@ -134,7 +134,9 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
 ::GenerateOutputInformation()
 {
   Superclass::GenerateOutputInformation();
+
   this->GetOutput()->SetNumberOfComponentsPerPixel(this->GetMovingImage()->GetNumberOfComponentsPerPixel());
+  this->GetOutput()->SetLargestPossibleRegion(this->GetDeformationField()->GetLargestPossibleRegion());
 }
 
 

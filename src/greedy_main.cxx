@@ -89,7 +89,7 @@ int usage()
   printf("  -tscale MODE                : time step behavior mode: CONST, SCALE [def], SCALEDOWN\n");
   printf("  -s sigma1 sigma2            : smoothing for the greedy update step (3.0, 1.0)\n");
   printf("  -oinv image.nii             : compute and write the inverse of the warp field into image.nii\n");
-  printf("  -invexp VALUE               : how many times to take the square root of the forward");
+  printf("  -invexp VALUE               : how many times to take the square root of the forward\n");
   printf("                                transform when computing inverse (default=2)");
   printf("  -wp VALUE                   : Saved warp precision (in voxels; def=0.1; 0 for no compression).\n");
   printf("Specific to affine mode: \n");
@@ -1359,6 +1359,47 @@ void GreedyApproach<VDim, TReal>
     }
 }
 
+#include "itkBinaryThresholdImageFilter.h"
+#include "itkRecursiveGaussianImageFilter.h"
+#include "itkNaryFunctorImageFilter.h"
+
+template <class TInputImage, class TOutputImage>
+class NaryLabelVotingFunctor
+{
+public:
+  typedef NaryLabelVotingFunctor<TInputImage,TOutputImage> Self;
+  typedef typename TInputImage::PixelType InputPixelType;
+  typedef typename TOutputImage::PixelType OutputPixelType;
+  typedef std::vector<OutputPixelType> LabelArray;
+
+  NaryLabelVotingFunctor(const LabelArray &labels)
+    : m_LabelArray(labels), m_Size(labels.size()) {}
+
+  NaryLabelVotingFunctor() : m_Size(0) {}
+
+
+  OutputPixelType operator() (const std::vector<InputPixelType> &pix)
+  {
+    InputPixelType best_val = pix[0];
+    int best_index = 0;
+    for(int i = 1; i < m_Size; i++)
+      if(pix[i] > best_val)
+        {
+        best_val = pix[i];
+        best_index = i;
+        }
+
+    return m_LabelArray[best_index];
+  }
+
+  bool operator != (const Self &other)
+    { return other.m_LabelArray != m_LabelArray; }
+
+protected:
+  LabelArray m_LabelArray;
+  int m_Size;
+};
+
 /**
  * Run the reslice code - simply apply a warp or set of warps to images
  */
@@ -1382,21 +1423,113 @@ int GreedyApproach<VDim, TReal>
   // Process image pairs
   for(int i = 0; i < r_param.images.size(); i++)
     {
-    // Read the input image
-    CompositeImagePointer moving, warped;
-    itk::ImageIOBase::IOComponentType comp =
-        LDDMMType::cimg_read(r_param.images[i].moving.c_str(), moving);
+    const char *filename = r_param.images[i].moving.c_str();
 
-    // Allocate the warped image
-    LDDMMType::alloc_cimg(warped, ref_space, moving->GetNumberOfComponentsPerPixel());
+    // Handle the special case of multi-label images
+    if(r_param.images[i].interp.mode == InterpSpec::LABELWISE)
+      {
+      // The label image assumed to be an image of shorts
+      typedef itk::Image<short, VDim> LabelImageType;
+      typedef itk::ImageFileReader<LabelImageType> LabelReaderType;
 
-    // Perform the warp
-    LDDMMType::interp_cimg(moving, warp, warped,
-                           r_param.images[i].interp.mode == InterpSpec::NEAREST,
-                           true);
+      // Create a reader
+      typename LabelReaderType::Pointer reader = LabelReaderType::New();
+      reader->SetFileName(filename);
+      reader->Update();
+      typename LabelImageType::Pointer moving = reader->GetOutput();
 
-    // Write, casting to the input component type
-    LDDMMType::cimg_write(warped, r_param.images[i].output.c_str(), comp);
+      // Scan the unique labels in the image
+      std::set<short> label_set;
+      short *labels = moving->GetBufferPointer();
+      int n_pixels = moving->GetPixelContainer()->Size();
+
+      // Get the list of unique pixels
+      short last_pixel = 0;
+      for(int j = 0; j < n_pixels; j++)
+        {
+        short pixel = labels[j];
+        if(last_pixel != pixel || i == 0)
+          {
+          label_set.insert(pixel);
+          last_pixel = pixel;
+          if(label_set.size() > 1000)
+            throw GreedyException("Label wise interpolation not supported for image %s "
+                                  "which has over 1000 distinct labels", filename);
+          }
+        }
+
+      // Turn this set into an array
+      std::vector<short> label_array(label_set.begin(), label_set.end());
+
+      // Create a N-way voting filter
+      typedef NaryLabelVotingFunctor<ImageType, LabelImageType> VotingFunctor;
+      VotingFunctor vf(label_array);
+
+      typedef itk::NaryFunctorImageFilter<ImageType, LabelImageType, VotingFunctor> VotingFilter;
+      typename VotingFilter::Pointer fltVoting = VotingFilter::New();
+      fltVoting->SetFunctor(vf);
+
+      // Create a mini-pipeline of streaming filters
+      for(int j = 0; j < label_array.size(); j++)
+        {
+        // Set up a threshold filter for this label
+        typedef itk::BinaryThresholdImageFilter<LabelImageType, ImageType> ThresholdFilterType;
+        typename ThresholdFilterType::Pointer fltThreshold = ThresholdFilterType::New();
+        fltThreshold->SetInput(moving);
+        fltThreshold->SetLowerThreshold(label_array[j]);
+        fltThreshold->SetUpperThreshold(label_array[j]);
+        fltThreshold->SetInsideValue(1.0);
+        fltThreshold->SetOutsideValue(0.0);
+
+        // Set up a smoothing filter for this label
+        // TODO: sigma is currently in world units - bad!
+        typedef itk::RecursiveGaussianImageFilter<ImageType, ImageType> SmootherType;
+        typename SmootherType::Pointer fltSmooth = SmootherType::New();
+        fltSmooth->SetInput(fltThreshold->GetOutput());
+        fltSmooth->SetSigma(r_param.images[i].interp.sigma);
+
+        // TODO: we should really be coercing the output into a vector image to speed up interpolation!
+        typedef FastWarpCompositeImageFilter<ImageType, ImageType, VectorImageType> InterpFilter;
+        typename InterpFilter::Pointer fltInterp = InterpFilter::New();
+        fltInterp->SetMovingImage(fltSmooth->GetOutput());
+        fltInterp->SetDeformationField(warp);
+        fltInterp->SetUsePhysicalSpace(true);
+
+        fltInterp->Update();
+
+        // Add to the voting filter
+        fltVoting->SetInput(j, fltInterp->GetOutput());
+        }
+
+      // TODO: test out streaming!
+      // Run this big pipeline
+      fltVoting->Update();
+
+      // Save
+      typedef itk::ImageFileWriter<LabelImageType> WriterType;
+      typename WriterType::Pointer writer = WriterType::New();
+      writer->SetFileName(r_param.images[i].output.c_str());
+      writer->SetInput(fltVoting->GetOutput());
+      writer->Update();
+      }
+    else
+      {
+      // Read the input image
+      CompositeImagePointer moving, warped;
+      itk::ImageIOBase::IOComponentType comp =
+          LDDMMType::cimg_read(filename, moving);
+
+      // Allocate the warped image
+      LDDMMType::alloc_cimg(warped, ref_space, moving->GetNumberOfComponentsPerPixel());
+
+      // Perform the warp
+      LDDMMType::interp_cimg(moving, warp, warped,
+                             r_param.images[i].interp.mode == InterpSpec::NEAREST,
+                             true);
+
+      // Write, casting to the input component type
+      LDDMMType::cimg_write(warped, r_param.images[i].output.c_str(), comp);
+      }
     }
 
 
