@@ -1411,6 +1411,13 @@ int GreedyApproach<VDim, TReal>
 
   GreedyResliceParameters r_param = param.reslice_param;
 
+  // Check the parameters
+  if(!r_param.ref_image.size())
+    throw GreedyException("A reference image (-rf) option is required for reslice commands");
+
+  if(!r_param.images.size())
+    throw GreedyException("At least one pair of moving/output images (-rm) is required for reslice commands");
+
   // Read the fixed as a plain image (we don't care if it's composite)
   ImagePointer ref = ImageType::New();
   LDDMMType::img_read(r_param.ref_image.c_str(), ref);
