@@ -90,7 +90,7 @@ int usage()
   printf("  -s sigma1 sigma2            : smoothing for the greedy update step (3.0, 1.0)\n");
   printf("  -oinv image.nii             : compute and write the inverse of the warp field into image.nii\n");
   printf("  -invexp VALUE               : how many times to take the square root of the forward\n");
-  printf("                                transform when computing inverse (default=2)");
+  printf("                                transform when computing inverse (default=2)\n");
   printf("  -wp VALUE                   : Saved warp precision (in voxels; def=0.1; 0 for no compression).\n");
   printf("Specific to affine mode: \n");
   printf("  -ia filename                : initial affine matrix for optimization (not the same as -it) \n");
@@ -1111,7 +1111,8 @@ int GreedyApproach<VDim, TReal>
         }
 
       // We have now computed the gradient vector field. Next, we smooth it
-      LDDMMType::vimg_smooth(uk1, viTemp, param.sigma_pre * shrink_factor);
+      //LDDMMType::vimg_smooth(uk1, viTemp, param.sigma_pre * shrink_factor);
+      LDDMMType::vimg_smooth_withborder(uk1, viTemp, param.sigma_pre * shrink_factor, 1);
 
       // After smoothing, compute the maximum vector norm and use it as a normalizing
       // factor for the displacement field
@@ -1141,7 +1142,8 @@ int GreedyApproach<VDim, TReal>
         }
 
       // Another layer of smoothing
-      LDDMMType::vimg_smooth(uk1, uk, param.sigma_post * shrink_factor);
+      // LDDMMType::vimg_smooth(uk1, uk, param.sigma_post * shrink_factor);
+      LDDMMType::vimg_smooth_withborder(uk1, uk, param.sigma_post * shrink_factor, 1);
       }
 
     // Store the end result

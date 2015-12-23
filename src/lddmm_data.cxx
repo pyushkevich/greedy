@@ -629,6 +629,32 @@ LDDMMData<TFloat, VDim>
   LDDMMData<TFloat, VDim>::vimg_copy(fltSmooth->GetOutput(), trg);
 }
 
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::vimg_smooth_withborder(VectorImageType *src, VectorImageType *trg, double sigma, int border_size)
+{
+
+  // Define a region of interest
+  RegionType region = src->GetBufferedRegion();
+  region.ShrinkByRadius(border_size);
+
+  // Perform smoothing
+  vimg_smooth(src, trg, sigma);
+
+  // Clear the border
+  Vec zerovec; zerovec.Fill(0);
+  typedef itk::ImageRegionIteratorWithIndex<VectorImageType> VIterator;
+  for(VIterator it(trg, trg->GetBufferedRegion()); !it.IsAtEnd(); ++it)
+    {
+    if(!region.IsInside(it.GetIndex()))
+      {
+      it.Set(zerovec);
+      }
+    }
+}
+
+
 template <class TFloat, unsigned int VDim>
 struct VectorSquareNormFunctor
 {
