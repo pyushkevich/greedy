@@ -26,6 +26,7 @@
 #include "lddmm_data.h"
 #include "MultiImageOpticalFlowImageFilter.h"
 #include "MultiComponentNCCImageMetric.h"
+#include "MultiComponentApproximateNCCImageMetric.h"
 #include "MultiComponentMutualInfoImageMetric.h"
 #include "itkVectorIndexSelectionCastImageFilter.h"
 #include "OneDimensionalInPlaceAccumulateFilter.h"
@@ -340,8 +341,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   return metric->GetAllMetricValues();
 }
 
-#undef DUMP_NCC
-// #define DUMP_NCC 1
+// #undef DUMP_NCC
+#define DUMP_NCC 1
 
 
 template <class TFloat, unsigned int VDim>
@@ -356,6 +357,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 {
   typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
   typedef MultiComponentNCCImageMetric<TraitsType> FilterType;
+  // typedef MultiComponentApproximateNCCImageMetric<TraitsType> FilterType;
 
   typename FilterType::Pointer filter = FilterType::New();
 

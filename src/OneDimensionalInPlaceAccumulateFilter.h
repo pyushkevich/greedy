@@ -43,6 +43,15 @@ public:
   itkGetMacro(Dimension, int)
   itkSetMacro(Dimension, int)
 
+  /**
+   * Set the range of components in the input image that will be processed by the
+   * accumulation filter. The components out of this range will be ignored. The range
+   * is specified as number of components skipped at the beginning and number of components
+   * skipped at the end. For example, passing (1,2) means accumulation will be applied
+   * only to components 1 ... nc-3 where nc is the number of components in the input.
+   */
+  void SetComponentRange(int num_ignored_at_start, int num_ignored_at_end);
+
 protected:
 
   OneDimensionalInPlaceAccumulateFilter();
@@ -59,6 +68,9 @@ protected:
 
   // Radius of accumulation
   int m_Radius;
+
+  // Range of included components
+  int m_ComponentOffsetFront, m_ComponentOffsetBack;
 
   // Region splitter
   typename SplitterType::Pointer m_Splitter;

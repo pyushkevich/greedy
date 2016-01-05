@@ -21,25 +21,23 @@
   along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
-#ifndef MULTICOMPONENTNCCIMAGEMETRIC_H
-#define MULTICOMPONENTNCCIMAGEMETRIC_H
+#ifndef MULTICOMPONENTAPPROXIMATENCCIMAGEMETRIC_H
+#define MULTICOMPONENTAPPROXIMATENCCIMAGEMETRIC_H
 
 #include "MultiComponentImageMetricBase.h"
 #include "itkBarrier.h"
 
 /**
- * Normalized cross-correlation metric. This filter sets up a mini-pipeline with
- * a pre-compute filter that interpolates the moving image, N one-dimensional
- * mean filters, and a post-compute filter that generates the metric and the
- * gradient.
+ * Normalized cross-correlation metric similar to the one used in ANTS. The gradient
+ * is an approximation, but it seems to work very well.
  */
 template <class TMetricTraits>
-class ITK_EXPORT MultiComponentNCCImageMetric :
+class ITK_EXPORT MultiComponentApproximateNCCImageMetric :
     public MultiComponentImageMetricBase<TMetricTraits>
 {
 public:
   /** Standard class typedefs. */
-  typedef MultiComponentNCCImageMetric<TMetricTraits>       Self;
+  typedef MultiComponentApproximateNCCImageMetric<TMetricTraits> Self;
   typedef MultiComponentImageMetricBase<TMetricTraits>      Superclass;
   typedef itk::SmartPointer<Self>                           Pointer;
   typedef itk::SmartPointer<const Self>                     ConstPointer;
@@ -48,7 +46,7 @@ public:
   itkNewMacro(Self)
 
   /** Run-time type information (and related methods) */
-  itkTypeMacro( MultiComponentNCCImageMetric, MultiComponentImageMetricBase )
+  itkTypeMacro( MultiComponentApproximateNCCImageMetric, MultiComponentImageMetricBase )
 
   /** Typedef to describe the output image region type. */
   typedef typename Superclass::OutputImageRegionType         OutputImageRegionType;
@@ -70,6 +68,7 @@ public:
   typedef typename Superclass::SpacingType                   SpacingType;
   typedef typename Superclass::DirectionType                 DirectionType;
   typedef typename Superclass::ImageBaseType                 ImageBaseType;
+  typedef typename Superclass::RealType                      RealType;
 
   /** Information from the deformation field class */
   typedef typename Superclass::DeformationFieldType          DeformationFieldType;
@@ -82,15 +81,6 @@ public:
 
   /** Get the radius of the cross-correlation */
   itkGetMacro(Radius, SizeType)
-
-  /**
-   * Set this flag to true to compute the approximate gradient of the metric, in the
-   * direction of the (fixed - why?) image gradient.
-   */
-  itkSetMacro(ApproximateGradient, bool)
-
-  /** Get the approximate gradient flag */
-  itkGetMacro(ApproximateGradient, bool)
 
   /**
    * Set the working memory image for this filter. This function should be used to prevent
@@ -112,10 +102,10 @@ public:
 
 
 protected:
-  MultiComponentNCCImageMetric() : m_ApproximateGradient(false)
+  MultiComponentApproximateNCCImageMetric()
     { m_Radius.Fill(1); }
 
-  ~MultiComponentNCCImageMetric() {}
+  ~MultiComponentApproximateNCCImageMetric() {}
 
   // TODO: set up for proper streaming
   // virtual void GenerateInputRequestedRegion();
@@ -124,8 +114,9 @@ protected:
   virtual void ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread,
                                     itk::ThreadIdType threadId);
 
+
 private:
-  MultiComponentNCCImageMetric(const Self&); //purposely not implemented
+  MultiComponentApproximateNCCImageMetric(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
 
   // A pointer to the working image. The user should supply this image in order to prevent
@@ -146,12 +137,12 @@ private:
 
 
 /**
- * \class MultiImageNCCPrecomputeFilter
+ * \class MultiImageApproximateNCCPrecomputeFilter
  * \brief Helps compute the NCC metric
  *
  * This filter takes a pair of images plus a warp and computes the components that
  * are used to calculate the cross-correlation metric between them and
- * the gradient. These components are in the form I, I*J, I * gradJ, and
+ * the gradient. These components are in the form I, I*J, and
  * so on. These components must then be mean-filtered and combined to get the
  * metric and the gradient.
  *
@@ -159,13 +150,13 @@ private:
  *
  */
 template <class TMetricTraits, class TOutputImage>
-class ITK_EXPORT MultiImageNCCPrecomputeFilter :
+class ITK_EXPORT MultiImageApproximateNCCPrecomputeFilter :
     public itk::ImageToImageFilter<typename TMetricTraits::InputImageType, TOutputImage>
 {
 public:
 
   /** The parent/owner class */
-  typedef MultiComponentNCCImageMetric<TMetricTraits> ParentType;
+  typedef MultiComponentApproximateNCCImageMetric<TMetricTraits> ParentType;
 
   /** Inherit some types from the superclass. */
   typedef typename ParentType::InputImageType         InputImageType;
@@ -179,7 +170,7 @@ public:
   typedef typename OutputImageType::InternalPixelType OutputComponentType;
 
   /** Standard class typedefs. */
-  typedef MultiImageNCCPrecomputeFilter                         Self;
+  typedef MultiImageApproximateNCCPrecomputeFilter              Self;
   typedef itk::ImageToImageFilter<InputImageType, TOutputImage> Superclass;
   typedef itk::SmartPointer<Self>                               Pointer;
   typedef itk::SmartPointer<const Self>                         ConstPointer;
@@ -187,14 +178,13 @@ public:
   /** Typedef to describe the output image region type. */
   typedef typename Superclass::OutputImageRegionType         OutputImageRegionType;
 
-
   typedef typename Superclass::DataObjectIdentifierType DataObjectIdentifierType;
 
   /** Method for creation through the object factory. */
   itkNewMacro(Self)
 
   /** Run-time type information (and related methods) */
-  itkTypeMacro( MultiImageNCCPrecomputeFilter, ImageToImageFilter )
+  itkTypeMacro( MultiImageApproximateNCCPrecomputeFilter, ImageToImageFilter )
 
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, TOutputImage::ImageDimension );
@@ -205,19 +195,24 @@ public:
     m_Parent = parent;
   }
 
+  enum Stage {FIRST, SECOND};
+
+  /** Set the stage of the computation */
+  itkSetMacro(Stage, Stage)
+
   /** Get the number of components in the output */
   int GetNumberOfOutputComponents();
 
 
 protected:
-  MultiImageNCCPrecomputeFilter();
-  ~MultiImageNCCPrecomputeFilter() {}
+  MultiImageApproximateNCCPrecomputeFilter();
+  ~MultiImageApproximateNCCPrecomputeFilter() {}
 
   /** SimpleWarpImageFilter is implemented as a multi-threaded filter.
    * As such, it needs to provide and implementation for
    * ThreadedGenerateData(). */
   virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                            itk::ThreadIdType threadId );
+                                    itk::ThreadIdType threadId );
 
   /** Set up the output information */
   virtual void GenerateOutputInformation();
@@ -226,10 +221,12 @@ protected:
   virtual void VerifyInputInformation() {}
 
 private:
-  MultiImageNCCPrecomputeFilter(const Self&); //purposely not implemented
+  MultiImageApproximateNCCPrecomputeFilter(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
 
   ParentType *m_Parent;
+
+  Stage m_Stage;
 };
 
 
@@ -238,8 +235,8 @@ private:
 
 
 #ifndef ITK_MANUAL_INSTANTIATION
-#include "MultiComponentNCCImageMetric.txx"
+#include "MultiComponentApproximateNCCImageMetric.txx"
 #endif
 
 
-#endif // MULTICOMPONENTNCCIMAGEMETRIC_H
+#endif // MULTICOMPONENTAPPROXIMATENCCIMAGEMETRIC_H

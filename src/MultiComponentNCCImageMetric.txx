@@ -26,6 +26,7 @@
 
 #include "MultiComponentNCCImageMetric.h"
 #include "OneDimensionalInPlaceAccumulateFilter.h"
+#include "itkImageFileWriter.h"
 
 
 
@@ -115,8 +116,10 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
       // whether to interpolate the gradient or not
       typename FastInterpolator::InOut status = iter.Interpolate();
 
+      // TODO: debugging border issues: setting mask=0 on the border
       // Outside interpolations are ignored
-      if(status == FastInterpolator::OUTSIDE)
+      //if(status == FastInterpolator::OUTSIDE)
+      if(status == FastInterpolator::OUTSIDE || status == FastInterpolator::BORDER)
         {
         // Place a zero in the output
         *out++ = 1.0;
@@ -201,7 +204,6 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
  * ========================================================================== */
 
 
-
 template <class TPixel, class TWeight, class TMetric, class TGradient>
 TPixel *
 MultiImageNNCPostComputeFunction(
@@ -273,6 +275,7 @@ MultiImageNNCPostComputeFunction(
 
   return ptr;
 }
+
 
 
 template <class TPixel, class TWeight, class TMetric, class TGradient>
@@ -385,7 +388,7 @@ MultiComponentNCCImageMetric<TMetricTraits>
   preFilter->Update();
 
 #ifdef DUMP_NCC
-  typename itk::ImageFileWriter<MultiComponentImageType>::Pointer pwriter = itk::ImageFileWriter<MultiComponentImageType>::New();
+  typename itk::ImageFileWriter<InputImageType>::Pointer pwriter = itk::ImageFileWriter<InputImageType>::New();
   pwriter->SetInput(preFilter->GetOutput());
   pwriter->SetFileName("nccpre.nii.gz");
   pwriter->Update();
@@ -413,6 +416,7 @@ MultiComponentNCCImageMetric<TMetricTraits>
     }
 
 #ifdef DUMP_NCC
+  typename itk::ImageFileWriter<InputImageType>::Pointer pwriter = itk::ImageFileWriter<InputImageType>::New();
   pwriter->SetInput(pipeTail->GetOutput());
   pwriter->SetFileName("nccaccum.nii.gz");
   pwriter->Update();
@@ -470,7 +474,6 @@ MultiComponentNCCImageMetric<TMetricTraits>
           *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
           *p_grad_metric = itk::NumericTraits<GradientPixelType>::Zero;
 
-          // Apply the post computation
           p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, this->m_Weights.data_block(),
                                                      p_metric, p_grad_metric++, ImageDimension);
 

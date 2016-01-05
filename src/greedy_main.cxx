@@ -936,7 +936,9 @@ int GreedyApproach<VDim, TReal>
   ReadImages(param, of_helper);
 
   // Generate the optimized composite images
-  of_helper.BuildCompositeImages(param.metric == GreedyParameters::NCC);
+  // TODO: why do we need to add this noise? Isn't this problematic? Figure this out.
+  // // of_helper.BuildCompositeImages(param.metric == GreedyParameters::NCC);
+  of_helper.BuildCompositeImages(false);
 
   // An image pointer desribing the current estimate of the deformation
   VectorImagePointer uLevel = NULL;
