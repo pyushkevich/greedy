@@ -116,7 +116,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::BuildCompositeImages(bool add_noise)
+::BuildCompositeImages(double noise_sigma_relative)
 {
   typedef LDDMMData<TFloat, VDim> LDDMMType;
 
@@ -147,6 +147,34 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       fltExtractMoving->SetIndex(k);
       fltExtractMoving->Update();
 
+      // Deal with additive noise
+      double noise_sigma_fixed = 0.0, noise_sigma_moving = 0.0;
+
+      if(noise_sigma_relative > 0.0)
+        {
+        // Figure out the quartiles of the fixed image
+        typedef MutualInformationPreprocessingFilter<FloatImageType, FloatImageType> QuantileFilter;
+        typename QuantileFilter::Pointer fltQuantileFixed = QuantileFilter::New();
+        fltQuantileFixed->SetLowerQuantile(0.01);
+        fltQuantileFixed->SetUpperQuantile(0.99);
+        fltQuantileFixed->SetInput(fltExtractFixed->GetOutput());
+        fltQuantileFixed->Update();
+        double range_fixed = fltQuantileFixed->GetUpperQuantileValue(0) - fltQuantileFixed->GetLowerQuantileValue(0);
+        noise_sigma_fixed = noise_sigma_relative * range_fixed;
+
+        // Figure out the quartiles of the moving image
+        typename QuantileFilter::Pointer fltQuantileMoving = QuantileFilter::New();
+        fltQuantileMoving->SetLowerQuantile(0.01);
+        fltQuantileMoving->SetUpperQuantile(0.99);
+        fltQuantileMoving->SetInput(fltExtractMoving->GetOutput());
+        fltQuantileMoving->Update();
+        double range_moving = fltQuantileMoving->GetUpperQuantileValue(0) - fltQuantileMoving->GetLowerQuantileValue(0);
+        noise_sigma_moving = noise_sigma_relative * range_moving;
+
+        // Report noise levels
+        printf("Noise on image %d component %d: fixed = %g, moving = %g\n", j, k, noise_sigma_fixed, noise_sigma_moving);
+        }
+
       // Compute the pyramid for this component
       for(int i = 0; i < m_PyramidFactors.size(); i++)
         {
@@ -166,16 +194,14 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
           }
 
         // Add some noise to the images
-        if(add_noise)
+        if(noise_sigma_relative > 0.0)
           {
-          // TODO: remove this or make it optional
           vnl_random randy(12345);
           for(long i = 0; i < lFixed->GetPixelContainer()->Size(); i++)
-            lFixed->GetBufferPointer()[i] += randy.normal();
+            lFixed->GetBufferPointer()[i] += randy.normal() * noise_sigma_fixed;
           for(long i = 0; i < lMoving->GetPixelContainer()->Size(); i++)
-            lMoving->GetBufferPointer()[i] += randy.normal();
+            lMoving->GetBufferPointer()[i] += randy.normal() * noise_sigma_moving;
           }
-
 
         // Compute the gradient of the moving image
         //typename VectorImageType::Pointer gradMoving = VectorImageType::New();

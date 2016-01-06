@@ -93,6 +93,8 @@ int usage()
   printf("  -invexp VALUE               : how many times to take the square root of the forward\n");
   printf("                                transform when computing inverse (default=2)\n");
   printf("  -wp VALUE                   : Saved warp precision (in voxels; def=0.1; 0 for no compression).\n");
+  printf("  -noise VALUE                : Standard deviation of white noise added to moving/fixed images when \n");
+  printf("                                using NCC metric. Relative to intensity range. Def=0.001\n");
   printf("Specific to affine mode: \n");
   printf("  -ia filename                : initial affine matrix for optimization (not the same as -it) \n");
   printf("Specific to reslice mode: \n");
@@ -215,6 +217,9 @@ struct GreedyParameters
 
   // Precision for output warps
   double warp_precision;
+
+  // Noise for NCC
+  double ncc_noise_factor;
 };
 
 
@@ -949,10 +954,12 @@ int GreedyApproach<VDim, TReal>
   // Read the image pairs to register
   ReadImages(param, of_helper);
 
-  // Generate the optimized composite images
-  // TODO: why do we need to add this noise? Isn't this problematic? Figure this out.
-  of_helper.BuildCompositeImages(param.metric == GreedyParameters::NCC);
-  // of_helper.BuildCompositeImages(false);
+  // Generate the optimized composite images. For the NCC metric, we add random noise to
+  // the composite images, specified in units of the interquartile intensity range.
+  double noise = (param.metric == GreedyParameters::NCC) ? param.ncc_noise_factor : 0.0;
+
+  // Build the composite images
+  of_helper.BuildCompositeImages(noise);
 
   // An image pointer desribing the current estimate of the deformation
   VectorImagePointer uLevel = NULL;
@@ -1883,6 +1890,7 @@ int main(int argc, char *argv[])
   param.flag_powell = false;
   param.inverse_exponent = 2;
   param.warp_precision = 0.1;
+  param.ncc_noise_factor = 0.001;
 
   // reslice mode parameters
   InterpSpec interp_current;
@@ -1937,6 +1945,10 @@ int main(int argc, char *argv[])
           param.time_step_mode = GreedyParameters::SCALE;
         else if(mode == "SCALEDOWN" || mode == "scaledown")
           param.time_step_mode = GreedyParameters::SCALEDOWN;
+        }
+      else if(arg == "-noise")
+        {
+        param.ncc_noise_factor = cl.read_double();
         }
       else if(arg == "-s")
         {

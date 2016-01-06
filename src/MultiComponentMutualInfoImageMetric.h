@@ -192,7 +192,8 @@ private:
 
 
 /**
- * A helper filter to remap intensities for mutual information
+ * A helper filter to remap intensities for mutual information. It can double
+ * as a quick way to compute per-component quantiles of a multi-component image
  */
 template <class TInputImage, class TOutputImage>
 class MutualInformationPreprocessingFilter
@@ -242,6 +243,20 @@ public:
    * to the maximum value.
    */
   itkSetMacro(UpperQuantile, double)
+
+  /**
+   * When this flag is set, the quantiles are computed and nothing else is done, i.e., the
+   * input image is passed on as is. Set the filter to be in place.
+   */
+  itkSetMacro(NoRemapping, bool)
+
+  /** After the filter ran, get the value of the lower quantile */
+  InputComponentType GetLowerQuantileValue(int component) const
+    { return m_LowerQuantileValues[component]; }
+
+  /** After the filter ran, get the value of the upper quantile */
+  InputComponentType GetUpperQuantileValue(int component) const
+    { return m_UpperQuantileValues[component]; }
 
 protected:
   MutualInformationPreprocessingFilter();
@@ -309,6 +324,8 @@ private:
   typename itk::Barrier::Pointer m_Barrier;
 
   std::vector<InputComponentType> m_LowerQuantileValues, m_UpperQuantileValues;
+
+  bool m_NoRemapping;
 };
 
 

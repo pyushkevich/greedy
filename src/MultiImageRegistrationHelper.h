@@ -62,7 +62,7 @@ public:
   void SetGradientMask(FloatImageType *maskImage) { m_GradientMaskImage = maskImage; }
 
   /** Compute the composite image - must be run before any sampling is done */
-  void BuildCompositeImages(bool add_noise);
+  void BuildCompositeImages(double noise_sigma_relative = 0.0);
 
   /** Get the reference image for level k */
   ImageBaseType *GetReferenceSpace(int level);

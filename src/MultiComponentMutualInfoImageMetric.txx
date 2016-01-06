@@ -308,6 +308,8 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
 
   m_LowerQuantile = 0.0;
   m_UpperQuantile = 0.99;
+
+  m_NoRemapping = false;
 }
 
 template <class TInputImage, class TOutputImage>
@@ -418,6 +420,10 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
 
     // Wait for all threads to catch up
     m_Barrier->Wait();
+
+    // Continue if no remapping requested
+    if(m_NoRemapping)
+      continue;
 
     // Compute the scale and shift
     double scale = m_Bins * 1.0 / (m_UpperQuantileValues[k] - m_LowerQuantileValues[k]);
