@@ -87,7 +87,8 @@ int usage()
   printf("  -it filenames               : sequence of transforms to apply to the moving image first \n");
   printf("Specific to deformable mode: \n");
   printf("  -tscale MODE                : time step behavior mode: CONST, SCALE [def], SCALEDOWN\n");
-  printf("  -s sigma1 sigma2            : smoothing for the greedy update step (3.0, 1.0)\n");
+  printf("  -s sigma1 sigma2            : smoothing for the greedy update step. Must specify units,\n");
+  printf("                                either `vox` or `mm`. Default: 1.732vox, 0.7071vox\n");
   printf("  -oinv image.nii             : compute and write the inverse of the warp field into image.nii\n");
   printf("  -invexp VALUE               : how many times to take the square root of the forward\n");
   printf("                                transform when computing inverse (default=2)\n");
@@ -153,6 +154,12 @@ struct GreedyResliceParameters
   std::vector<TransformSpec> transforms;
 };
 
+struct SmoothingParameters
+{
+  double sigma;
+  bool physical_units;
+};
+
 struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, MI };
@@ -173,8 +180,11 @@ struct GreedyParameters
 
   bool flag_dump_moving, flag_debug_deriv, flag_powell;
   int dump_frequency, threads;
-  double epsilon, sigma_pre, sigma_post;
+  double epsilon;
   double deriv_epsilon;
+
+  // Smoothing parameters
+  SmoothingParameters sigma_pre, sigma_post;
 
   MetricType metric;
   TimeStepMode time_step_mode;
@@ -937,8 +947,8 @@ int GreedyApproach<VDim, TReal>
 
   // Generate the optimized composite images
   // TODO: why do we need to add this noise? Isn't this problematic? Figure this out.
-  // // of_helper.BuildCompositeImages(param.metric == GreedyParameters::NCC);
-  of_helper.BuildCompositeImages(false);
+  of_helper.BuildCompositeImages(param.metric == GreedyParameters::NCC);
+  // of_helper.BuildCompositeImages(false);
 
   // An image pointer desribing the current estimate of the deformation
   VectorImagePointer uLevel = NULL;
@@ -946,16 +956,24 @@ int GreedyApproach<VDim, TReal>
   // The number of resolution levels
   int nlevels = param.iter_per_level.size();
 
-  std::cout << "SIGMAS: " << param.sigma_pre << ", " << param.sigma_post << std::endl;
-
   // Iterate over the resolution levels
   for(unsigned int level = 0; level < nlevels; ++level)
     {
-    // The scaling factor
-    int shrink_factor = 1 << (nlevels - (1 + level));
-
     // Reference space
     ImageBaseType *refspace = of_helper.GetReferenceSpace(level);
+
+    // Smoothing factors for this level, in physical units
+    typename LDDMMType::Vec sigma_pre_phys =
+        of_helper.GetSmoothingSigmasInPhysicalUnits(level, param.sigma_pre.sigma,
+                                                    param.sigma_pre.physical_units);
+
+    typename LDDMMType::Vec sigma_post_phys =
+        of_helper.GetSmoothingSigmasInPhysicalUnits(level, param.sigma_post.sigma,
+                                                    param.sigma_post.physical_units);
+
+    // Report the smoothing factors used
+    std::cout << "LEVEL " << level+1 << " of " << nlevels << std::endl;
+    std::cout << "  Smoothing sigmas: " << sigma_pre_phys << ", " << sigma_post_phys << std::endl;
 
     // Intermediate images
     ImagePointer iTemp = ImageType::New();
@@ -1113,8 +1131,7 @@ int GreedyApproach<VDim, TReal>
         }
 
       // We have now computed the gradient vector field. Next, we smooth it
-      //LDDMMType::vimg_smooth(uk1, viTemp, param.sigma_pre * shrink_factor);
-      LDDMMType::vimg_smooth_withborder(uk1, viTemp, param.sigma_pre * shrink_factor, 1);
+      LDDMMType::vimg_smooth_withborder(uk1, viTemp, sigma_pre_phys, 1);
 
       // After smoothing, compute the maximum vector norm and use it as a normalizing
       // factor for the displacement field
@@ -1144,8 +1161,7 @@ int GreedyApproach<VDim, TReal>
         }
 
       // Another layer of smoothing
-      // LDDMMType::vimg_smooth(uk1, uk, param.sigma_post * shrink_factor);
-      LDDMMType::vimg_smooth_withborder(uk1, uk, param.sigma_post * shrink_factor, 1);
+      LDDMMType::vimg_smooth_withborder(uk1, uk, sigma_post_phys, 1);
       }
 
     // Store the end result
@@ -1692,6 +1708,49 @@ public:
   }
 
   /**
+   * Check if a string ends with another string and return the
+   * substring without the suffix
+   */
+  bool check_suffix(const std::string &source, const std::string &suffix, std::string &out_prefix)
+  {
+    int n = source.length(), m = suffix.length();
+    if(n < m)
+      return false;
+
+    if(source.substr(n-m, m) != suffix)
+      return false;
+
+    out_prefix = source.substr(0, n-m);
+    return true;
+  }
+
+  /**
+   * Read a floating point value with units (mm or vox)
+   */
+  double read_scalar_with_units(bool &physical_units)
+  {
+    std::string arg = read_arg();
+    std::string scalar;
+
+    if(check_suffix(arg, "vox", scalar))
+      physical_units = false;
+    else if(check_suffix(arg, "mm", scalar))
+      physical_units = true;
+    else
+      throw GreedyException("Parameter to '%s' should include units, e.g. '3vox' or '3mm', instead got '%s'",
+                            current_command.c_str(), arg.c_str());
+
+    errno = 0; char *pend;
+    double val = std::strtod(scalar.c_str(), &pend);
+
+    if(errno || *pend)
+      throw GreedyException("Expected a floating point number as parameter to '%s', instead got '%s'",
+                            current_command.c_str(), scalar.c_str());
+
+    return val;
+  }
+
+  /**
    * Read an integer value
    */
   long read_integer()
@@ -1797,8 +1856,10 @@ int main(int argc, char *argv[])
   param.flag_debug_deriv = false;
   param.dump_frequency = 1;
   param.epsilon = 1.0;
-  param.sigma_pre = 3.0;
-  param.sigma_post = 1.0;
+  param.sigma_pre.sigma = sqrt(3.0);
+  param.sigma_pre.physical_units = false;
+  param.sigma_post.sigma = sqrt(0.5);
+  param.sigma_post.physical_units = false;
   param.threads = 0;
   param.metric = GreedyParameters::SSD;
   param.time_step_mode = GreedyParameters::SCALE;
@@ -1863,8 +1924,8 @@ int main(int argc, char *argv[])
         }
       else if(arg == "-s")
         {
-        param.sigma_pre = cl.read_double();
-        param.sigma_post = cl.read_double();
+        param.sigma_pre.sigma = cl.read_scalar_with_units(param.sigma_pre.physical_units);
+        param.sigma_post.sigma = cl.read_scalar_with_units(param.sigma_post.physical_units);
         }
       else if(arg == "-i")
         {

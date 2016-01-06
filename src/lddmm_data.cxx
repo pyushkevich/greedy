@@ -617,10 +617,20 @@ void
 LDDMMData<TFloat, VDim>
 ::vimg_smooth(VectorImageType *src, VectorImageType *trg, double sigma)
 {
+  Vec sa; sa.Fill(sigma);
+  vimg_smooth(src, trg, sa);
+}
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::vimg_smooth(VectorImageType *src, VectorImageType *trg, Vec sigma)
+{
   typedef itk::SmoothingRecursiveGaussianImageFilter<VectorImageType, VectorImageType> Filter;
   typename Filter::Pointer fltSmooth = Filter::New();
   fltSmooth->SetInput(src);
-  fltSmooth->SetSigma(sigma);
+  fltSmooth->SetSigmaArray(sigma);
+  // fltSmooth->SetSigma(sigma);
   // fltSmooth->GraftOutput(trg);
   fltSmooth->Update();
 
@@ -632,7 +642,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::vimg_smooth_withborder(VectorImageType *src, VectorImageType *trg, double sigma, int border_size)
+::vimg_smooth_withborder(VectorImageType *src, VectorImageType *trg, Vec sigma, int border_size)
 {
 
   // Define a region of interest

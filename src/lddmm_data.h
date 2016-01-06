@@ -89,9 +89,10 @@ public:
   // Smooth an image in-place
   static void img_smooth(ImageType *src, ImageType *out, double sigma);
   static void vimg_smooth(VectorImageType *src, VectorImageType *out, double sigma);
+  static void vimg_smooth(VectorImageType *src, VectorImageType *out, Vec sigmas);
 
   // Smooth a displacement field with a border of zeros around it
-  static void vimg_smooth_withborder(VectorImageType *src, VectorImageType *trg, double sigma, int border_size);
+  static void vimg_smooth_withborder(VectorImageType *src, VectorImageType *trg, Vec sigma, int border_size);
 
   // Take gradient of an image
   static void image_gradient(ImageType *src, VectorImageType *grad);

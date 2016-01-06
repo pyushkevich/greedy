@@ -45,6 +45,7 @@ public:
 
   typedef std::vector<int> PyramidFactorsType;
   typedef itk::Size<VDim> SizeType;
+  typedef itk::CovariantVector<TFloat, VDim> Vec;
 
   typedef itk::MatrixOffsetTransformBase<double, VDim, VDim> LinearTransformType;
 
@@ -77,6 +78,9 @@ public:
 
   /** Get the moving image at a pyramid level */
   MultiComponentImageType *GetMovingComposite(int level) { return m_MovingComposite[level]; }
+
+  /** Get the smoothing factor for given level based on parameters */
+  Vec GetSmoothingSigmasInPhysicalUnits(int level, double sigma, bool in_physical_units);
 
   /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
   vnl_vector<double> ComputeOpticalFlowField(

@@ -247,6 +247,24 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 }
 
 template <class TFloat, unsigned int VDim>
+typename MultiImageOpticalFlowHelper<TFloat, VDim>::Vec
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::GetSmoothingSigmasInPhysicalUnits(int level, double sigma, bool in_physical_units)
+{
+  Vec sigmas;
+  if(in_physical_units)
+    {
+    sigmas.Fill(sigma * m_PyramidFactors[level]);
+    }
+  else
+    {
+    for(int k = 0; k < VDim; k++)
+      sigmas[k] = this->GetReferenceSpace(level)->GetSpacing()[k] * sigma;
+    }
+  return sigmas;
+}
+
+template <class TFloat, unsigned int VDim>
 vnl_vector<double>
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeOpticalFlowField(int level,
