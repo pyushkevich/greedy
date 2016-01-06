@@ -116,14 +116,24 @@ struct ImagePairSpec
   double weight;
 };
 
+struct SmoothingParameters
+{
+  double sigma;
+  bool physical_units;
+  SmoothingParameters(double s, bool pu) : sigma(s), physical_units(pu) {}
+  SmoothingParameters() : sigma(0.0), physical_units(true) {}
+};
+
+
+
 struct InterpSpec
 {
   enum InterpMode { LINEAR, NEAREST, LABELWISE };
 
   InterpMode mode;
-  double sigma;
+  SmoothingParameters sigma;
 
-  InterpSpec() : mode(LINEAR), sigma(1.0) {}
+  InterpSpec() : mode(LINEAR), sigma(0.5, false) {}
 };
 
 struct ResliceSpec
@@ -152,12 +162,6 @@ struct GreedyResliceParameters
 
   // Chain of transforms
   std::vector<TransformSpec> transforms;
-};
-
-struct SmoothingParameters
-{
-  double sigma;
-  bool physical_units;
 };
 
 struct GreedyParameters
@@ -1380,7 +1384,8 @@ void GreedyApproach<VDim, TReal>
 }
 
 #include "itkBinaryThresholdImageFilter.h"
-#include "itkRecursiveGaussianImageFilter.h"
+//#include "itkRecursiveGaussianImageFilter.h"
+#include "itkSmoothingRecursiveGaussianImageFilter.h"
 #include "itkNaryFunctorImageFilter.h"
 
 template <class TInputImage, class TOutputImage>
@@ -1509,11 +1514,22 @@ int GreedyApproach<VDim, TReal>
         fltThreshold->SetOutsideValue(0.0);
 
         // Set up a smoothing filter for this label
-        // TODO: sigma is currently in world units - bad!
-        typedef itk::RecursiveGaussianImageFilter<ImageType, ImageType> SmootherType;
+        typedef itk::SmoothingRecursiveGaussianImageFilter<ImageType, ImageType> SmootherType;
         typename SmootherType::Pointer fltSmooth = SmootherType::New();
         fltSmooth->SetInput(fltThreshold->GetOutput());
-        fltSmooth->SetSigma(r_param.images[i].interp.sigma);
+
+        // Work out the sigmas for the filter
+        if(r_param.images[i].interp.sigma.physical_units)
+          {
+          fltSmooth->SetSigma(r_param.images[i].interp.sigma.sigma);
+          }
+        else
+          {
+          typename SmootherType::SigmaArrayType sigma_array;
+          for(int d = 0; d < VDim; d++)
+            sigma_array[d] = r_param.images[i].interp.sigma.sigma * moving->GetSpacing()[d];
+          fltSmooth->SetSigmaArray(sigma_array);
+          }
 
         // TODO: we should really be coercing the output into a vector image to speed up interpolation!
         typedef FastWarpCompositeImageFilter<ImageType, ImageType, VectorImageType> InterpFilter;
@@ -2027,7 +2043,7 @@ int main(int argc, char *argv[])
         else if(mode == "label" || mode == "LABEL")
           {
           interp_current.mode = InterpSpec::LABELWISE;
-          interp_current.sigma = cl.read_double();
+          interp_current.sigma.sigma = cl.read_scalar_with_units(interp_current.sigma.physical_units);
           }
         else
           {
