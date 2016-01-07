@@ -33,8 +33,6 @@ SET(HEADERS
   src/SimpleWarpImageFilter.h
   src/SimpleWarpImageFilter.txx
   src/itkGaussianInterpolateImageFunction.h
-  src/itkOptLinearInterpolateImageFunction.h
-  src/itkOptLinearInterpolateImageFunction.txx
   src/itkOptVectorLinearInterpolateImageFunction.h
   src/itkOptVectorLinearInterpolateImageFunction.txx
   src/lddmm_common.h
@@ -43,8 +41,7 @@ SET(HEADERS
 
 SET(LDDMM_SRC
   src/lddmm_main.cxx
-  src/lddmm_data.cxx
-  src/lddmm_temp.cxx)
+  src/lddmm_data.cxx)
 
 SET(GREEDY_SRC
   src/greedy_main.cxx

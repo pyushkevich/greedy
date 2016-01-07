@@ -1,11 +1,14 @@
 /*=========================================================================
 
-  Program:   ALFABIS fast image registration
+  Program:   ALFABIS fast medical image registration programs
   Language:  C++
+  Website:   github.com/pyushkevich/greedy
+  Copyright (c) Paul Yushkevich, University of Pennsylvania. All rights reserved.
 
-  Copyright (c) Paul Yushkevich. All rights reserved.
+  This program is part of ALFABIS: Adaptive Large-Scale Framework for
+  Automatic Biomedical Image Segmentation.
 
-  This program is part of ALFABIS
+  ALFABIS development is funded by the NIH grant R01 EB017255.
 
   ALFABIS is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -21,7 +24,6 @@
   along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
-
 #ifndef LINEARTRANSFORMTOWARPFILTER_TXX
 #define LINEARTRANSFORMTOWARPFILTER_TXX
 
