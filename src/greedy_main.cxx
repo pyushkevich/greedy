@@ -249,6 +249,7 @@ struct GreedyParameters
 };
 
 
+
 // Helper function to map from ITK coordiante space to RAS space
 template<unsigned int VDim>
 void
@@ -331,21 +332,58 @@ protected:
       vnl_matrix<double> &Qp,
       typename OFHelperType::LinearTransformType *tran);
 
-  /** Cost function used for conjugate gradient descent */
-  class AffineCostFunction : public vnl_cost_function
+  /** Pure affine cost function - parameters are elements of N x N matrix M */
+  class PureAffineCostFunction : public vnl_cost_function
   {
   public:
     typedef typename OFHelperType::LinearTransformType TransformType;
 
-
     // Construct the function
-    AffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper);
+    PureAffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper);
 
     // Get the parameters for the specified initial transform
     vnl_vector<double> GetCoefficients(TransformType *tran)
     {
       vnl_vector<double> x_true(this->get_number_of_unknowns());
       flatten_affine_transform(tran, x_true.data_block());
+      return x_true;
+    }
+
+    // Get the transform for the specificed coefficients
+    void GetTransform(const vnl_vector<double> &coeff, TransformType *tran)
+    {
+      unflatten_affine_transform(coeff.data_block(), tran);
+    }
+
+    // Cost function computation
+    virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+
+  protected:
+
+    // Data needed to compute the cost function
+    GreedyParameters *m_Param;
+    OFHelperType *m_OFHelper;
+    int m_Level;
+
+    // Storage for the gradient of the similarity map
+    VectorImagePointer m_Phi, m_GradMetric, m_GradMask;
+    ImagePointer m_Metric, m_Mask;
+  };
+
+  /** Cost function used for affine registration - uses scaling to bring matrix components
+      to common units and thus speed up gradient computation                               */
+  class ScalingAffineCostFunction : public vnl_cost_function
+  {
+  public:
+    typedef typename OFHelperType::LinearTransformType TransformType;
+
+    // Construct the function
+    ScalingAffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper);
+
+    // Get the parameters for the specified initial transform
+    vnl_vector<double> GetCoefficients(TransformType *tran)
+    {
+      vnl_vector<double> x_true = m_AffineFn.GetCoefficients(tran);
       return element_product(x_true, scaling);
     }
 
@@ -353,7 +391,7 @@ protected:
     void GetTransform(const vnl_vector<double> &coeff, TransformType *tran)
     {
       vnl_vector<double> x_true = element_quotient(coeff, scaling);
-      unflatten_affine_transform(x_true.data_block(), tran);
+      m_AffineFn.GetTransform(x_true, tran);
     }
 
     // Cost function computation
@@ -363,47 +401,39 @@ protected:
 
   protected:
 
-
     // Data needed to compute the cost function
-    GreedyParameters *m_Param;
-    OFHelperType *m_OFHelper;
-    int m_Level;
+    PureAffineCostFunction m_AffineFn;
     vnl_vector<double> scaling;
+  };
 
-    // Storage for the gradient of the similarity map
-    VectorImagePointer m_Phi, m_GradMetric, m_GradMask;
-    ImagePointer m_Metric, m_Mask;
+  /** Cost function for rigid registration */
+  class RigidCostFunction : public vnl_cost_function
+  {
+  public:
+    typedef typename OFHelperType::LinearTransformType TransformType;
+
+    RigidCostFunction(GreedyParameters *param, int level, OFHelperType *helper);
+    vnl_vector<double> GetCoefficients(TransformType *tran);
+    void GetTransform(const vnl_vector<double> &coeff, TransformType *tran);
+    virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+
+  protected:
+    typedef vnl_vector_fixed<double, VDim> Vec3;
+    typedef vnl_matrix_fixed<double, VDim, VDim> Mat3;
+
+    PureAffineCostFunction m_AffineFn;
   };
 };
 
 template <unsigned int VDim, typename TReal>
-GreedyApproach<VDim, TReal>::AffineCostFunction
-::AffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper)
+GreedyApproach<VDim, TReal>::PureAffineCostFunction
+::PureAffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper)
   : vnl_cost_function(VDim * (VDim + 1))
 {
   // Store the data
   m_Param = param;
   m_OFHelper = helper;
   m_Level = level;
-
-  // Set the scaling of the parameters based on image dimensions. This makes it
-  // possible to set tolerances in units of voxels. The order of change in the
-  // parameters is comparable to the displacement of any point inside the image
-  scaling.set_size(this->get_number_of_unknowns());
-
-  typename TransformType::MatrixType matrix;
-  typename TransformType::OffsetType offset;
-  for(int i = 0; i < VDim; i++)
-    {
-    offset[i] = 1.0;
-    for(int j = 0; j < VDim; j++)
-      matrix(i, j) = helper->GetReferenceSpace(level)->GetBufferedRegion().GetSize()[j];
-    }
-
-  typename TransformType::Pointer transform = TransformType::New();
-  transform->SetMatrix(matrix);
-  transform->SetOffset(offset);
-  flatten_affine_transform(transform.GetPointer(), scaling.data_block());
 
   // Allocate the working images
   m_Phi = VectorImageType::New();
@@ -435,23 +465,19 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
 
 template <unsigned int VDim, typename TReal>
 void
-GreedyApproach<VDim, TReal>::AffineCostFunction
+GreedyApproach<VDim, TReal>::PureAffineCostFunction
 ::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
 {
   // Form a matrix/vector from x
   typename TransformType::Pointer tran = TransformType::New();
 
-  // Divide x by the scaling
-  vnl_vector<double> x_scaled = element_quotient(x, scaling);
-
   // Set the components of the transform
-  unflatten_affine_transform(x_scaled.data_block(), tran.GetPointer());
+  unflatten_affine_transform(x.data_block(), tran.GetPointer());
 
   // Compute the gradient
   double val = 0.0;
   if(g)
     {
-    vnl_vector<double> g_scaled(x_scaled.size());
     typename TransformType::Pointer grad = TransformType::New();
 
     if(m_Param->metric == GreedyParameters::SSD)
@@ -459,8 +485,7 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
       val = m_OFHelper->ComputeAffineMSDMatchAndGradient(
               m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
 
-      flatten_affine_transform(grad.GetPointer(), g_scaled.data_block());
-      *g = element_quotient(g_scaled, scaling);
+      flatten_affine_transform(grad.GetPointer(), g->data_block());
       }
     else if(m_Param->metric == GreedyParameters::NCC)
       {
@@ -469,8 +494,7 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
               m_Level, tran, array_caster<VDim>::to_itkSize(m_Param->metric_radius),
               m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
 
-      flatten_affine_transform(grad.GetPointer(), g_scaled.data_block());
-      *g = element_quotient(g_scaled, scaling);
+      flatten_affine_transform(grad.GetPointer(), g->data_block());
 
       // NCC should be maximized
       (*g) *= -10000.0;
@@ -481,8 +505,7 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
       val = m_OFHelper->ComputeAffineMIMatchAndGradient(
               m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
 
-      flatten_affine_transform(grad.GetPointer(), g_scaled.data_block());
-      *g = element_quotient(g_scaled, scaling);
+      flatten_affine_transform(grad.GetPointer(), g->data_block());
 
       val *= -10000.0;
       (*g) *= -10000.0;
@@ -516,6 +539,259 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
 
   if(f)
     *f = val;
+}
+
+template <unsigned int VDim, typename TReal>
+GreedyApproach<VDim, TReal>::ScalingAffineCostFunction
+::ScalingAffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper)
+  : vnl_cost_function(VDim * (VDim + 1)),
+    m_AffineFn(param, level, helper)
+{
+  // Set the scaling of the parameters based on image dimensions. This makes it
+  // possible to set tolerances in units of voxels. The order of change in the
+  // parameters is comparable to the displacement of any point inside the image
+  scaling.set_size(this->get_number_of_unknowns());
+
+  typename TransformType::MatrixType matrix;
+  typename TransformType::OffsetType offset;
+  for(int i = 0; i < VDim; i++)
+    {
+    offset[i] = 1.0;
+    for(int j = 0; j < VDim; j++)
+      matrix(i, j) = helper->GetReferenceSpace(level)->GetBufferedRegion().GetSize()[j];
+    }
+
+  typename TransformType::Pointer transform = TransformType::New();
+  transform->SetMatrix(matrix);
+  transform->SetOffset(offset);
+  flatten_affine_transform(transform.GetPointer(), scaling.data_block());
+}
+
+
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>::ScalingAffineCostFunction
+::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
+{
+  // Scale the parameters so they are in unscaled units
+  vnl_vector<double> x_scaled = element_quotient(x, scaling);
+
+  // Call the wrapped method
+  if(g)
+    {
+    vnl_vector<double> g_scaled(x_scaled.size());
+    m_AffineFn.compute(x_scaled, f, &g_scaled);
+    *g = element_quotient(g_scaled, scaling);
+    }
+  else
+    {
+    m_AffineFn.compute(x_scaled, f, g);
+    }
+}
+
+
+/**
+ * RIGID COST FUNCTION - WRAPS AROUND AFFINE
+ */
+template <unsigned int VDim, typename TReal>
+GreedyApproach<VDim, TReal>::RigidCostFunction
+::RigidCostFunction(GreedyParameters *param, int level, OFHelperType *helper)
+  : vnl_cost_function(VDim * (VDim + 1)), m_AffineFn(param, level, helper)
+{
+}
+
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>::RigidCostFunction
+::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
+{
+
+  // Place parameters into q and b
+  Vec3 q, b;
+  q[0] = x[0]; q[1] = x[1]; q[2] = x[2];
+  b[0] = x[3]; b[1] = x[4]; b[2] = x[5];
+
+  // Compute theta
+  double theta = q.magnitude();
+
+  // Predefine the rotation matrix
+  Mat3 R; R.set_identity();
+
+  // Create the Q matrix
+  Mat3 Qmat; Qmat.fill(0.0);
+  Qmat(0,1) = -q[2]; Qmat(1,0) =  q[2];
+  Qmat(0,2) =  q[1]; Qmat(2,0) = -q[1];
+  Qmat(1,2) = -q[0]; Qmat(2,1) =  q[0];
+
+  // Compute the square of the matrix
+  Mat3 QQ = vnl_matrix_fixed_mat_mat_mult(Qmat, Qmat);
+
+  // When theta = 0, rotation is identity
+  if(theta != 0)
+    {
+    // Compute the constant terms in the Rodriguez formula
+    double a1 = sin(theta) / theta;
+    double a2 = (1 - cos(theta)) / (theta * theta);
+
+    // Compute the rotation matrix
+    R += a1 * Qmat + a2 * QQ;
+    }
+
+  // Now we have a rotation and a translation, convert to parameters for the affine function
+  vnl_vector<double> x_affine(m_AffineFn.get_number_of_unknowns());
+  flatten_affine_transform(R, b, x_affine.data_block());
+
+  // Split depending on whether there is gradient to compute
+  if(g)
+    {
+    // Create a vector to store the affine gradient
+    vnl_vector<double> g_affine(m_AffineFn.get_number_of_unknowns());
+    m_AffineFn.compute(x_affine, f, &g_affine);
+
+    // Compute the matrices d_Qmat
+    Mat3 d_Qmat[3], d_R[3];
+    d_Qmat[0].fill(0); d_Qmat[0](1,2) = -1; d_Qmat[0](2,1) =  1;
+    d_Qmat[1].fill(0); d_Qmat[1](0,2) =  1; d_Qmat[0](2,0) = -1;
+    d_Qmat[2].fill(0); d_Qmat[2](0,1) = -1; d_Qmat[0](1,0) =  1;
+
+    // Compute partial derivatives of R wrt q
+    if(theta != 0)
+      {
+      // Compute the constant terms in the Rodriguez formula
+      double a1 = sin(theta) / theta;
+      double a2 = (1 - cos(theta)) / (theta * theta);
+
+      // Compute the scaling factors in the Rodriguez formula
+      double d_a1 = (theta * cos(theta) - sin(theta)) / (theta * theta * theta);
+      double d_a2 = (theta * sin(theta) + 2 * cos(theta) - 2) /
+                    (theta * theta * theta * theta);
+
+      // Loop over the coordinate and compute the derivative of the rotation matrix wrt x
+      for(int p = 0; p < 3; p++)
+        {
+        // Compute the gradient of the rotation with respect to q[p]
+        d_R[p] = d_a1 * q[p] * Qmat +
+                 a1 * d_Qmat[p] +
+                 d_a2 * q[p] * vnl_matrix_fixed_mat_mat_mult(Qmat, Qmat)
+                 + a2 * (vnl_matrix_fixed_mat_mat_mult(d_Qmat[p], Qmat) +
+                         vnl_matrix_fixed_mat_mat_mult(Qmat, d_Qmat[p]));
+        }
+      }
+    else
+      {
+      for(int p = 0; p < 3; p++)
+        d_R[p] = d_Qmat[p];
+      }
+
+    // Create a matrix to hold the jacobian
+    vnl_matrix<double> jac(m_AffineFn.get_number_of_unknowns(), 6);
+    jac.fill(0.0);
+
+    // Zero vector
+    Vec3 zero_vec; zero_vec.fill(0.0);
+    Mat3 zero_mat; zero_mat.fill(0.0);
+
+    // Fill out the jacobian
+    for(int p = 0; p < 3; p++)
+      {
+      // Fill the corresponding column
+      vnl_vector<double> jac_col_q(m_AffineFn.get_number_of_unknowns());
+      flatten_affine_transform(d_R[p], zero_vec, jac_col_q.data_block());
+      jac.set_column(p, jac_col_q);
+
+      // Also set column on the right (wrt translation)
+      vnl_vector<double> jac_col_b(m_AffineFn.get_number_of_unknowns());
+      Vec3 ep; ep.fill(0.0); ep[p] = 1;
+      flatten_affine_transform(zero_mat, ep, jac_col_b.data_block());
+      jac.set_column(p+3, jac_col_b);
+      }
+
+    // Multiply the gradient by the jacobian
+    *g = jac.transpose() * g_affine;
+    }
+  else
+    {
+    m_AffineFn.compute(x_affine, f, NULL);
+    }
+}
+
+#include <vnl/algo/vnl_svd.h>
+#include <vnl/vnl_trace.h>
+
+template <unsigned int VDim, typename TReal>
+vnl_vector<double>
+GreedyApproach<VDim, TReal>::RigidCostFunction
+::GetCoefficients(TransformType *tran)
+{
+  // Compute polar decomposition of the affine matrix
+  Mat3 A = tran->GetMatrix().GetVnlMatrix();
+  vnl_svd<TReal> svd(A);
+  Mat3 R = svd.U() * svd.V().transpose();
+
+  // Compute the matrix logarithm of R
+  double f = (vnl_trace(R) - 1) / 2;
+  Vec3 q;
+  if(f == 1)
+    {
+    q.fill(0.0);
+    }
+  else
+    {
+    double theta = acos(f);
+    double sin_theta = sqrt(1 - f * f);
+    q[0] = R(2,1) - R(1,2);
+    q[1] = R(0,2) - R(2,0);
+    q[2] = R(1,0) - R(0,1);
+    q *= theta / (2 * sin_theta);
+    }
+
+  Vec3 b = tran->GetOffset().GetVnlVector();
+
+  // Make result
+  vnl_vector<double> x(6);
+  x[0] = q[0]; x[1] = q[1]; x[2] = q[2];
+  x[3] = b[0]; x[4] = b[1]; x[5] = b[2];
+
+  return x;
+}
+
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>::RigidCostFunction
+::GetTransform(const vnl_vector<double> &x, TransformType *tran)
+{
+  // Place parameters into q and b
+  Vec3 q, b;
+  q[0] = x[0]; q[1] = x[1]; q[2] = x[2];
+  b[0] = x[3]; b[1] = x[4]; b[2] = x[5];
+
+  // Compute theta
+  double theta = q.magnitude();
+
+  // Predefine the rotation matrix
+  Mat3 R; R.set_identity();
+
+  // Create the Q matrix
+  Mat3 Qmat; Qmat.fill(0.0);
+  Qmat(0,1) = -q[2]; Qmat(1,0) =  q[2];
+  Qmat(0,2) =  q[1]; Qmat(2,0) = -q[1];
+  Qmat(1,2) = -q[0]; Qmat(2,1) =  q[0];
+
+  // Compute the square of the matrix
+  Mat3 QQ = vnl_matrix_fixed_mat_mat_mult(Qmat, Qmat);
+
+  // When theta = 0, rotation is identity
+  if(theta != 0)
+    {
+    // Compute the constant terms in the Rodriguez formula
+    double a1 = sin(theta) / theta;
+    double a2 = (1 - cos(theta)) / (theta * theta);
+
+    // Compute the rotation matrix
+    R += a1 * Qmat + a2 * QQ;
+    }
+
+  set_affine_transform(R, b, tran);
 }
 
 
@@ -799,7 +1075,8 @@ int GreedyApproach<VDim, TReal>
   for(unsigned int level = 0; level < nlevels; ++level)
     {
     // Define the affine cost function
-    AffineCostFunction acf(&param, level, &of_helper);
+    // ScalingAffineCostFunction acf(&param, level, &of_helper);
+    RigidCostFunction acf(&param, level, &of_helper);
 
     // Current transform
     typedef typename OFHelperType::LinearTransformType TransformType;

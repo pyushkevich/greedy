@@ -290,6 +290,21 @@ static void flatten_affine_transform(
     }
 }
 
+template<class TFloat, class TFloatArr, unsigned int VDim>
+static void flatten_affine_transform(
+    const vnl_matrix_fixed<TFloat, VDim, VDim> &matrix,
+    const vnl_vector_fixed<TFloat, VDim> &offset,
+    TFloatArr *flat_array)
+{
+  int pos = 0;
+  for(int i = 0; i < VDim; i++)
+    {
+    flat_array[pos++] = offset[i];
+    for(int j = 0; j < VDim; j++)
+      flat_array[pos++] = matrix(i,j);
+    }
+}
+
 /**
  * Unflatten a flat array to an affine transform
  */
@@ -314,6 +329,25 @@ static void unflatten_affine_transform(
   transform->SetOffset(offset);
 }
 
+template <class TFloat, unsigned int VDim>
+static void set_affine_transform(
+    const vnl_matrix_fixed<TFloat, VDim, VDim> &matrix,
+    const vnl_vector_fixed<TFloat, VDim> &offset,
+    itk::MatrixOffsetTransformBase<TFloat, VDim, VDim> *transform)
+{
+  typename itk::MatrixOffsetTransformBase<TFloat, VDim, VDim>::MatrixType tmatrix;
+  typename itk::MatrixOffsetTransformBase<TFloat, VDim, VDim>::OffsetType toffset;
+
+  for(int i = 0; i < VDim; i++)
+    {
+    toffset[i] = offset[i];
+    for(int j = 0; j < VDim; j++)
+      tmatrix(i, j) = matrix(i,j);
+    }
+
+  transform->SetMatrix(tmatrix);
+  transform->SetOffset(toffset);
+}
 
 #ifndef ITK_MANUAL_INSTANTIATION
 #include "MultiComponentImageMetricBase.txx"
