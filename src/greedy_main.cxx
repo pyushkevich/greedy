@@ -1075,8 +1075,8 @@ int GreedyApproach<VDim, TReal>
   for(unsigned int level = 0; level < nlevels; ++level)
     {
     // Define the affine cost function
-    // ScalingAffineCostFunction acf(&param, level, &of_helper);
-    RigidCostFunction acf(&param, level, &of_helper);
+    ScalingAffineCostFunction acf(&param, level, &of_helper);
+    // RigidCostFunction acf(&param, level, &of_helper);
 
     // Current transform
     typedef typename OFHelperType::LinearTransformType TransformType;
