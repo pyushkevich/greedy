@@ -1062,8 +1062,12 @@ int GreedyApproach<VDim, TReal>
   // Read the image pairs to register
   ReadImages(param, of_helper);
 
-  // Generate the optimized composite images
-  of_helper.BuildCompositeImages(param.metric == GreedyParameters::NCC);
+  // Generate the optimized composite images. For the NCC metric, we add random noise to
+  // the composite images, specified in units of the interquartile intensity range.
+  double noise = (param.metric == GreedyParameters::NCC) ? param.ncc_noise_factor : 0.0;
+
+  // Build the composite images
+  of_helper.BuildCompositeImages(noise);
 
   // Matrix describing current transform in physical space
   vnl_matrix<double> Q_physical;
@@ -1549,8 +1553,8 @@ int GreedyApproach<VDim, TReal>
   // Read the image pairs to register
   ReadImages(param, of_helper);
 
-  // Generate the optimized composite images
-  of_helper.BuildCompositeImages(true);
+  // Build the composite images
+  of_helper.BuildCompositeImages(param.ncc_noise_factor);
 
   // Reference space
   ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
