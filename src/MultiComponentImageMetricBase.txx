@@ -283,6 +283,11 @@ public:
     m_FixedLine = m_Metric->GetFixedImage()->GetBufferPointer()
                   + m_OffsetInPixels * m_FixedStep;
 
+    // Mask line
+    m_FixedMaskLine = (m_Metric->GetFixedMaskImage())
+                      ? m_Metric->GetFixedMaskImage()->GetBufferPointer() + m_OffsetInPixels
+                      : NULL;
+
     // Get the phi line
     m_PhiLine = m_Affine ? NULL
                          : m_Metric->GetDeformationField()->GetBufferPointer() + m_OffsetInPixels;
@@ -318,6 +323,9 @@ public:
       {
       m_FixedLine += m_FixedStep;
       m_OutputLine += m_OutputStep;
+
+      if(m_FixedMaskLine)
+        m_FixedMaskLine++;
 
       if(m_Affine)
         {
@@ -417,6 +425,12 @@ public:
 
   InputComponentType *GetFixedLine() { return m_FixedLine; }
 
+  /**
+   * Returns true if the voxel is not masked out, i.e., either the mask is NULL or
+   * the mask value is > 0
+   */
+  bool CheckFixedMask() const { return !m_FixedMaskLine || *m_FixedMaskLine > 0; }
+
   OutputComponentType *GetOutputLine() { return m_OutputLine; }
 
   template <class TImage>
@@ -449,6 +463,7 @@ protected:
 
 
   InputComponentType *m_FixedLine;
+  typename MaskImageType::PixelType *m_FixedMaskLine;
   typename TMetricTraits::DeformationFieldType::PixelType *m_PhiLine;
   typename TOutputImage::InternalPixelType *m_OutputLine;
 

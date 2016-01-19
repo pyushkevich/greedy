@@ -113,7 +113,8 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
     for(; !iter.IsAtEndOfLine(); ++iter)
       {
       // Get the current histogram corners
-      iter.PartialVolumeHistogramSample(td.m_Histogram);
+      if(iter.CheckFixedMask())
+        iter.PartialVolumeHistogramSample(td.m_Histogram);
       }
     }
 
@@ -248,11 +249,14 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
       // Iterate over the pixels in the line
       for(; !iter_g.IsAtEndOfLine(); ++iter_g, grad_line++)
         {
-        // Reference to the gradient pointer
-        GradientPixelType &grad_x = *grad_line;
+        if(iter_g.CheckFixedMask())
+          {
+          // Reference to the gradient pointer
+          GradientPixelType &grad_x = *grad_line;
 
-        // Get the current histogram corners
-        iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
+          // Get the current histogram corners
+          iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
+          }
         }
       }
     }
@@ -271,22 +275,23 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
       // Iterate over the pixels in the line
       for(; !iter_g.IsAtEndOfLine(); ++iter_g)
         {
-        // Get the current histogram corners
-        iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
-
-        // Add the gradient
-        for(int i = 0, q = 0; i < ImageDimension; i++)
+        if(iter_g.CheckFixedMask())
           {
-          double v = grad_x[i] / nvox;
-          tds.gradient[q++] += v;
-          for(int j = 0; j < ImageDimension; j++)
-            tds.gradient[q++] += v * iter_g.GetIndex()[j];
-          }
+          // Get the current histogram corners
+          iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
 
+          // Add the gradient
+          for(int i = 0, q = 0; i < ImageDimension; i++)
+            {
+            double v = grad_x[i] / nvox;
+            tds.gradient[q++] += v;
+            for(int j = 0; j < ImageDimension; j++)
+              tds.gradient[q++] += v * iter_g.GetIndex()[j];
+            }
+          }
         }
       }
     }
-
 }
 
 

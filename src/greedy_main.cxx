@@ -1166,10 +1166,14 @@ int GreedyApproach<VDim, TReal>
       std::cout << "f = " << f0 << std::endl;
 
       acf.GetTransform(xGrad, tLevel.GetPointer());
-      std::cout << "A: " << std::endl << tLevel << std::endl;
+      std::cout << "A: " << std::endl
+                << tLevel->GetMatrix() << std::endl
+                << tLevel->GetOffset() << std::endl;
 
       acf.GetTransform(xGradN, tLevel.GetPointer());
-      std::cout << "N: " << std::endl << tLevel << std::endl;
+      std::cout << "N: " << std::endl
+                << tLevel->GetMatrix() << std::endl
+                << tLevel->GetOffset() << std::endl;
       }
 
     // Run the minimization
