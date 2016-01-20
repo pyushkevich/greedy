@@ -121,8 +121,9 @@ int usage()
   printf("  -wp VALUE                   : Saved warp precision (in voxels; def=0.1; 0 for no compression).\n");
   printf("  -noise VALUE                : Standard deviation of white noise added to moving/fixed images when \n");
   printf("                                using NCC metric. Relative to intensity range. Def=0.001\n");
-  printf("Specific to affine mode: \n");
+  printf("Initial transform specification: \n");
   printf("  -ia filename                : initial affine matrix for optimization (not the same as -it) \n");
+  printf("  -ia-identity                : initialize affine matrix based on NIFTI headers \n");
   printf("Specific to reslice mode: \n");
   printf("   -rf fixed.nii              : fixed image for reslicing\n");
   printf("   -rm moving.nii output.nii  : moving/output image pair (may be repeated)\n");
@@ -180,6 +181,14 @@ struct TransformSpec
   double exponent;
 };
 
+enum AffineInitMode
+{
+  VOX_IDENTITY = 0, // Identity mapping in voxel space
+  RAS_IDENTITY,     // Identity mapping in physical space (i.e., use headers)
+  RAS_FILENAME,     // User-specified matrix in physical space
+  IMG_CENTERS       // Match image centers, identity rotation in voxel space
+};
+
 struct GreedyResliceParameters
 {
   // For reslice mode
@@ -232,7 +241,8 @@ struct GreedyParameters
   std::vector<TransformSpec> moving_pre_transforms;
 
   // Initial affine transform
-  TransformSpec initial_affine;
+  AffineInitMode affine_init_mode;
+  TransformSpec affine_init_transform;
 
   // Mask for gradient
   std::string gradient_mask;
@@ -1089,23 +1099,35 @@ int GreedyApproach<VDim, TReal>
     // Set up the initial transform
     if(level == 0)
       {
+      // Get the coefficients corresponding to the identity transform in voxel space
+      tLevel->SetIdentity();
+      vnl_vector<double> xIdent = acf.GetCoefficients(tLevel);
+
       // Use the provided initial affine as the starting point
-      if(param.initial_affine.filename.length())
+      if(param.affine_init_mode == RAS_FILENAME)
         {
         // Read the initial affine transform from a file
-        vnl_matrix<double> Qp = ReadAffineMatrix<double, VDim>(param.initial_affine);
+        vnl_matrix<double> Qp = ReadAffineMatrix<double, VDim>(param.affine_init_transform);
 
-        // Convert the transform to voxel units
+        // Map this to voxel space
         MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tLevel);
         }
-      else
+      else if(param.affine_init_mode == RAS_IDENTITY)
         {
-        // Set the initial transform
-        tLevel->SetIdentity();
+        // Physical space transform
+        vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
 
-        // Apply some random jitter to the initial transform
-        vnl_vector<double> xInit = acf.GetCoefficients(tLevel);
+        // Map this to voxel space
+        MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tLevel);
+        }
 
+      // Get the new coefficients
+      vnl_vector<double> xInit = acf.GetCoefficients(tLevel);
+
+      // If the voxel-space transform is identity, apply a little bit of jitter
+      if((xIdent - xInit).inf_norm() < 1e-4)
+        {
+        // Apply jitter
         vnl_random rndy(12345);
         for(int i = 0; i < xInit.size(); i++)
           xInit[i] += rndy.drand32(-0.4, 0.4);
@@ -1316,14 +1338,27 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::vimg_scale_in_place(uk, 2.0);
       uLevel = uk;
       }
-    else if(param.initial_affine.filename.length())
+    else if(param.affine_init_mode != VOX_IDENTITY)
       {
-      // Read the initial affine transform from a file
-      vnl_matrix<double> Qp = ReadAffineMatrix<double, VDim>(param.initial_affine);
+      typename OFHelperType::LinearTransformType::Pointer tran =
+          OFHelperType::LinearTransformType::New();
 
-      // Convert the transform to voxel units
-      typename OFHelperType::LinearTransformType::Pointer tran = OFHelperType::LinearTransformType::New();
-      MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tran);
+      if(param.affine_init_mode == RAS_FILENAME)
+        {
+        // Read the initial affine transform from a file
+        vnl_matrix<double> Qp = ReadAffineMatrix<double, VDim>(param.affine_init_transform);
+
+        // Map this to voxel space
+        MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tran);
+        }
+      else if(param.affine_init_mode == RAS_IDENTITY)
+        {
+        // Physical space transform
+        vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
+
+        // Map this to voxel space
+        MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tran);
+        }
 
       // Create an initial warp
       OFHelperType::AffineToField(tran, uk);
@@ -2202,6 +2237,7 @@ int main(int argc, char *argv[])
   param.inverse_exponent = 2;
   param.warp_precision = 0.1;
   param.ncc_noise_factor = 0.001;
+  param.affine_init_mode = VOX_IDENTITY;
 
   // reslice mode parameters
   InterpSpec interp_current;
@@ -2276,7 +2312,12 @@ int main(int argc, char *argv[])
         }
       else if(arg == "-ia")
         {
-        param.initial_affine = cl.read_transform_spec();
+        param.affine_init_mode = RAS_FILENAME;
+        param.affine_init_transform = cl.read_transform_spec();
+        }
+      else if(arg == "-ia-identity" || arg == "-iaid" || arg == "-ia-id")
+        {
+        param.affine_init_mode = RAS_IDENTITY;
         }
       else if(arg == "-it")
         {

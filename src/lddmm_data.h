@@ -163,6 +163,9 @@ public:
   static void img_resample_identity(ImageType *src, ImageBaseType *ref, ImageType *trg);
   static void vimg_resample_identity(VectorImageType *src, ImageBaseType *ref, VectorImageType *trg);
 
+  // Threshold image
+  static void img_threshold_in_place(ImageType *src, double lt, double up, double fore, double back);
+
   // Convert voxel-space warp to a physical space warp
   static void warp_voxel_to_physical(VectorImageType *src, ImageBaseType *ref_space, VectorImageType *trg);
   

@@ -137,6 +137,11 @@ MultiComponentImageMetricBase<TMetricTraits>
     m_AccumulatedData.comp_metric += m_ThreadData[i].comp_metric;
     }
 
+  /*
+  printf("acc metric: %f\n", m_AccumulatedData.metric);
+  printf("acc mask: %f\n", m_AccumulatedData.mask);
+  */
+
   // Report the normalized value
   m_MetricValue = m_AccumulatedData.metric / m_AccumulatedData.mask;
 

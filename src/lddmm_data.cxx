@@ -47,6 +47,7 @@
 #include "itkVectorResampleImageFilter.h"
 #include "itkNearestNeighborInterpolateImageFunction.h"
 #include "itkVectorNearestNeighborInterpolateImageFunction.h"
+#include "itkBinaryThresholdImageFilter.h"
 #include "FastWarpCompositeImageFilter.h"
 
 template <class TFloat, uint VDim>
@@ -1079,6 +1080,22 @@ LDDMMData<TFloat, VDim>
   filter->SetOutputOrigin(ref->GetOrigin());
   filter->SetOutputDirection(ref->GetDirection());
   filter->GraftOutput(trg);
+  filter->Update();
+}
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::img_threshold_in_place(LDDMMData::ImageType *src, double lt, double ut, double fore, double back)
+{
+  typedef itk::BinaryThresholdImageFilter<ImageType, ImageType> FilterType;
+  typename FilterType::Pointer filter = FilterType::New();
+  filter->SetInput(src);
+  filter->GraftOutput(src);
+  filter->SetLowerThreshold(lt);
+  filter->SetUpperThreshold(ut);
+  filter->SetInsideValue(fore);
+  filter->SetOutsideValue(back);
   filter->Update();
 }
 

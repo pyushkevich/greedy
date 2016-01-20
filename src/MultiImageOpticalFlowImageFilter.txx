@@ -81,82 +81,86 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
       if(this->m_ComputeGradient)
         grad_metric.Fill(0.0);
 
-      // Interpolate the moving image at the current position. The worker knows
-      // whether to interpolate the gradient or not
-      typedef FastLinearInterpolator<InputImageType, RealType, ImageDimension> FastInterpolator;
-      typename FastInterpolator::InOut status = iter.Interpolate();
-
-      // Outside interpolations are ignored
-      if(status != FastInterpolator::OUTSIDE)
+      // Check the fixed mask at this location
+      if(iter.CheckFixedMask())
         {
-        // Iterate over the components
-        for(int k = 0; k < ncomp; k++)
+        // Interpolate the moving image at the current position. The worker knows
+        // whether to interpolate the gradient or not
+        typedef FastLinearInterpolator<InputImageType, RealType, ImageDimension> FastInterpolator;
+        typename FastInterpolator::InOut status = iter.Interpolate();
+
+        // Outside interpolations are ignored
+        if(status != FastInterpolator::OUTSIDE)
           {
-          // Compute the weighted squared difference
-          double del = iter.GetFixedLine()[k] - iter.GetMovingSample()[k];
-          double delw = this->m_Weights[k] * del;
-          double del2w = delw * del;
+          // Iterate over the components
+          for(int k = 0; k < ncomp; k++)
+            {
+            // Compute the weighted squared difference
+            double del = iter.GetFixedLine()[k] - iter.GetMovingSample()[k];
+            double delw = this->m_Weights[k] * del;
+            double del2w = delw * del;
 
-          // Add the value to the metric
-          metric += del2w;
+            // Add the value to the metric
+            metric += del2w;
 
-          // Add the value to each component
-          td.comp_metric[k] += del2w;
+            // Add the value to each component
+            td.comp_metric[k] += del2w;
 
-          // This is currently computing negative half of the gradient
+            // This is currently computing negative half of the gradient
+            if(this->m_ComputeGradient)
+              {
+              const RealType *grad_mov_k = iter.GetMovingSampleGradient(k);
+              for(int i = 0; i < ImageDimension; i++)
+                grad_metric[i] += delw * grad_mov_k[i];
+              }
+            }
+
+          // If on the border, apply the mask
+          if(status == FastInterpolator::BORDER && this->m_ComputeMovingDomainMask)
+            {
+            double mask = iter.GetMask();
+
+            // Update the metric and the gradient vector to reflect multiplication with mask
+            for(int i = 0; i < ImageDimension; i++)
+              grad_metric[i] = grad_metric[i] * mask - 0.5 * iter.GetMaskGradient()[i] * metric;
+            metric = metric * mask;
+
+            td.mask += mask;
+            }
+          else
+            {
+            td.mask += 1.0;
+            }
+
+          // Accumulate the metric
+          td.metric += metric;
+
+          // Do the gradient computation
           if(this->m_ComputeGradient)
             {
-            const RealType *grad_mov_k = iter.GetMovingSampleGradient(k);
-            for(int i = 0; i < ImageDimension; i++)
-              grad_metric[i] += delw * grad_mov_k[i];
-            }
-          }
-
-        // If on the border, apply the mask
-        if(status == FastInterpolator::BORDER && this->m_ComputeMovingDomainMask)
-          {
-          double mask = iter.GetMask();
-
-          // Update the metric and the gradient vector to reflect multiplication with mask
-          for(int i = 0; i < ImageDimension; i++)
-            grad_metric[i] = grad_metric[i] * mask - 0.5 * iter.GetMaskGradient()[i] * metric;
-          metric = metric * mask;
-
-          td.mask += mask;
-          }
-        else
-          {
-          td.mask += 1.0;
-          }
-
-        // Accumulate the metric
-        td.metric += metric;
-
-        // Do the gradient computation
-        if(this->m_ComputeGradient)
-          {
-          // If affine, use the gradient to accumulte the affine partial derivs
-          if(this->m_ComputeAffine)
-            {
-            for(int i = 0, q = 0; i < ImageDimension; i++)
-              {
-              td.gradient[q++] += grad_metric[i];
-              for(int j = 0; j < ImageDimension; j++)
-                td.gradient[q++] += grad_metric[i] * iter.GetIndex()[j];
-              }
-
-            if(status == FastInterpolator::BORDER)
+            // If affine, use the gradient to accumulte the affine partial derivs
+            if(this->m_ComputeAffine)
               {
               for(int i = 0, q = 0; i < ImageDimension; i++)
                 {
-                td.grad_mask[q++] += iter.GetMaskGradient()[i];
+                td.gradient[q++] += grad_metric[i];
                 for(int j = 0; j < ImageDimension; j++)
-                  td.grad_mask[q++] += iter.GetMaskGradient()[i] * iter.GetIndex()[j];
+                  td.gradient[q++] += grad_metric[i] * iter.GetIndex()[j];
+                }
+
+              if(status == FastInterpolator::BORDER)
+                {
+                for(int i = 0, q = 0; i < ImageDimension; i++)
+                  {
+                  td.grad_mask[q++] += iter.GetMaskGradient()[i];
+                  for(int j = 0; j < ImageDimension; j++)
+                    td.grad_mask[q++] += iter.GetMaskGradient()[i] * iter.GetIndex()[j];
+                  }
                 }
               }
             }
-          }
-        }
+          } // not outside
+        } // check fixed mask
 
       // Last thing - update the output voxels
       *iter.GetOutputLine() = metric;

@@ -259,7 +259,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       else
         {
         m_GradientMaskComposite[i] = FloatImageType::New();
+
+        // Downsampling the mask involves smoothing, so the mask will no longer be binary
         LDDMMType::img_downsample(m_GradientMaskImage, m_GradientMaskComposite[i], m_PyramidFactors[i]);
+        LDDMMType::img_threshold_in_place(m_GradientMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
         }
       }
     }
@@ -473,6 +476,17 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetComputeGradient(grad != NULL);
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
   metric->Update();
+
+  // TODO: erase this
+  /*
+  std::cout << "SAVING METRIC, TRAN = " << tran->GetMatrix() << std::endl;
+  static int iter = 0;
+  std::ostringstream oss; oss << "metric_" << iter << ".nii.gz";
+  LDDMMData<TFloat, VDim>::img_write(wrkMetric, oss.str().c_str());
+  std::stringstream oss2; oss2 << "metric_mask_" << iter << ".nii.gz";
+  LDDMMData<TFloat, VDim>::img_write(wrkMask, oss2.str().c_str());
+  ++iter;
+  */
 
   // Process the results
   if(grad)
