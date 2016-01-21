@@ -95,45 +95,49 @@ int usage()
   printf("Usage: \n");
   printf("  greedy [options]\n");
   printf("Required options: \n");
-  printf("  -d DIM                      : Number of image dimensions\n");
-  printf("  -i fixed.nii moving.nii     : Image pair (may be repeated)\n");
+  printf("  -d DIM                 : Number of image dimensions\n");
+  printf("  -i fix.nii mov.nii     : Image pair (may be repeated)\n");
   printf("  -o output.nii               : Output file\n");  
   printf("Mode specification: \n");
-  printf("  -a                          : Perform affine registration and save to output (-o)\n");
-  printf("  -brute radius               : Perform a brute force search around each voxel \n");
-  printf("  -r [tran_spec]              : Reslice images instead of doing registration \n");
-  printf("                                tran_spec is a series of warps, affine matrices\n");
+  printf("  -a                     : Perform affine registration and save to output (-o)\n");
+  printf("  -brute radius          : Perform a brute force search around each voxel \n");
+  printf("  -r [tran_spec]         : Reslice images instead of doing registration \n");
+  printf("                               tran_spec is a series of warps, affine matrices\n");
   printf("Options in deformable / affine mode: \n");
-  printf("  -w weight                   : weight of the next -i pair\n");
-  printf("  -m metric                   : metric for the registration (SSD or NCC 3x3x3)\n");
-  printf("  -e epsilon                  : step size (default = 1.0)\n");
-  printf("  -n NxNxN                    : number of iterations per level of multi-res (100x100) \n");
-  printf("  -threads N                  : set the number of allowed concurrent threads\n");
-  printf("  -gm mask.nii                : mask for gradient computation\n");
-  printf("  -it filenames               : sequence of transforms to apply to the moving image first \n");
+  printf("  -w weight              : weight of the next -i pair\n");
+  printf("  -m metric              : metric for the entire registration\n");
+  printf("                               SSD:          sum of square differences (default)\n");
+  printf("                               MI:           mutual information\n");
+  printf("                               NMI:          normalized mutual information\n");
+  printf("                               NCC <radius>: normalized cross-correlation\n");
+  printf("  -e epsilon             : step size (default = 1.0)\n");
+  printf("  -n NxNxN               : number of iterations per level of multi-res (100x100) \n");
+  printf("  -threads N             : set the number of allowed concurrent threads\n");
+  printf("  -gm mask.nii           : mask for gradient computation\n");
+  printf("  -it filenames          : sequence of transforms to apply to the moving image first \n");
   printf("Specific to deformable mode: \n");
-  printf("  -tscale MODE                : time step behavior mode: CONST, SCALE [def], SCALEDOWN\n");
-  printf("  -s sigma1 sigma2            : smoothing for the greedy update step. Must specify units,\n");
-  printf("                                either `vox` or `mm`. Default: 1.732vox, 0.7071vox\n");
-  printf("  -oinv image.nii             : compute and write the inverse of the warp field into image.nii\n");
-  printf("  -invexp VALUE               : how many times to take the square root of the forward\n");
+  printf("  -tscale MODE           : time step behavior mode: CONST, SCALE [def], SCALEDOWN\n");
+  printf("  -s sigma1 sigma2       : smoothing for the greedy update step. Must specify units,\n");
+  printf("                           either `vox` or `mm`. Default: 1.732vox, 0.7071vox\n");
+  printf("  -oinv image.nii        : compute and write the inverse of the warp field into image.nii\n");
+  printf("  -invexp VALUE          : how many times to take the square root of the forward\n");
   printf("                                transform when computing inverse (default=2)\n");
-  printf("  -wp VALUE                   : Saved warp precision (in voxels; def=0.1; 0 for no compression).\n");
-  printf("  -noise VALUE                : Standard deviation of white noise added to moving/fixed images when \n");
-  printf("                                using NCC metric. Relative to intensity range. Def=0.001\n");
+  printf("  -wp VALUE              : Saved warp precision (in voxels; def=0.1; 0 for no compression).\n");
+  printf("  -noise VALUE           : Standard deviation of white noise added to moving/fixed images when \n");
+  printf("                           using NCC metric. Relative to intensity range. Def=0.001\n");
   printf("Initial transform specification: \n");
-  printf("  -ia filename                : initial affine matrix for optimization (not the same as -it) \n");
-  printf("  -ia-identity                : initialize affine matrix based on NIFTI headers \n");
+  printf("  -ia filename           : initial affine matrix for optimization (not the same as -it) \n");
+  printf("  -ia-identity           : initialize affine matrix based on NIFTI headers \n");
   printf("Specific to reslice mode: \n");
-  printf("   -rf fixed.nii              : fixed image for reslicing\n");
-  printf("   -rm moving.nii output.nii  : moving/output image pair (may be repeated)\n");
-  printf("   -ri interp_mode            : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
+  printf("   -rf fixed.nii         : fixed image for reslicing\n");
+  printf("   -rm mov.nii out.nii   : moving/output image pair (may be repeated)\n");
+  printf("   -ri interp_mode       : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
   printf("For developers: \n");
-  printf("  -debug-deriv                : enable periodic checks of derivatives (debug) \n");
-  printf("  -debug-deriv-eps            : epsilon for derivative debugging \n");
-  printf("  -dump-moving                : dump moving image at each iter\n");
-  printf("  -dump-freq N                : dump frequency\n");
-  printf("  -powell                     : use Powell's method instead of LGBFS\n");
+  printf("  -debug-deriv           : enable periodic checks of derivatives (debug) \n");
+  printf("  -debug-deriv-eps       : epsilon for derivative debugging \n");
+  printf("  -dump-moving           : dump moving image at each iter\n");
+  printf("  -dump-freq N           : dump frequency\n");
+  printf("  -powell                : use Powell's method instead of LGBFS\n");
 
   return -1;
 }
@@ -203,7 +207,7 @@ struct GreedyResliceParameters
 
 struct GreedyParameters
 {
-  enum MetricType { SSD = 0, NCC, MI };
+  enum MetricType { SSD = 0, NCC, MI, NMI };
   enum TimeStepMode { CONST=0, SCALE, SCALEDOWN };
   enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE };
 
@@ -510,10 +514,11 @@ GreedyApproach<VDim, TReal>::PureAffineCostFunction
       (*g) *= -10000.0;
       val *= -10000.0;
       }
-    else if(m_Param->metric == GreedyParameters::MI)
+    else if(m_Param->metric == GreedyParameters::MI || m_Param->metric == GreedyParameters::NMI)
       {
       val = m_OFHelper->ComputeAffineMIMatchAndGradient(
-              m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
+              m_Level, m_Param->metric == GreedyParameters::NMI,
+              tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
 
       flatten_affine_transform(grad.GetPointer(), g->data_block());
 
@@ -538,10 +543,11 @@ GreedyApproach<VDim, TReal>::PureAffineCostFunction
       // NCC should be maximized
       val *= -10000.0;
       }
-    else if(m_Param->metric == GreedyParameters::MI)
+    else if(m_Param->metric == GreedyParameters::MI || m_Param->metric == GreedyParameters::NMI)
       {
       val = m_OFHelper->ComputeAffineMIMatchAndGradient(
-              m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
+              m_Level, m_Param->metric == GreedyParameters::NMI,
+              tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
 
       val *= -10000.0;
       }
@@ -1390,9 +1396,10 @@ int GreedyApproach<VDim, TReal>
         printf("]  Tot: %8.6f\n", total_energy);
         }
 
-      else if(param.metric == GreedyParameters::MI)
+      else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
         {
-        vnl_vector<double> all_metrics = of_helper.ComputeMIFlowField(level, uk, iTemp, uk1, param.epsilon);
+        vnl_vector<double> all_metrics =
+            of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, uk, iTemp, uk1, param.epsilon);
 
         printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
         total_energy = 0.0;
@@ -2283,6 +2290,10 @@ int main(int argc, char *argv[])
         else if(metric_name == "MI" || metric_name == "mi")
           {
           param.metric = GreedyParameters::MI;
+          }
+        else if(metric_name == "NMI" || metric_name == "nmi")
+          {
+          param.metric = GreedyParameters::NMI;
           }
         }
       else if(arg == "-tscale")

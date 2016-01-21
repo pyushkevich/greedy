@@ -99,7 +99,8 @@ public:
 
   /** Perform interpolation - compute mutual information metric */
   vnl_vector<double> ComputeMIFlowField(
-      int level, VectorImageType *def, FloatImageType *out_metric,
+      int level, bool normalized_mutual_information,
+      VectorImageType *def, FloatImageType *out_metric,
       VectorImageType *out_gradient, double result_scaling = 1.0);
 
   /** Compute the NCC metric without gradient */
@@ -119,13 +120,14 @@ public:
                                           LinearTransformType *grad = NULL);
 
 
-  double ComputeAffineMIMatchAndGradient(int level, LinearTransformType *tran,
-                                          FloatImageType *wrkMetric,
-                                          FloatImageType *wrkMask,
-                                          VectorImageType *wrkGradMetric,
-                                          VectorImageType *wrkGradMask,
-                                          VectorImageType *wrkPhi,
-                                          LinearTransformType *grad = NULL);
+  double ComputeAffineMIMatchAndGradient(int level, bool normalized_mutual_info,
+                                         LinearTransformType *tran,
+                                         FloatImageType *wrkMetric,
+                                         FloatImageType *wrkMask,
+                                         VectorImageType *wrkGradMetric,
+                                         VectorImageType *wrkGradMask,
+                                         VectorImageType *wrkPhi,
+                                         LinearTransformType *grad = NULL);
 
   double ComputeAffineNCCMatchAndGradient(int level, LinearTransformType *tran,
                                           const SizeType &radius,

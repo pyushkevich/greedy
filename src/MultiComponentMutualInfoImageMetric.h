@@ -52,6 +52,34 @@ struct DefaultMultiComponentMutualInfoImageMetricTraits
   typedef TReal RealType;
 };
 
+/**
+ * Normalized mutual information metric function
+ */
+template <class TReal>
+class NormalizedMutualInformationMetricFunction
+{
+public:
+  static TReal compute(int n_bins,
+                       const vnl_matrix<TReal> &Pfm,
+                       const vnl_vector<TReal> &Pf,
+                       const vnl_vector<TReal> &Pm,
+                       vnl_matrix<TReal> *gradWeights);
+};
+
+/**
+ * Plain vanilla mutual information metric function
+ */
+template <class TReal>
+class StandardMutualInformationMetricFunction
+{
+public:
+  static TReal compute(int n_bins,
+                       const vnl_matrix<TReal> &Pfm,
+                       const vnl_vector<TReal> &Pf,
+                       const vnl_vector<TReal> &Pm,
+                       vnl_matrix<TReal> *gradWeights);
+};
+
 
 template <class TMetricTraits>
 class ITK_EXPORT MultiComponentMutualInfoImageMetric :
@@ -122,52 +150,37 @@ public:
    */
   virtual double GetGradientScalingFactor() const { return 1.0; }
 
+  /**
+   * When this flag is On, the metric will use the Normalized Mutual Information formulation
+   * proposed by Studholme et al., Pattern Recognition, 1999.
+   */
+  itkSetMacro(ComputeNormalizedMutualInformation, bool)
+  itkGetMacro(ComputeNormalizedMutualInformation, bool)
+
 protected:
 
   virtual void BeforeThreadedGenerateData();
-  virtual void AfterThreadedGenerateData();
   virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
                                     itk::ThreadIdType threadId );
 
 protected:
-  MultiComponentMutualInfoImageMetric() : m_Bins(32) { }
+  MultiComponentMutualInfoImageMetric()
+    : m_Bins(32), m_ComputeNormalizedMutualInformation(false) { }
+
   ~MultiComponentMutualInfoImageMetric() {}
 
 private:
   MultiComponentMutualInfoImageMetric(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
 
-  // Histogram accumulation type for MI - used to interface with FastInterpolator
-  struct HistogramAccumType : public std::vector< std::vector<RealType *> >
-  {
-    HistogramAccumType() {}
-
-    void Initialize(int n_comp, int n_bins)
-    {
-      this->resize(n_comp, std::vector<RealType *>(n_bins, NULL));
-      for(int i = 0; i < n_comp; i++)
-        {
-        for(int j = 0; j < n_bins; j++)
-          {
-          (*this)[i][j] = new RealType[n_bins];
-          for(int k = 0; k < n_bins; k++)
-            (*this)[i][j][k] = 0.0;
-          }
-        }
-    }
-
-    void Deallocate()
-    {
-      for(int i = 0; i < this->size(); i++)
-        for(int j = 0; j < (*this)[i].size(); j++)
-          delete (*this)[i][j];
-    }
-  };
-
+  // Barrier - for thread management
   typename itk::Barrier::Pointer m_Barrier;
 
   // Number of bins
   unsigned int m_Bins;
+
+  // What flavor of mutual information will we use
+  bool m_ComputeNormalizedMutualInformation;
 
   // Combined histogram representation
   struct Histogram
@@ -177,16 +190,16 @@ private:
     Histogram(int bins) : Pfm(bins, bins, 0.0), Pf(bins, 0.0), Pm(bins, 0.0), Wfm(bins, bins, 0.0) {}
   };
 
-  // Thread data specific to mutual information
-  struct MutualInfoThreadData
-  {
-    HistogramAccumType m_Histogram;
-  };
+  // Histogram accumulator - array over the components in the image
+  typedef std::vector< vnl_matrix<double> > HistogramAccumType;
 
-  // Weights for gradient computation - derived from the histogram
+  // Weights for gradient computation - derived from the histogram. For each component, this is a
+  // matrix holding derivatives of the metric with respect to the height of the i,j-th bin in the
+  // histogram.
   HistogramAccumType m_GradWeights;
 
-  std::vector<MutualInfoThreadData> m_MIThreadData;
+  // Histogram accumulator for each thread
+  std::vector<HistogramAccumType> m_MIThreadData;
 
   // Joint probability and marginals for each component
   std::vector<Histogram> m_Histograms;

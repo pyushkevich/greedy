@@ -150,6 +150,7 @@ MultiComponentImageMetricBase<TMetricTraits>
     {
     m_AffineTransformGradient = TransformType::New();
 
+
     vnl_vector<double> grad_metric(m_AccumulatedData.gradient.size());
     for(int j = 0; j < m_AccumulatedData.gradient.size(); j++)
       {

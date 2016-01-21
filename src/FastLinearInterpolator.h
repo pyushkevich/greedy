@@ -434,7 +434,7 @@ public:
           d100++, d101++, d110++, d111++, fixptr++)
         {
         // Just this line in the histogram
-        RealType *f = hist_w[iComp][*fixptr];
+        const RealType *f = hist_w[iComp][*fixptr];
 
         // Take the weighted sum
         RealType f000 = f[*d000], f001 = f[*d001], f010 = f[*d010], f011 = f[*d011];

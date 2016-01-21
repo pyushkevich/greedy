@@ -340,6 +340,7 @@ template <class TFloat, unsigned int VDim>
 vnl_vector<double>
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeMIFlowField(int level,
+                     bool normalized_mutual_information,
                      VectorImageType *def,
                      FloatImageType *out_metric,
                      VectorImageType *out_gradient,
@@ -385,6 +386,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   typename MetricType::Pointer metric = MetricType::New();
 
+  metric->SetComputeNormalizedMutualInformation(normalized_mutual_information);
   metric->SetFixedImage(binner_fixed->GetOutput());
   metric->SetMovingImage(binner_moving->GetOutput());
   metric->SetDeformationField(def);
@@ -506,6 +508,7 @@ template <class TFloat, unsigned int VDim>
 double
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeAffineMIMatchAndGradient(int level,
+                                  bool normalized_mutual_info,
                                   LinearTransformType *tran,
                                   FloatImageType *wrkMetric,
                                   FloatImageType *wrkMask,
@@ -553,6 +556,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   typename MetricType::Pointer metric = MetricType::New();
 
+  metric->SetComputeNormalizedMutualInformation(normalized_mutual_info);
   metric->SetFixedImage(binner_fixed->GetOutput());
   metric->SetMovingImage(binner_moving->GetOutput());
   metric->SetWeights(wscaled);

@@ -29,6 +29,153 @@
 
 #include "MultiComponentMutualInfoImageMetric.h"
 
+
+/**
+ * Implementation of the Normalized Mutual Information (Studholme) method
+ *
+ * Metric = (H(M) + H(F)) / H(M,F)
+ */
+template <class TReal>
+TReal
+NormalizedMutualInformationMetricFunction<TReal>
+::compute(int n_bins,
+          const vnl_matrix<TReal> &mat_Pfm,
+          const vnl_vector<TReal> &mat_Pf,
+          const vnl_vector<TReal> &mat_Pm,
+          vnl_matrix<TReal> *gradWeights)
+{
+  // We need the joint and marginal entropies for the calculation
+  TReal Hfm = 0, Hf = 0, Hm = 0;
+
+  // Simple case - no gradient
+  if(!gradWeights)
+    {
+    for(int i = 1; i < n_bins; i++)
+      {
+      TReal Pf = mat_Pf(i);
+      TReal Pm = mat_Pm(i);
+
+      if(Pf > 0)
+        Hf += Pf * log(Pf);
+
+      if(Pm > 0)
+        Hm += Pm * log(Pm);
+
+      for(int j = 1; j < n_bins; j++)
+        {
+        TReal Pfm = mat_Pfm(i, j);
+        if(Pfm > 0)
+          Hfm += Pfm * log(Pfm);
+        }
+      }
+
+    return (Hf + Hm) / Hfm;
+    }
+
+  else
+    {
+    // Allocate vectors to hold log(Pf), log(Pm)
+    vnl_vector<TReal> log_Pf(n_bins, 0.0), log_Pm(n_bins, 0.0);
+
+    for(int i = 1; i < n_bins; i++)
+      {
+      TReal Pf = mat_Pf(i);
+      TReal Pm = mat_Pm(i);
+
+      if(Pf > 0)
+        {
+        log_Pf(i) = log(Pf);
+        Hf += Pf * log_Pf(i);
+        }
+
+      if(Pm > 0)
+        {
+        log_Pm(i) = log(Pm);
+        Hm += Pm * log_Pm(i);
+        }
+
+      for(int j = 1; j < n_bins; j++)
+        {
+        TReal Pfm = mat_Pfm(i, j);
+        if(Pfm > 0)
+          {
+          TReal log_Pfm = log(Pfm);
+          Hfm += Pfm * log_Pfm;
+          (*gradWeights)(i, j) = log_Pfm; // store for future use
+          }
+        }
+      }
+
+    // Compute the metric
+    TReal metric = (Hf + Hm) / Hfm;
+
+    // Compute the gradient
+    for(int i = 1; i < n_bins; i++)
+      {
+      for(int j = 1; j < n_bins; j++)
+        {
+        TReal Pfm = mat_Pfm(i, j);
+        if(Pfm > 0)
+          {
+          // Reuse the log
+          TReal log_Pfm = (*gradWeights)(i, j);
+          (*gradWeights)(i,j) = (2 + log_Pf(i) + log_Pm(j) - metric * (log_Pfm + 1)) / Hfm;
+          }
+        else
+          {
+          (*gradWeights)(i,j) = 0.0;
+          }
+        }
+      }
+
+    // Return the metric
+    return metric;
+    }
+}
+
+/**
+ * Implementation of the standard Mutual Information method
+ *
+ * Metric = H(M,F) - H(M) - H(F)
+ */
+template <class TReal>
+TReal
+StandardMutualInformationMetricFunction<TReal>
+::compute(int n_bins,
+          const vnl_matrix<TReal> &mat_Pfm,
+          const vnl_vector<TReal> &mat_Pf,
+          const vnl_vector<TReal> &mat_Pm,
+          vnl_matrix<TReal> *gradWeights)
+{
+  TReal metric = 0;
+  for(int bf = 1; bf < n_bins; bf++)
+    {
+    for(int bm = 1; bm < n_bins; bm++)
+      {
+      TReal Pfm = mat_Pfm(bf, bm);
+      TReal Pf = mat_Pf(bf);
+      TReal Pm = mat_Pm(bm);
+
+      if(Pfm > 0)
+        {
+        // This expression is actually correct for computing H(I,J) - (H(I) + H(J))
+        double q = log(Pfm / (Pf * Pm));
+        double v = Pfm * q;
+        metric += v;
+
+        // If computing the gradient, also compute the additional weight information
+        if(gradWeights)
+          {
+          (*gradWeights)[bf][bm] = q - 1;
+          }
+        }
+      }
+    }
+
+  return metric;
+}
+
+
 template <class TMetricTraits>
 void
 MultiComponentMutualInfoImageMetric<TMetricTraits>
@@ -42,16 +189,12 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
   m_MIThreadData.clear();
 
   // Create the per-thread histograms
-  for(int k = 0; k < this->GetNumberOfThreads(); k++)
-    {
-    m_MIThreadData.push_back(MutualInfoThreadData());
-    m_MIThreadData.back().m_Histogram.Initialize(ncomp, m_Bins);
-    }
+  m_MIThreadData.resize(this->GetNumberOfThreads(),
+                        HistogramAccumType(ncomp, vnl_matrix<double>(m_Bins, m_Bins, 0.0)));
 
-  // Initialize the weight storage
+  // Initialize the gradient matrices
   if(this->m_ComputeGradient)
-    m_GradWeights.Initialize(ncomp, m_Bins);
-
+    m_GradWeights.resize(ncomp, vnl_matrix<double>(m_Bins, m_Bins, 0.0));
 
   // Code to determine the actual number of threads used below
   itk::ThreadIdType nbOfThreads = this->GetNumberOfThreads();
@@ -67,19 +210,6 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
   // Initialize the barrier
   m_Barrier = itk::Barrier::New();
   m_Barrier->Initialize(nbOfThreads);
-}
-
-template <class TMetricTraits>
-void
-MultiComponentMutualInfoImageMetric<TMetricTraits>
-::AfterThreadedGenerateData()
-{
-  Superclass::AfterThreadedGenerateData();
-  for(int k = 0; k < this->GetNumberOfThreads(); k++)
-    {
-    m_MIThreadData.back().m_Histogram.Deallocate();
-    m_MIThreadData.pop_back();
-    }
 }
 
 
@@ -109,7 +239,7 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
   // of the overlap-invariant metrics.
 
   // First pass - compute the histograms
-  MutualInfoThreadData &td = m_MIThreadData[threadId];
+  HistogramAccumType &thread_histogram = m_MIThreadData[threadId];
 
   // Iterate over the lines
   for(; !iter.IsAtEnd(); iter.NextLine())
@@ -119,7 +249,7 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
       {
       // Get the current histogram corners
       if(iter.CheckFixedMask())
-        iter.PartialVolumeHistogramSample(td.m_Histogram);
+        iter.PartialVolumeHistogramSample(thread_histogram);
       }
     }
 
@@ -153,7 +283,7 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
 
           // Add the entries from all threads
           for(int q = 0; q < this->GetNumberOfThreads(); q++)
-            Pfm += m_MIThreadData[q].m_Histogram[c][bf][bm];
+            Pfm += m_MIThreadData[q][c][bf][bm];
 
           // Accumulate the sum of all entries
           hist_sum += hc.Pfm(bf,bm);
@@ -181,49 +311,32 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
       double &m_comp = this->m_ThreadData[0].comp_metric[c];
       double &m_total = this->m_ThreadData[0].metric;
 
-      // There is a shift factor that will later be applied to the gradient
-      double grad_weights_dot_Pfm = 0.0;
+      // Compute the metric and gradient for this component using the emprical probabilities
+      if(this->m_ComputeNormalizedMutualInformation)
+        m_comp = NormalizedMutualInformationMetricFunction<RealType>::compute(
+              m_Bins, hc.Pfm, hc.Pf, hc.Pm, this->m_ComputeGradient ? &this->m_GradWeights[c] : NULL);
+      else
+        m_comp = StandardMutualInformationMetricFunction<RealType>::compute(
+              m_Bins, hc.Pfm, hc.Pf, hc.Pm, this->m_ComputeGradient ? &this->m_GradWeights[c] : NULL);
 
-      for(int bf = 1; bf < m_Bins; bf++)
-        {
-        for(int bm = 1; bm < m_Bins; bm++)
-          {
-          double Pfm = hc.Pfm(bf, bm);
-          double Pf = hc.Pf(bf);
-          double Pm = hc.Pm(bm);
+      m_total += m_comp;
 
-          if(Pfm > 0)
-            {
-            // This expression is actually correct for computing H(I,J) - (H(I) + H(J))
-            double q = log(Pfm / (Pf * Pm));
-            double v = Pfm * q;
-            m_comp += v;
-            m_total += v;
-
-            // If computing the gradient, also compute the additional weight information
-            if(this->m_ComputeGradient)
-              {
-              // m_GradWeights[c] is an array containing the partial derivatives of the metric
-              // with respect to the bin counts.
-              // TODO: scale by weights!
-              // WHY DOES THIS WORK???
-              // m_GradWeights[c][bf][bm] = log(Pfm / hc.Pm(bm));
-
-              // m_GradWeights[c][bf][bm] =
-              //    1 + log(Pfm / (hc.Pm(bm) * hc.Pf(bf))) - Pfm * (1.0 / hc.Pm(bm) + 1.0 / hc.Pf(bf));
-
-              m_GradWeights[c][bf][bm] = q - 1;
-
-              grad_weights_dot_Pfm += m_GradWeights[c][bf][bm] * Pfm;
-              }
-            }
-          }
-        }
-
-      // So far, the gradient of the weights has been with respect to Pfm, but we need
-      // to compute it with respect to Bfm - where Bfm are the bin counts.
       if(this->m_ComputeGradient)
         {
+        // The gradient is currently relative to emprical probabilities. Convert it to gradient
+        // in terms of the bin counts
+        double grad_weights_dot_Pfm = 0.0;
+
+        for(int bf = 1; bf < m_Bins; bf++)
+          {
+          for(int bm = 1; bm < m_Bins; bm++)
+            {
+            double Pfm = hc.Pfm(bf, bm);
+            if(Pfm > 0)
+              grad_weights_dot_Pfm += m_GradWeights[c][bf][bm] * Pfm;
+            }
+          }
+
         for(int bf = 1; bf < m_Bins; bf++)
           {
           for(int bm = 1; bm < m_Bins; bm++)
@@ -233,13 +346,12 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
           }
         }
 
-
-      }
-
+      } // loop over components
 
     // The last thing is to set the normalizing constant to 1
     this->m_ThreadData[0].mask = 1.0;
-    }
+
+    } // If thread_id = 0
 
   // Wait for all threads
   m_Barrier->Wait();
