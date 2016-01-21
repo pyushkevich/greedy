@@ -71,6 +71,9 @@ public:
   /** Set the gradient image mask */
   void SetGradientMask(FloatImageType *maskImage) { m_GradientMaskImage = maskImage; }
 
+  /** Set jitter sigma - for jittering image samples in affine mode */
+  void SetJitterSigma(double sigma);
+
   /** Compute the composite image - must be run before any sampling is done */
   void BuildCompositeImages(double noise_sigma_relative = 0.0);
 
@@ -152,6 +155,8 @@ public:
    */
   void ComputeDeformationFieldInverse(VectorImageType *warp, VectorImageType *result, int n_sqrt);
 
+  MultiImageOpticalFlowHelper() : m_JitterSigma(0.0) {}
+
 protected:
 
   // Pyramid factors
@@ -163,6 +168,7 @@ protected:
   // Vector of images
   typedef std::vector<typename MultiComponentImageType::Pointer> MultiCompImageSet;
   typedef std::vector<typename FloatImageType::Pointer> FloatImageSet;
+  typedef std::vector<typename VectorImageType::Pointer> VectorImageSet;
 
   // Fixed and moving images
   MultiCompImageSet m_Fixed, m_Moving;
@@ -178,6 +184,12 @@ protected:
 
   // Gradient mask composite
   FloatImageSet m_GradientMaskComposite;
+
+  // Amount of jitter - for affine only
+  double m_JitterSigma;
+
+  // Jitter composite
+  VectorImageSet m_JitterComposite;
 
   void PlaceIntoComposite(FloatImageType *src, MultiComponentImageType *target, int offset);
   void PlaceIntoComposite(VectorImageType *src, MultiComponentImageType *target, int offset);

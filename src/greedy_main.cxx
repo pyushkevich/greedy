@@ -1075,6 +1075,9 @@ int GreedyApproach<VDim, TReal>
   // Set the scaling factors for multi-resolution
   of_helper.SetDefaultPyramidFactors(param.iter_per_level.size());
 
+  // Add random sampling jitter for affine stability at voxel edges
+  of_helper.SetJitterSigma(0.1);
+
   // Read the image pairs to register
   ReadImages(param, of_helper);
 

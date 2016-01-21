@@ -298,6 +298,11 @@ public:
     m_PhiLine = m_Affine ? NULL
                          : m_Metric->GetDeformationField()->GetBufferPointer() + m_OffsetInPixels;
 
+    // Get the jitter line
+    m_JitterLine = m_Metric->GetJitterImage()
+                   ? m_Metric->GetJitterImage()->GetBufferPointer() + m_OffsetInPixels
+                   : NULL;
+
     // Get the output line
     m_OutputLine = m_OutputImage->GetBufferPointer() + m_OffsetInPixels * m_OutputStep;
 
@@ -311,6 +316,9 @@ public:
         m_SampleStep[d] = m_Metric->GetAffineTransform()->GetMatrix()(d, 0);
         for(int j = 0; j < ImageDimension; j++)
           m_SamplePos[d] += m_Metric->GetAffineTransform()->GetMatrix()(d,j) * m_Index[j];
+
+        if(m_JitterLine)
+          m_SamplePos[d] += (*m_JitterLine)[d];
         }
       }
     else
@@ -335,8 +343,18 @@ public:
 
       if(m_Affine)
         {
-        for(int d = 0; d < ImageDimension; d++)
-          m_SamplePos[d] += m_SampleStep[d];
+        if(m_JitterLine)
+          {
+          typename TMetricTraits::DeformationFieldType::PixelType *jnext = m_JitterLine + 1;
+          for(int d = 0; d < ImageDimension; d++)
+            m_SamplePos[d] += m_SampleStep[d] - (*m_JitterLine)[d] + (*jnext)[d];
+          m_JitterLine = jnext;
+          }
+        else
+          {
+          for(int d = 0; d < ImageDimension; d++)
+            m_SamplePos[d] += m_SampleStep[d];
+          }
         }
       else
         {
@@ -471,6 +489,7 @@ protected:
   InputComponentType *m_FixedLine;
   typename MaskImageType::PixelType *m_FixedMaskLine;
   typename TMetricTraits::DeformationFieldType::PixelType *m_PhiLine;
+  typename TMetricTraits::DeformationFieldType::PixelType *m_JitterLine;
   typename TOutputImage::InternalPixelType *m_OutputLine;
 
   int m_LineLength;

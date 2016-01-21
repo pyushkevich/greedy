@@ -134,6 +134,9 @@ public:
   /** Set the optional mask input */
   itkNamedInputMacro(FixedMaskImage, MaskImageType, "fixed_mask")
 
+  /** Set the optional jitter input - for affine images*/
+  itkNamedInputMacro(JitterImage, DeformationFieldType, "jitter")
+
   /**
    * Set the deformation field. If the deformation field is set, the affine
    * transform gradients will not be computed.

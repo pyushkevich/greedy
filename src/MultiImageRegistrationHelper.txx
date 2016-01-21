@@ -80,6 +80,14 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
+::SetJitterSigma(double sigma)
+{
+  m_JitterSigma = sigma;
+}
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
 ::PlaceIntoComposite(FloatImageType *source, MultiComponentImageType *target, int offset)
 {
   // We do this using a loop - no threading
@@ -267,6 +275,32 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       }
     }
 
+  // Set up the jitter images
+  m_JitterComposite.resize(m_PyramidFactors.size(), NULL);
+  if(m_JitterSigma > 0)
+    {
+    for(int i = 0; i < m_PyramidFactors.size(); i++)
+      {
+      // Get the reference space
+      ImageBaseType *base = this->GetReferenceSpace(i);
+      VectorImagePointer iJitter = VectorImageType::New();
+      iJitter->CopyInformation(base);
+      iJitter->SetRegions(base->GetBufferedRegion());
+      iJitter->Allocate();
+
+      vnl_random randy(12345);
+      typedef itk::ImageRegionIterator<VectorImageType> IterType;
+      for(IterType iter(iJitter, iJitter->GetBufferedRegion()); !iter.IsAtEnd(); ++iter)
+        {
+        for(int k = 0; k < VDim; k++)
+          {
+          iter.Value()[k] = randy.normal() * m_JitterSigma;
+          }
+        }
+
+      m_JitterComposite[i] = iJitter;
+      }
+    }
 }
 
 template <class TFloat, unsigned int VDim>
@@ -479,6 +513,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad != NULL);
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
+  metric->SetJitterImage(m_JitterComposite[level]);
   metric->Update();
 
   // TODO: erase this
@@ -566,6 +601,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetComputeGradient(grad != NULL);
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
   metric->SetBins(128);
+  metric->SetJitterImage(m_JitterComposite[level]);
   metric->Update();
 
   // Process the results
@@ -617,6 +653,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetRadius(radius);
   metric->SetWorkingImage(m_NCCWorkingImage);
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
+  metric->SetJitterImage(m_JitterComposite[level]);
   metric->Update();
 
   // Process the results
