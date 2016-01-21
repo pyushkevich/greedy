@@ -120,9 +120,12 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
       typename FastInterpolator::InOut status = iter.Interpolate();
 
       // TODO: debugging border issues: setting mask=0 on the border
+      // TODO: i added this check for affine/non-affine. Seems like there were some problems previously
+      // with the NCC metric at the border in deformable mode, but in affine mode you need the border
+      // values to be included.
       // Outside interpolations are ignored
-      //if(status == FastInterpolator::OUTSIDE)
-      if(status == FastInterpolator::OUTSIDE || status == FastInterpolator::BORDER)
+      if((m_Parent->GetComputeAffine() && status == FastInterpolator::OUTSIDE) ||
+         (!m_Parent->GetComputeAffine() && (status == FastInterpolator::OUTSIDE || status == FastInterpolator::BORDER)))
         {
         // Place a zero in the output
         *out++ = 1.0;
