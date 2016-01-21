@@ -370,6 +370,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     binner_fixed->SetBins(128);
     binner_fixed->SetLowerQuantile(0.01);
     binner_fixed->SetUpperQuantile(0.99);
+    binner_fixed->SetStartAtBinOne(true);
     binner_fixed->Update();
 
     binner_moving = BinnerType::New();
@@ -377,6 +378,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     binner_moving->SetBins(128);
     binner_moving->SetLowerQuantile(0.01);
     binner_moving->SetUpperQuantile(0.99);
+    binner_moving->SetStartAtBinOne(true);
     binner_moving->Update();
     }
 
@@ -537,6 +539,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     binner_fixed->SetBins(128);
     binner_fixed->SetLowerQuantile(0.01);
     binner_fixed->SetUpperQuantile(0.99);
+    binner_fixed->SetStartAtBinOne(true);
     binner_fixed->Update();
 
     binner_moving = BinnerType::New();
@@ -544,6 +547,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     binner_moving->SetBins(128);
     binner_moving->SetLowerQuantile(0.01);
     binner_moving->SetUpperQuantile(0.99);
+    binner_moving->SetStartAtBinOne(true);
     binner_moving->Update();
     }
 

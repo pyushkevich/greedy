@@ -254,6 +254,16 @@ public:
    */
   itkSetMacro(NoRemapping, bool)
 
+  /**
+   * When this flag is set, the lowest intensity in the image is mapped to bin 1, rather than
+   * bin 0. This leaves bin 0 in the histogram empty. Subsequently, it can be used to represent
+   * outside values. In other words, when this is set, the remapped image will have intensities
+   * between 1 and n_Bins-1, when it is not set, this will be between 0 and n_Bins-1
+   *
+   * By default this flag is False.
+   */
+  itkSetMacro(StartAtBinOne, bool)
+
   /** After the filter ran, get the value of the lower quantile */
   InputComponentType GetLowerQuantileValue(int component) const
     { return m_LowerQuantileValues[component]; }
@@ -330,6 +340,8 @@ private:
   std::vector<InputComponentType> m_LowerQuantileValues, m_UpperQuantileValues;
 
   bool m_NoRemapping;
+
+  bool m_StartAtBinOne;
 };
 
 

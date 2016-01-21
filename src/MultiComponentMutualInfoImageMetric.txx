@@ -103,6 +103,11 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
   // twice. The only way I see to avoid this is to store the results of each interpolation in
   // an intermediate working image, but I am not sure how much one would save from that!
 
+  // Importantly, the input images are rescaled to the range 1..nBins. This means that the
+  // 0 row and 0 column of the histogram are reserved for outside values, or in other words
+  // outside values are treated differently from zero. This is important for the computation
+  // of the overlap-invariant metrics.
+
   // First pass - compute the histograms
   MutualInfoThreadData &td = m_MIThreadData[threadId];
 
@@ -134,13 +139,14 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
       m_Histograms.push_back(Histogram(m_Bins));
       Histogram &hc = m_Histograms.back();
 
-      // The total sum of entries
-      double hist_sum = this->GetOutput()->GetBufferedRegion().GetNumberOfPixels();
+      // When computing the empirical joint probability, we will ignore outside values.
+      // We need multiple passes through the histogram to calculate the emprirical prob.
 
-      // Process each entry
-      for(int bf = 0; bf < m_Bins; bf++)
+      // First pass, add thread data and compute the sum of all non-outside histogram bin balues
+      double hist_sum = 0.0;
+      for(int bf = 1; bf < m_Bins; bf++)
         {
-        for(int bm = 0; bm < m_Bins; bm++)
+        for(int bm = 1; bm < m_Bins; bm++)
           {
           // Reference to the joint probability entry
           double &Pfm = hc.Pfm(bf,bm);
@@ -148,6 +154,19 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
           // Add the entries from all threads
           for(int q = 0; q < this->GetNumberOfThreads(); q++)
             Pfm += m_MIThreadData[q].m_Histogram[c][bf][bm];
+
+          // Accumulate the sum of all entries
+          hist_sum += hc.Pfm(bf,bm);
+          }
+        }
+
+      // Second pass, normalize the entries and compute marginals
+      for(int bf = 1; bf < m_Bins; bf++)
+        {
+        for(int bm = 1; bm < m_Bins; bm++)
+          {
+          // Reference to the joint probability entry
+          double &Pfm = hc.Pfm(bf,bm);
 
           // Normalize to make a probability
           Pfm /= hist_sum;
@@ -158,20 +177,25 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
           }
         }
 
-      // Compute the mutual information for this component and overall
+      // Third pass: compute the mutual information for this component and overall
       double &m_comp = this->m_ThreadData[0].comp_metric[c];
       double &m_total = this->m_ThreadData[0].metric;
 
-      for(int bf = 0; bf < m_Bins; bf++)
+      // There is a shift factor that will later be applied to the gradient
+      double grad_weights_dot_Pfm = 0.0;
+
+      for(int bf = 1; bf < m_Bins; bf++)
         {
-        for(int bm = 0; bm < m_Bins; bm++)
+        for(int bm = 1; bm < m_Bins; bm++)
           {
           double Pfm = hc.Pfm(bf, bm);
+          double Pf = hc.Pf(bf);
+          double Pm = hc.Pm(bm);
 
           if(Pfm > 0)
             {
-            // TODO: temp change
-            double q = log(Pfm / (hc.Pf(bf) * hc.Pm(bm)));
+            // This expression is actually correct for computing H(I,J) - (H(I) + H(J))
+            double q = log(Pfm / (Pf * Pm));
             double v = Pfm * q;
             m_comp += v;
             m_total += v;
@@ -179,53 +203,39 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
             // If computing the gradient, also compute the additional weight information
             if(this->m_ComputeGradient)
               {
+              // m_GradWeights[c] is an array containing the partial derivatives of the metric
+              // with respect to the bin counts.
               // TODO: scale by weights!
-              m_GradWeights[c][bf][bm] = log(Pfm / hc.Pm(bm));
-              }
-            }
-          }
-          /* // code with epsilon trick
-          double Pfm = hc.Pfm(bf, bm);
-          double Pm = hc.Pm(bm), Pf = hc.Pf(bf);
-          double eps = 1.0e-8;
+              // WHY DOES THIS WORK???
+              // m_GradWeights[c][bf][bm] = log(Pfm / hc.Pm(bm));
 
-          double v = (Pfm + eps) * log(Pfm + eps) -
-                     ((Pf + eps) * log(Pf + eps) + (Pm + eps) * log(Pm + eps)) / m_Bins;
+              // m_GradWeights[c][bf][bm] =
+              //    1 + log(Pfm / (hc.Pm(bm) * hc.Pf(bf))) - Pfm * (1.0 / hc.Pm(bm) + 1.0 / hc.Pf(bf));
 
-          m_comp += v;
-          m_total += v;
+              m_GradWeights[c][bf][bm] = q - 1;
 
-          if(this->m_ComputeGradient)
-            {
-            m_GradWeights[c][bf][bm] = log((Pfm + eps) / (Pm + eps));
-            }
-          } */
-        }
-
-          /*
-          if(Pfm > 0)
-            {
-            // TODO: temp change
-            double q = log(Pfm / (hc.Pf(bf) * hc.Pm(bm)));
-            // double q = log(Pfm);
-            double v = Pfm * q;
-            m_comp += v;
-            m_total += v;
-
-            // If computing the gradient, also compute the additional weight information
-            if(this->m_ComputeGradient)
-              {
-              // TODO: scale by weights!
-              // TODO: temp change
-              // m_GradWeights[c][bf][bm] = 1.0 + q - Pfm / hc.Pm(bm);
-              // m_GradWeights[c][bf][bm] = 1.0 + q;
-              m_GradWeights[c][bf][bm] = log(Pfm) - log(hc.Pm(bm));
+              grad_weights_dot_Pfm += m_GradWeights[c][bf][bm] * Pfm;
               }
             }
           }
         }
-            */
+
+      // So far, the gradient of the weights has been with respect to Pfm, but we need
+      // to compute it with respect to Bfm - where Bfm are the bin counts.
+      if(this->m_ComputeGradient)
+        {
+        for(int bf = 1; bf < m_Bins; bf++)
+          {
+          for(int bm = 1; bm < m_Bins; bm++)
+            {
+            m_GradWeights[c][bf][bm] = (m_GradWeights[c][bf][bm] - grad_weights_dot_Pfm) / hist_sum;
+            }
+          }
+        }
+
+
       }
+
 
     // The last thing is to set the normalizing constant to 1
     this->m_ThreadData[0].mask = 1.0;
@@ -283,7 +293,8 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
           // Add the gradient
           for(int i = 0, q = 0; i < ImageDimension; i++)
             {
-            double v = grad_x[i] / nvox;
+            // double v = grad_x[i] / nvox;
+            double v = grad_x[i];
             tds.gradient[q++] += v;
             for(int j = 0; j < ImageDimension; j++)
               tds.gradient[q++] += v * iter_g.GetIndex()[j];
@@ -318,6 +329,7 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
   m_UpperQuantile = 0.99;
 
   m_NoRemapping = false;
+  m_StartAtBinOne = false;
 }
 
 template <class TInputImage, class TOutputImage>
@@ -433,9 +445,12 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
     if(m_NoRemapping)
       continue;
 
+    // Which bin do we start at
+    int start_bin = m_StartAtBinOne ? 1 : 0;
+
     // Compute the scale and shift
-    double scale = m_Bins * 1.0 / (m_UpperQuantileValues[k] - m_LowerQuantileValues[k]);
-    double shift = m_LowerQuantileValues[k] * scale;
+    double scale = (m_Bins - start_bin) * 1.0 / (m_UpperQuantileValues[k] - m_LowerQuantileValues[k]);
+    double shift = m_LowerQuantileValues[k] * scale - start_bin;
 
     // Now each thread remaps the intensities into the quantile range
     for(Iterator it(this->GetInput(), outputRegionForThread); !it.IsAtEnd(); it.NextLine())
@@ -448,8 +463,8 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
       for(int p = 0; p < line_length; p++, line+=ncomp, out_line+=ncomp)
         {
         int bin = (int) (*line * scale - shift);
-        if(bin < 0)
-          *out_line = 0;
+        if(bin < start_bin)
+          *out_line = start_bin;
         else if(bin >= m_Bins)
           *out_line = m_Bins - 1;
         else

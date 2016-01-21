@@ -407,50 +407,54 @@ public:
     // Compute the corners
     this->ComputeCorners(cix);
 
-    if(this->status == Superclass::OUTSIDE)
+    // Outside values do not contribute to the gradient
+    if(this->status != Superclass::OUTSIDE)
       {
-      d000 = d001 = d010 = d011 = this->def_value;
-      d100 = d101 = d110 = d111 = this->def_value;
+      // Compute the corner weights using 4 multiplications (not 16)
+      RealType fxy = fx * fy, fyz = fy * fz, fxz = fx * fz;
+
+      // Some horrendous derivatives here! Wow!
+      double w111x = fyz,             w111y = fxz,             w111z = fxy;
+      double w011x = -fyz,            w011y = fz - fxz,        w011z = fy - fxy;
+      double w101x = fz - fyz,        w101y = -fxz,            w101z = fx - fxy;
+      double w110x = fy - fyz,        w110y = fx - fxz,        w110z = -fxy;
+      double w001x = -fz - w011x,     w001y = -w011y,          w001z = 1 - fx - w011z;
+      double w010x = -w110x,          w010y = 1 - fz - w110y,  w010z = -fy - w110z;
+      double w100x = 1 - fy - w101x,  w100y = -fx - w101y,     w100z = -w101z;
+      double w000x = -1 + fy - w001x, w000y = -1 + fx - w001y, w000z = -w001z;
+
+      // Initialize gradient to zero
+      out_grad[0] = 0.0;
+      out_grad[1] = 0.0;
+      out_grad[2] = 0.0;
+
+      // Loop over the components
+      for(int iComp = 0; iComp < this->nComp; iComp++,
+          d000++, d001++, d010++, d011++,
+          d100++, d101++, d110++, d111++, fixptr++)
+        {
+        // Just this line in the histogram
+        RealType *f = hist_w[iComp][*fixptr];
+
+        // Take the weighted sum
+        RealType f000 = f[*d000], f001 = f[*d001], f010 = f[*d010], f011 = f[*d011];
+        RealType f100 = f[*d100], f101 = f[*d101], f110 = f[*d110], f111 = f[*d111];
+
+        out_grad[0] += w000x * f000 + w001x * f001 + w010x * f010 + w011x * f011 +
+                       w100x * f100 + w101x * f101 + w110x * f110 + w111x * f111;
+
+        out_grad[1] += w000y * f000 + w001y * f001 + w010y * f010 + w011y * f011 +
+                       w100y * f100 + w101y * f101 + w110y * f110 + w111y * f111;
+
+        out_grad[2] += w000z * f000 + w001z * f001 + w010z * f010 + w011z * f011 +
+                       w100z * f100 + w101z * f101 + w110z * f110 + w111z * f111;
+        }
       }
-
-    // Compute the corner weights using 4 multiplications (not 16)
-    RealType fxy = fx * fy, fyz = fy * fz, fxz = fx * fz;
-
-    // Some horrendous derivatives here! Wow!
-    double w111x = fyz,             w111y = fxz,             w111z = fxy;
-    double w011x = -fyz,            w011y = fz - fxz,        w011z = fy - fxy;
-    double w101x = fz - fyz,        w101y = -fxz,            w101z = fx - fxy;
-    double w110x = fy - fyz,        w110y = fx - fxz,        w110z = -fxy;
-    double w001x = -fz - w011x,     w001y = -w011y,          w001z = 1 - fx - w011z;
-    double w010x = -w110x,          w010y = 1 - fz - w110y,  w010z = -fy - w110z;
-    double w100x = 1 - fy - w101x,  w100y = -fx - w101y,     w100z = -w101z;
-    double w000x = -1 + fy - w001x, w000y = -1 + fx - w001y, w000z = -w001z;
-
-    // Initialize gradient to zero
-    out_grad[0] = 0.0;
-    out_grad[1] = 0.0;
-    out_grad[2] = 0.0;
-
-    // Loop over the components
-    for(int iComp = 0; iComp < this->nComp; iComp++,
-        d000++, d001++, d010++, d011++,
-        d100++, d101++, d110++, d111++, fixptr++)
+    else
       {
-      // Just this line in the histogram
-      RealType *f = hist_w[iComp][*fixptr];
-
-      // Take the weighted sum
-      RealType f000 = f[*d000], f001 = f[*d001], f010 = f[*d010], f011 = f[*d011];
-      RealType f100 = f[*d100], f101 = f[*d101], f110 = f[*d110], f111 = f[*d111];
-
-      out_grad[0] += w000x * f000 + w001x * f001 + w010x * f010 + w011x * f011 +
-                     w100x * f100 + w101x * f101 + w110x * f110 + w111x * f111;
-
-      out_grad[1] += w000y * f000 + w001y * f001 + w010y * f010 + w011y * f011 +
-                     w100y * f100 + w101y * f101 + w110y * f110 + w111y * f111;
-
-      out_grad[2] += w000z * f000 + w001z * f001 + w010z * f010 + w011z * f011 +
-                     w100z * f100 + w101z * f101 + w110z * f110 + w111z * f111;
+      out_grad[0] = 0.0;
+      out_grad[1] = 0.0;
+      out_grad[2] = 0.0;
       }
   }
 
