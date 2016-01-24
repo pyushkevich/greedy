@@ -128,6 +128,8 @@ int usage()
   printf("Initial transform specification: \n");
   printf("  -ia filename           : initial affine matrix for optimization (not the same as -it) \n");
   printf("  -ia-identity           : initialize affine matrix based on NIFTI headers \n");
+  printf("Specific to affine mode:\n");
+  printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 12=affine\n");
   printf("Specific to reslice mode: \n");
   printf("   -rf fixed.nii         : fixed image for reslicing\n");
   printf("   -rm mov.nii out.nii   : moving/output image pair (may be repeated)\n");
@@ -210,8 +212,7 @@ struct GreedyParameters
   enum MetricType { SSD = 0, NCC, MI, NMI };
   enum TimeStepMode { CONST=0, SCALE, SCALEDOWN };
   enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE };
-
-
+  enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
 
   std::vector<ImagePairSpec> inputs;
   std::string output;
@@ -246,6 +247,7 @@ struct GreedyParameters
 
   // Initial affine transform
   AffineInitMode affine_init_mode;
+  AffineDOF affine_dof;
   TransformSpec affine_init_transform;
 
   // Mask for gradient
@@ -346,8 +348,19 @@ protected:
       vnl_matrix<double> &Qp,
       typename OFHelperType::LinearTransformType *tran);
 
+  class AbstractAffineCostFunction : public vnl_cost_function
+  {
+  public:
+    typedef typename OFHelperType::LinearTransformType TransformType;
+
+    AbstractAffineCostFunction(int n_unknowns) : vnl_cost_function(n_unknowns) {}
+    virtual vnl_vector<double> GetCoefficients(TransformType *tran) = 0;
+    virtual void GetTransform(const vnl_vector<double> &coeff, TransformType *tran) = 0;
+    virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) = 0;
+  };
+
   /** Pure affine cost function - parameters are elements of N x N matrix M */
-  class PureAffineCostFunction : public vnl_cost_function
+  class PureAffineCostFunction : public AbstractAffineCostFunction
   {
   public:
     typedef typename OFHelperType::LinearTransformType TransformType;
@@ -369,6 +382,9 @@ protected:
       unflatten_affine_transform(coeff.data_block(), tran);
     }
 
+    // Get the preferred scaling for this function given image dimensions
+    virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
+
     // Cost function computation
     virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
 
@@ -384,44 +400,61 @@ protected:
     ImagePointer m_Metric, m_Mask;
   };
 
-  /** Cost function used for affine registration - uses scaling to bring matrix components
-      to common units and thus speed up gradient computation                               */
-  class ScalingAffineCostFunction : public vnl_cost_function
+  /** Abstract scaling cost function - wraps around another cost function and provides scaling */
+  class ScalingCostFunction : public AbstractAffineCostFunction
   {
   public:
     typedef typename OFHelperType::LinearTransformType TransformType;
 
     // Construct the function
-    ScalingAffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper);
+    ScalingCostFunction(AbstractAffineCostFunction *pure_function, const vnl_vector<double> &scaling)
+      : AbstractAffineCostFunction(pure_function->get_number_of_unknowns()),
+        m_PureFunction(pure_function), m_Scaling(scaling) {}
 
     // Get the parameters for the specified initial transform
     vnl_vector<double> GetCoefficients(TransformType *tran)
     {
-      vnl_vector<double> x_true = m_AffineFn.GetCoefficients(tran);
-      return element_product(x_true, scaling);
+      vnl_vector<double> x_true = m_PureFunction->GetCoefficients(tran);
+      return element_product(x_true, m_Scaling);
     }
 
     // Get the transform for the specificed coefficients
     void GetTransform(const vnl_vector<double> &coeff, TransformType *tran)
     {
-      vnl_vector<double> x_true = element_quotient(coeff, scaling);
-      m_AffineFn.GetTransform(x_true, tran);
+      vnl_vector<double> x_true = element_quotient(coeff, m_Scaling);
+      m_PureFunction->GetTransform(x_true, tran);
     }
 
     // Cost function computation
-    virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+    virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g)
+    {
+      // Scale the parameters so they are in unscaled units
+      vnl_vector<double> x_scaled = element_quotient(x, m_Scaling);
 
-    const vnl_vector<double> &GetScaling() { return scaling; }
+      // Call the wrapped method
+      if(g)
+        {
+        vnl_vector<double> g_scaled(x_scaled.size());
+        m_PureFunction->compute(x_scaled, f, &g_scaled);
+        *g = element_quotient(g_scaled, m_Scaling);
+        }
+      else
+        {
+        m_PureFunction->compute(x_scaled, f, g);
+        }
+    }
+
+    const vnl_vector<double> &GetScaling() { return m_Scaling; }
 
   protected:
 
     // Data needed to compute the cost function
-    PureAffineCostFunction m_AffineFn;
-    vnl_vector<double> scaling;
+    AbstractAffineCostFunction *m_PureFunction;
+    vnl_vector<double> m_Scaling;
   };
 
   /** Cost function for rigid registration */
-  class RigidCostFunction : public vnl_cost_function
+  class RigidCostFunction : public AbstractAffineCostFunction
   {
   public:
     typedef typename OFHelperType::LinearTransformType TransformType;
@@ -430,6 +463,9 @@ protected:
     vnl_vector<double> GetCoefficients(TransformType *tran);
     void GetTransform(const vnl_vector<double> &coeff, TransformType *tran);
     virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+
+    // Get the preferred scaling for this function given image dimensions
+    virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
 
   protected:
     typedef vnl_vector_fixed<double, VDim> Vec3;
@@ -442,7 +478,7 @@ protected:
 template <unsigned int VDim, typename TReal>
 GreedyApproach<VDim, TReal>::PureAffineCostFunction
 ::PureAffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper)
-  : vnl_cost_function(VDim * (VDim + 1))
+  : AbstractAffineCostFunction(VDim * (VDim + 1))
 {
   // Store the data
   m_Param = param;
@@ -557,52 +593,34 @@ GreedyApproach<VDim, TReal>::PureAffineCostFunction
     *f = val;
 }
 
+
 template <unsigned int VDim, typename TReal>
-GreedyApproach<VDim, TReal>::ScalingAffineCostFunction
-::ScalingAffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper)
-  : vnl_cost_function(VDim * (VDim + 1)),
-    m_AffineFn(param, level, helper)
+vnl_vector<double>
+GreedyApproach<VDim, TReal>::PureAffineCostFunction
+::GetOptimalParameterScaling(const itk::Size<VDim> &image_dim)
 {
+  // Initialize the scaling vector
+  vnl_vector<double> scaling(this->get_number_of_unknowns());
+
   // Set the scaling of the parameters based on image dimensions. This makes it
   // possible to set tolerances in units of voxels. The order of change in the
   // parameters is comparable to the displacement of any point inside the image
-  scaling.set_size(this->get_number_of_unknowns());
-
   typename TransformType::MatrixType matrix;
   typename TransformType::OffsetType offset;
+
   for(int i = 0; i < VDim; i++)
     {
     offset[i] = 1.0;
     for(int j = 0; j < VDim; j++)
-      matrix(i, j) = helper->GetReferenceSpace(level)->GetBufferedRegion().GetSize()[j];
+      matrix(i, j) = image_dim[j];
     }
 
   typename TransformType::Pointer transform = TransformType::New();
   transform->SetMatrix(matrix);
   transform->SetOffset(offset);
   flatten_affine_transform(transform.GetPointer(), scaling.data_block());
-}
 
-
-template <unsigned int VDim, typename TReal>
-void
-GreedyApproach<VDim, TReal>::ScalingAffineCostFunction
-::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
-{
-  // Scale the parameters so they are in unscaled units
-  vnl_vector<double> x_scaled = element_quotient(x, scaling);
-
-  // Call the wrapped method
-  if(g)
-    {
-    vnl_vector<double> g_scaled(x_scaled.size());
-    m_AffineFn.compute(x_scaled, f, &g_scaled);
-    *g = element_quotient(g_scaled, scaling);
-    }
-  else
-    {
-    m_AffineFn.compute(x_scaled, f, g);
-    }
+  return scaling;
 }
 
 
@@ -612,7 +630,7 @@ GreedyApproach<VDim, TReal>::ScalingAffineCostFunction
 template <unsigned int VDim, typename TReal>
 GreedyApproach<VDim, TReal>::RigidCostFunction
 ::RigidCostFunction(GreedyParameters *param, int level, OFHelperType *helper)
-  : vnl_cost_function(VDim * (VDim + 1)), m_AffineFn(param, level, helper)
+  : AbstractAffineCostFunction(VDim * 2), m_AffineFn(param, level, helper)
 {
 }
 
@@ -667,8 +685,8 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
     // Compute the matrices d_Qmat
     Mat3 d_Qmat[3], d_R[3];
     d_Qmat[0].fill(0); d_Qmat[0](1,2) = -1; d_Qmat[0](2,1) =  1;
-    d_Qmat[1].fill(0); d_Qmat[1](0,2) =  1; d_Qmat[0](2,0) = -1;
-    d_Qmat[2].fill(0); d_Qmat[2](0,1) = -1; d_Qmat[0](1,0) =  1;
+    d_Qmat[1].fill(0); d_Qmat[1](0,2) =  1; d_Qmat[1](2,0) = -1;
+    d_Qmat[2].fill(0); d_Qmat[2](0,1) = -1; d_Qmat[2](1,0) =  1;
 
     // Compute partial derivatives of R wrt q
     if(theta != 0)
@@ -729,6 +747,28 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
     {
     m_AffineFn.compute(x_affine, f, NULL);
     }
+}
+
+template <unsigned int VDim, typename TReal>
+vnl_vector<double>
+GreedyApproach<VDim, TReal>::RigidCostFunction
+::GetOptimalParameterScaling(const itk::Size<VDim> &image_dim)
+{
+  // Initialize the scaling vector
+  vnl_vector<double> scaling(this->get_number_of_unknowns());
+
+  // Scaling is harder for rotations. The rotation parameters are in units of
+  // radians. We must figure out how many radians are equivalent to a point in
+  // the image moving by a single voxel. That actually works out to be 1/dim.
+
+  // So we take the average of the image dimensions and use that as scaling
+  double mean_dim = 0;
+  for(int i = 0; i < VDim; i++)
+    mean_dim += image_dim[i] / VDim;
+  scaling[0] = scaling[1] = scaling[2] = mean_dim;
+  scaling[3] = scaling[4] = scaling[5] = 1.0;
+
+  return scaling;
 }
 
 #include <vnl/algo/vnl_svd.h>
@@ -1098,8 +1138,25 @@ int GreedyApproach<VDim, TReal>
   for(unsigned int level = 0; level < nlevels; ++level)
     {
     // Define the affine cost function
-    ScalingAffineCostFunction acf(&param, level, &of_helper);
-    // RigidCostFunction acf(&param, level, &of_helper);
+    AbstractAffineCostFunction *pure_acf, *acf;
+    if(param.affine_dof == GreedyParameters::DOF_RIGID)
+      {
+      RigidCostFunction *rigid_acf = new RigidCostFunction(&param, level, &of_helper);
+      acf = new ScalingCostFunction(
+              rigid_acf,
+              rigid_acf->GetOptimalParameterScaling(
+                of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()));
+      pure_acf = rigid_acf;
+      }
+    else
+      {
+      PureAffineCostFunction *affine_acf = new PureAffineCostFunction(&param, level, &of_helper);
+      acf = new ScalingCostFunction(
+              affine_acf,
+              affine_acf->GetOptimalParameterScaling(
+                of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()));
+      pure_acf = affine_acf;
+      }
 
     // Current transform
     typedef typename OFHelperType::LinearTransformType TransformType;
@@ -1110,7 +1167,7 @@ int GreedyApproach<VDim, TReal>
       {
       // Get the coefficients corresponding to the identity transform in voxel space
       tLevel->SetIdentity();
-      vnl_vector<double> xIdent = acf.GetCoefficients(tLevel);
+      vnl_vector<double> xIdent = acf->GetCoefficients(tLevel);
 
       // Use the provided initial affine as the starting point
       if(param.affine_init_mode == RAS_FILENAME)
@@ -1131,7 +1188,7 @@ int GreedyApproach<VDim, TReal>
         }
 
       // Get the new coefficients
-      vnl_vector<double> xInit = acf.GetCoefficients(tLevel);
+      vnl_vector<double> xInit = acf->GetCoefficients(tLevel);
 
       // If the voxel-space transform is identity, apply a little bit of jitter
       if((xIdent - xInit).inf_norm() < 1e-4)
@@ -1142,7 +1199,7 @@ int GreedyApproach<VDim, TReal>
           xInit[i] += rndy.drand32(-0.4, 0.4);
 
         // Map back into transform format
-        acf.GetTransform(xInit, tLevel);
+        acf->GetTransform(xInit, tLevel);
         }
       }
     else
@@ -1153,14 +1210,14 @@ int GreedyApproach<VDim, TReal>
 
     // Test derivatives
     // Convert to a parameter vector
-    vnl_vector<double> xLevel = acf.GetCoefficients(tLevel.GetPointer());
+    vnl_vector<double> xLevel = acf->GetCoefficients(tLevel.GetPointer());
 
     if(param.flag_debug_deriv)
       {
       // Test the gradient computation
-      vnl_vector<double> xGrad(acf.get_number_of_unknowns(), 0.0);
+      vnl_vector<double> xGrad(acf->get_number_of_unknowns(), 0.0);
       double f0;
-      acf.compute(xLevel, &f0, &xGrad);
+      acf->compute(xLevel, &f0, &xGrad);
 
       // Propagate the jitter to the transform
       Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
@@ -1171,8 +1228,8 @@ int GreedyApproach<VDim, TReal>
         printf("%11.4f ", xGrad[i]);
       printf("\n");
 
-      vnl_vector<double> xGradN(acf.get_number_of_unknowns(), 0.0);
-      for(int i = 0; i < acf.get_number_of_unknowns(); i++)
+      vnl_vector<double> xGradN(acf->get_number_of_unknowns(), 0.0);
+      for(int i = 0; i < acf->get_number_of_unknowns(); i++)
         {
         // double eps = (i % VDim == 0) ? 1.0e-2 : 1.0e-5;
         double eps = param.deriv_epsilon;
@@ -1181,10 +1238,10 @@ int GreedyApproach<VDim, TReal>
         x1[i] -= 2 * eps; x2[i] -= eps; x3[i] += eps; x4[i] += 2 * eps;
 
         // Four-point derivative computation
-        acf.compute(x1, &f1, NULL);
-        acf.compute(x2, &f2, NULL);
-        acf.compute(x3, &f3, NULL);
-        acf.compute(x4, &f4, NULL);
+        acf->compute(x1, &f1, NULL);
+        acf->compute(x2, &f2, NULL);
+        acf->compute(x3, &f3, NULL);
+        acf->compute(x4, &f4, NULL);
 
         xGradN[i] = (f1 - 8 * f2 + 8 * f3 - f4) / (12 * eps);
         }
@@ -1196,12 +1253,12 @@ int GreedyApproach<VDim, TReal>
 
       std::cout << "f = " << f0 << std::endl;
 
-      acf.GetTransform(xGrad, tLevel.GetPointer());
+      acf->GetTransform(xGrad, tLevel.GetPointer());
       std::cout << "A: " << std::endl
                 << tLevel->GetMatrix() << std::endl
                 << tLevel->GetOffset() << std::endl;
 
-      acf.GetTransform(xGradN, tLevel.GetPointer());
+      acf->GetTransform(xGradN, tLevel.GetPointer());
       std::cout << "N: " << std::endl
                 << tLevel->GetMatrix() << std::endl
                 << tLevel->GetOffset() << std::endl;
@@ -1213,7 +1270,7 @@ int GreedyApproach<VDim, TReal>
       if(param.flag_powell)
         {
         // Set up the optimizer
-        vnl_powell *optimizer = new vnl_powell(&acf);
+        vnl_powell *optimizer = new vnl_powell(acf);
         optimizer->set_f_tolerance(1e-9);
         optimizer->set_x_tolerance(1e-4);
         optimizer->set_g_tolerance(1e-6);
@@ -1228,7 +1285,7 @@ int GreedyApproach<VDim, TReal>
       else
         {
         // Set up the optimizer
-        vnl_lbfgs *optimizer = new vnl_lbfgs(acf);
+        vnl_lbfgs *optimizer = new vnl_lbfgs(*acf);
         optimizer->set_f_tolerance(1e-9);
         optimizer->set_x_tolerance(1e-4);
         optimizer->set_g_tolerance(1e-6);
@@ -1241,11 +1298,14 @@ int GreedyApproach<VDim, TReal>
 
       // Get the final transform
       typename TransformType::Pointer tFinal = TransformType::New();
-      acf.GetTransform(xLevel, tFinal.GetPointer());
+      acf->GetTransform(xLevel, tFinal.GetPointer());
       Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tFinal);
       }
 
     std::cout << "Final RAS Transform: " << std::endl << Q_physical << std::endl;
+
+    delete acf;
+    delete pure_acf;
     }
 
   // Write the final affine transform
@@ -2248,6 +2308,7 @@ int main(int argc, char *argv[])
   param.warp_precision = 0.1;
   param.ncc_noise_factor = 0.001;
   param.affine_init_mode = VOX_IDENTITY;
+  param.affine_dof = GreedyParameters::DOF_AFFINE;
 
   // reslice mode parameters
   InterpSpec interp_current;
@@ -2332,6 +2393,15 @@ int main(int argc, char *argv[])
       else if(arg == "-ia-identity" || arg == "-iaid" || arg == "-ia-id")
         {
         param.affine_init_mode = RAS_IDENTITY;
+        }
+      else if(arg == "-dof")
+        {
+        int dof = cl.read_integer();
+        if(dof == 6)
+          param.affine_dof = GreedyParameters::DOF_RIGID;
+        else if(dof == 12)
+            param.affine_dof = GreedyParameters::DOF_AFFINE;
+        else throw GreedyException("DOF parameter only accepts 6 and 12 as values");
         }
       else if(arg == "-it")
         {
