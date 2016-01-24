@@ -48,6 +48,8 @@
 #include <vnl/vnl_cost_function.h>
 #include <vnl/vnl_random.h>
 #include <vnl/algo/vnl_powell.h>
+#include <vnl/algo/vnl_svd.h>
+#include <vnl/vnl_trace.h>
 
 // Little helper functions
 template <unsigned int VDim> class array_caster
@@ -267,11 +269,11 @@ struct GreedyParameters
 
 
 // Helper function to map from ITK coordiante space to RAS space
-template<unsigned int VDim>
+template<unsigned int VDim, class TMat, class TVec>
 void
 GetVoxelSpaceToNiftiSpaceTransform(itk::ImageBase<VDim> *image,
-                                   vnl_matrix<double> &A,
-                                   vnl_vector<double> &b)
+                                   TMat &A,
+                                   TVec &b)
 {
   // Generate intermediate terms
   vnl_matrix<double> m_dir, m_ras_matrix;
@@ -359,7 +361,10 @@ protected:
     virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) = 0;
   };
 
-  /** Pure affine cost function - parameters are elements of N x N matrix M */
+  /**
+   * Pure affine cost function - parameters are elements of N x N matrix M.
+   * Transformation takes place in voxel coordinates - not physical coordinates (for speed)
+   */
   class PureAffineCostFunction : public AbstractAffineCostFunction
   {
   public:
@@ -398,6 +403,36 @@ protected:
     // Storage for the gradient of the similarity map
     VectorImagePointer m_Phi, m_GradMetric, m_GradMask;
     ImagePointer m_Metric, m_Mask;
+  };
+
+  /**
+   * Physical space affine cost function - parameters are elements of affine transform in
+   * physical RAS space.
+   */
+  class PhysicalSpaceAffineCostFunction : public AbstractAffineCostFunction
+  {
+  public:
+    typedef typename OFHelperType::LinearTransformType TransformType;
+
+    PhysicalSpaceAffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper);
+    virtual vnl_vector<double> GetCoefficients(TransformType *tran);
+    virtual void GetTransform(const vnl_vector<double> &coeff, TransformType *tran);
+    virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+    virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
+
+    void map_phys_to_vox(const vnl_vector<double> &x_phys, vnl_vector<double> &x_vox);
+
+  protected:
+    PureAffineCostFunction m_PureFunction;
+
+    // Voxel to physical transforms for fixed, moving image
+    typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
+    typedef vnl_vector_fixed<double, VDim> Vec;
+
+    Mat Q_fix, Q_mov, Q_fix_inv, Q_mov_inv;
+    Vec b_fix, b_mov, b_fix_inv, b_mov_inv;
+
+    vnl_matrix<double> J_phys_vox;
   };
 
   /** Abstract scaling cost function - wraps around another cost function and provides scaling */
@@ -471,7 +506,10 @@ protected:
     typedef vnl_vector_fixed<double, VDim> Vec3;
     typedef vnl_matrix_fixed<double, VDim, VDim> Mat3;
 
-    PureAffineCostFunction m_AffineFn;
+    // We wrap around a physical space affine function, since rigid in physical space is not
+    // the same as rigid in voxel space
+    PhysicalSpaceAffineCostFunction m_AffineFn;
+
   };
 };
 
@@ -623,6 +661,137 @@ GreedyApproach<VDim, TReal>::PureAffineCostFunction
   return scaling;
 }
 
+/**
+ * PHYSICAL SPACE COST FUNCTION - WRAPS AROUND AFFINE
+ */
+template <unsigned int VDim, typename TReal>
+GreedyApproach<VDim, TReal>::PhysicalSpaceAffineCostFunction
+::PhysicalSpaceAffineCostFunction(GreedyParameters *param, int level, OFHelperType *helper)
+  : AbstractAffineCostFunction(VDim * (VDim + 1)), m_PureFunction(param, level, helper)
+{
+  // The rigid transformation must be rigid in physical space, not in voxel space
+  // So in the constructor, we must compute the mappings from the two spaces
+  GetVoxelSpaceToNiftiSpaceTransform(helper->GetReferenceSpace(level), Q_fix, b_fix);
+  GetVoxelSpaceToNiftiSpaceTransform(helper->GetMovingReferenceSpace(level), Q_mov, b_mov);
+
+  // Compute the inverse transformations
+  Q_fix_inv = vnl_matrix_inverse<double>(Q_fix);
+  b_fix_inv = - Q_fix_inv * b_fix;
+
+  Q_mov_inv = vnl_matrix_inverse<double>(Q_mov);
+  b_mov_inv = - Q_mov_inv * b_mov;
+
+  // Take advantage of the fact that the transformation is linear in A and b to compute
+  // the Jacobian of the transformation ahead of time, and "lazily", using finite differences
+  int n = VDim * (VDim + 1);
+  J_phys_vox.set_size(n, n);
+  vnl_vector<double> x_phys(n, 0), x_vox_0(n), x_vox(n);
+
+  // Voxel parameter vector corresponding to zero transform
+  this->map_phys_to_vox(x_phys, x_vox_0);
+
+  // Compute each column of the jacobian
+  for(int i = 0; i < n; i++)
+    {
+    x_phys.fill(0);
+    x_phys[i] = 1;
+    this->map_phys_to_vox(x_phys, x_vox);
+    J_phys_vox.set_column(i, x_vox - x_vox_0);
+    }
+
+
+}
+
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>::PhysicalSpaceAffineCostFunction
+::map_phys_to_vox(const vnl_vector<double> &x_phys, vnl_vector<double> &x_vox)
+{
+  Mat A_phys;
+  Vec b_phys;
+
+  // unflatten the input parameters into A and b
+  unflatten_affine_transform(x_phys.data_block(), A_phys, b_phys);
+
+  // convert into voxel-space affine transform
+  Mat A_vox = Q_mov_inv * A_phys * Q_fix;
+  Vec b_vox = Q_mov_inv * (A_phys * b_fix + b_phys) + b_mov_inv;
+
+  // Flatten back
+  x_vox.set_size(m_PureFunction.get_number_of_unknowns());
+  flatten_affine_transform(A_vox, b_vox, x_vox.data_block());
+}
+
+
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>::PhysicalSpaceAffineCostFunction
+::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
+{
+  // Map to voxel space
+  vnl_vector<double> x_vox(m_PureFunction.get_number_of_unknowns());
+  this->map_phys_to_vox(x, x_vox);
+
+  // Do we need the gradient?
+  if(g)
+    {
+    // Compute the function and gradient wrt voxel parameters
+    vnl_vector<double> g_vox(m_PureFunction.get_number_of_unknowns());
+    m_PureFunction.compute(x_vox, f, &g_vox);
+
+    // Transform voxel-space gradient into physical-space gradient
+    *g = J_phys_vox.transpose() * g_vox;
+    }
+  else
+    {
+    // Just compute the function
+    m_PureFunction.compute(x_vox, f, NULL);
+    }
+}
+
+template <unsigned int VDim, typename TReal>
+vnl_vector<double>
+GreedyApproach<VDim, TReal>::PhysicalSpaceAffineCostFunction
+::GetOptimalParameterScaling(const itk::Size<VDim> &image_dim)
+{
+  // TODO: work out scaling for this
+  return m_PureFunction.GetOptimalParameterScaling(image_dim);
+}
+
+template <unsigned int VDim, typename TReal>
+vnl_vector<double>
+GreedyApproach<VDim, TReal>::PhysicalSpaceAffineCostFunction
+::GetCoefficients(TransformType *tran)
+{
+  // The input transform is in voxel space, we must return parameters in physical space
+  Mat A_vox = tran->GetMatrix().GetVnlMatrix(), A_phys;
+  Vec b_vox = tran->GetOffset().GetVnlVector(), b_phys;
+
+  // convert into physical-space affine transform
+  A_phys = Q_mov * A_vox * Q_fix_inv;
+  b_phys = Q_mov * (b_vox - b_mov_inv) - A_phys * b_fix;
+
+  // Flatten
+  vnl_vector<double> x(m_PureFunction.get_number_of_unknowns());
+  flatten_affine_transform(A_phys, b_phys, x.data_block());
+
+  return x;
+}
+
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>::PhysicalSpaceAffineCostFunction
+::GetTransform(const vnl_vector<double> &x, TransformType *tran)
+{
+  // Get voxel-space tranform corresponding to the parameters x
+  vnl_vector<double> x_vox(m_PureFunction.get_number_of_unknowns());
+  this->map_phys_to_vox(x, x_vox);
+
+  // Unflatten into a transform
+  unflatten_affine_transform(x_vox.data_block(), tran);
+}
+
+
 
 /**
  * RIGID COST FUNCTION - WRAPS AROUND AFFINE
@@ -639,7 +808,6 @@ void
 GreedyApproach<VDim, TReal>::RigidCostFunction
 ::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
 {
-
   // Place parameters into q and b
   Vec3 q, b;
   q[0] = x[0]; q[1] = x[1]; q[2] = x[2];
@@ -660,15 +828,23 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
   // Compute the square of the matrix
   Mat3 QQ = vnl_matrix_fixed_mat_mat_mult(Qmat, Qmat);
 
+  // A small epsilon for which a better approximation is R = I + Q
+  double eps = 1.0e-4;
+  double a1, a2;
+
   // When theta = 0, rotation is identity
-  if(theta != 0)
+  if(theta > eps)
     {
     // Compute the constant terms in the Rodriguez formula
-    double a1 = sin(theta) / theta;
-    double a2 = (1 - cos(theta)) / (theta * theta);
+    a1 = sin(theta) / theta;
+    a2 = (1 - cos(theta)) / (theta * theta);
 
     // Compute the rotation matrix
     R += a1 * Qmat + a2 * QQ;
+    }
+  else
+    {
+    R += Qmat;
     }
 
   // Now we have a rotation and a translation, convert to parameters for the affine function
@@ -689,12 +865,8 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
     d_Qmat[2].fill(0); d_Qmat[2](0,1) = -1; d_Qmat[2](1,0) =  1;
 
     // Compute partial derivatives of R wrt q
-    if(theta != 0)
+    if(theta > eps)
       {
-      // Compute the constant terms in the Rodriguez formula
-      double a1 = sin(theta) / theta;
-      double a2 = (1 - cos(theta)) / (theta * theta);
-
       // Compute the scaling factors in the Rodriguez formula
       double d_a1 = (theta * cos(theta) - sin(theta)) / (theta * theta * theta);
       double d_a2 = (theta * sin(theta) + 2 * cos(theta) - 2) /
@@ -771,25 +943,32 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
   return scaling;
 }
 
-#include <vnl/algo/vnl_svd.h>
-#include <vnl/vnl_trace.h>
-
 template <unsigned int VDim, typename TReal>
 vnl_vector<double>
 GreedyApproach<VDim, TReal>::RigidCostFunction
 ::GetCoefficients(TransformType *tran)
 {
+  // This affine transform is in voxel space. We must first map it into physical
+  vnl_vector<double> x_aff_phys = m_AffineFn.GetCoefficients(tran);
+  Mat3 A; Vec3 b;
+  unflatten_affine_transform(x_aff_phys.data_block(), A, b);
+
   // Compute polar decomposition of the affine matrix
-  Mat3 A = tran->GetMatrix().GetVnlMatrix();
   vnl_svd<TReal> svd(A);
   Mat3 R = svd.U() * svd.V().transpose();
+
+  double eps = 1e-4;
+  double f_thresh = cos(eps);
 
   // Compute the matrix logarithm of R
   double f = (vnl_trace(R) - 1) / 2;
   Vec3 q;
-  if(f == 1)
+  if(f >= f_thresh)
     {
-    q.fill(0.0);
+    q[0] = R(2,1) - R(1,2);
+    q[1] = R(0,2) - R(2,0);
+    q[2] = R(1,0) - R(0,1);
+    q *= 0.5;
     }
   else
     {
@@ -800,8 +979,6 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
     q[2] = R(1,0) - R(0,1);
     q *= theta / (2 * sin_theta);
     }
-
-  Vec3 b = tran->GetOffset().GetVnlVector();
 
   // Make result
   vnl_vector<double> x(6);
@@ -837,7 +1014,9 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
   Mat3 QQ = vnl_matrix_fixed_mat_mat_mult(Qmat, Qmat);
 
   // When theta = 0, rotation is identity
-  if(theta != 0)
+  double eps = 1e-4;
+
+  if(theta > eps)
     {
     // Compute the constant terms in the Rodriguez formula
     double a1 = sin(theta) / theta;
@@ -846,8 +1025,15 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
     // Compute the rotation matrix
     R += a1 * Qmat + a2 * QQ;
     }
+  else
+    {
+    R += Qmat;
+    }
 
-  set_affine_transform(R, b, tran);
+  // This gives us the physical space affine matrices. Flatten and map to voxel space
+  vnl_vector<double> x_aff_phys(m_AffineFn.get_number_of_unknowns());
+  flatten_affine_transform(R, b, x_aff_phys.data_block());
+  m_AffineFn.GetTransform(x_aff_phys, tran);
 }
 
 
@@ -1150,7 +1336,8 @@ int GreedyApproach<VDim, TReal>
       }
     else
       {
-      PureAffineCostFunction *affine_acf = new PureAffineCostFunction(&param, level, &of_helper);
+      //  PureAffineCostFunction *affine_acf = new PureAffineCostFunction(&param, level, &of_helper);
+      PhysicalSpaceAffineCostFunction *affine_acf = new PhysicalSpaceAffineCostFunction(&param, level, &of_helper);
       acf = new ScalingCostFunction(
               affine_acf,
               affine_acf->GetOptimalParameterScaling(

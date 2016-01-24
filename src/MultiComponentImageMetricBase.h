@@ -332,6 +332,24 @@ static void unflatten_affine_transform(
   transform->SetOffset(offset);
 }
 
+template<class TFloat, class TFloatArr, unsigned int VDim>
+static void unflatten_affine_transform(
+    const TFloatArr *flat_array,
+    vnl_matrix_fixed<TFloat, VDim, VDim> &matrix,
+    vnl_vector_fixed<TFloat, VDim> &offset,
+    double scaling = 1.0)
+{
+  int pos = 0;
+  for(int i = 0; i < VDim; i++)
+    {
+    offset[i] = flat_array[pos++] * scaling;
+    for(int j = 0; j < VDim; j++)
+      matrix(i, j) = flat_array[pos++] * scaling;
+    }
+}
+
+
+
 template <class TFloat, unsigned int VDim>
 static void set_affine_transform(
     const vnl_matrix_fixed<TFloat, VDim, VDim> &matrix,
