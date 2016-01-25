@@ -132,6 +132,7 @@ int usage()
   printf("  -ia-identity           : initialize affine matrix based on NIFTI headers \n");
   printf("Specific to affine mode:\n");
   printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 12=affine\n");
+  printf("  -jitter sigma          : Jitter (in voxel units) applied to sample points (def: 0.5)\n");
   printf("Specific to reslice mode: \n");
   printf("   -rf fixed.nii         : fixed image for reslicing\n");
   printf("   -rm mov.nii out.nii   : moving/output image pair (may be repeated)\n");
@@ -139,6 +140,7 @@ int usage()
   printf("For developers: \n");
   printf("  -debug-deriv           : enable periodic checks of derivatives (debug) \n");
   printf("  -debug-deriv-eps       : epsilon for derivative debugging \n");
+  printf("  -debug-aff-obj         : plot affine objective in neighborhood of -ia matrix \n");
   printf("  -dump-moving           : dump moving image at each iter\n");
   printf("  -dump-freq N           : dump frequency\n");
   printf("  -powell                : use Powell's method instead of LGBFS\n");
@@ -231,6 +233,8 @@ struct GreedyParameters
   double epsilon;
   double deriv_epsilon;
 
+  double affine_jitter;
+
   // Smoothing parameters
   SmoothingParameters sigma_pre, sigma_post;
 
@@ -264,6 +268,9 @@ struct GreedyParameters
 
   // Noise for NCC
   double ncc_noise_factor;
+
+  // Debugging matrices
+  bool flag_debug_aff_obj;
 };
 
 
@@ -1302,7 +1309,7 @@ int GreedyApproach<VDim, TReal>
   of_helper.SetDefaultPyramidFactors(param.iter_per_level.size());
 
   // Add random sampling jitter for affine stability at voxel edges
-  of_helper.SetJitterSigma(0.1);
+  of_helper.SetJitterSigma(param.affine_jitter);
 
   // Read the image pairs to register
   ReadImages(param, of_helper);
@@ -1449,6 +1456,28 @@ int GreedyApproach<VDim, TReal>
       std::cout << "N: " << std::endl
                 << tLevel->GetMatrix() << std::endl
                 << tLevel->GetOffset() << std::endl;
+      }
+
+    if(param.flag_debug_aff_obj)
+      {
+      for(int k = -50; k < 50; k++)
+        {
+        printf("Obj\t%d\t", k);
+        for(int i = 0; i < acf->get_number_of_unknowns(); i++)
+          {
+          vnl_vector<double> xTest = xLevel;
+          xTest[i] = xLevel[i] + k * param.deriv_epsilon;
+          double f; acf->compute(xTest, &f, NULL);
+          printf("%12.8f\t", f);
+          }
+        printf("\n");
+        }
+        {
+        vnl_vector<double> xTest = xLevel;
+          {
+          }
+        printf("\n");
+        }
       }
 
     // Run the minimization
@@ -2480,6 +2509,7 @@ int main(int argc, char *argv[])
   param.mode = GreedyParameters::GREEDY;
   param.flag_dump_moving = false;
   param.flag_debug_deriv = false;
+  param.flag_debug_aff_obj = false;
   param.dump_frequency = 1;
   param.epsilon = 1.0;
   param.sigma_pre.sigma = sqrt(3.0);
@@ -2496,6 +2526,7 @@ int main(int argc, char *argv[])
   param.ncc_noise_factor = 0.001;
   param.affine_init_mode = VOX_IDENTITY;
   param.affine_dof = GreedyParameters::DOF_AFFINE;
+  param.affine_jitter = 0.5;
 
   // reslice mode parameters
   InterpSpec interp_current;
@@ -2590,6 +2621,10 @@ int main(int argc, char *argv[])
             param.affine_dof = GreedyParameters::DOF_AFFINE;
         else throw GreedyException("DOF parameter only accepts 6 and 12 as values");
         }
+      else if(arg == "-jitter")
+        {
+        param.affine_jitter = cl.read_double();
+        }
       else if(arg == "-it")
         {
         int nFiles = cl.command_arg_count();
@@ -2623,6 +2658,10 @@ int main(int argc, char *argv[])
       else if(arg == "-debug-deriv-eps")
         {
         param.deriv_epsilon = cl.read_double();
+        }
+      else if(arg == "-debug-aff-obj")
+        {
+        param.flag_debug_aff_obj = true;
         }
       else if(arg == "-threads")
         {
