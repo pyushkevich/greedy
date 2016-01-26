@@ -133,6 +133,8 @@ int usage()
   printf("Specific to affine mode:\n");
   printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 12=affine\n");
   printf("  -jitter sigma          : Jitter (in voxel units) applied to sample points (def: 0.5)\n");
+  printf("  -search N s_ang s_xyz  : Random search over rigid transforms (N iter) before starting optimization\n");
+  printf("                           s_ang, s_xyz: sigmas for rot-n angle (degrees) and offset between image centers\n");
   printf("Specific to reslice mode: \n");
   printf("   -rf fixed.nii         : fixed image for reslicing\n");
   printf("   -rm mov.nii out.nii   : moving/output image pair (may be repeated)\n");
@@ -163,7 +165,14 @@ struct SmoothingParameters
   SmoothingParameters() : sigma(0.0), physical_units(true) {}
 };
 
+struct RigidSearchSpec
+{
+  int iterations;
+  double sigma_xyz;
+  double sigma_angle;
 
+  RigidSearchSpec() : iterations(0), sigma_xyz(0.0), sigma_angle(0.0) {}
+};
 
 struct InterpSpec
 {
@@ -271,6 +280,9 @@ struct GreedyParameters
 
   // Debugging matrices
   bool flag_debug_aff_obj;
+
+  // Rigid search
+  RigidSearchSpec rigid_search;
 };
 
 
@@ -500,6 +512,9 @@ protected:
   {
   public:
     typedef typename OFHelperType::LinearTransformType TransformType;
+    typedef vnl_vector_fixed<double, VDim> Vec3;
+    typedef vnl_matrix_fixed<double, VDim, VDim> Mat3;
+
 
     RigidCostFunction(GreedyParameters *param, int level, OFHelperType *helper);
     vnl_vector<double> GetCoefficients(TransformType *tran);
@@ -509,9 +524,14 @@ protected:
     // Get the preferred scaling for this function given image dimensions
     virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
 
+    // Create a random set of parameters, such that on average point C_fixed maps to point C_mov
+    vnl_vector<double> GetRandomCoeff(const vnl_vector<double> &xInit, vnl_random &randy, double sigma_angle, double sigma_xyz,
+                                      const Vec3 &C_fixed, const Vec3 &C_moving);
+
   protected:
-    typedef vnl_vector_fixed<double, VDim> Vec3;
-    typedef vnl_matrix_fixed<double, VDim, VDim> Mat3;
+
+    Mat3 GetRotationMatrix(const Vec3 &q);
+    Vec3 GetAxisAngle(const Mat3 &R);
 
     // We wrap around a physical space affine function, since rigid in physical space is not
     // the same as rigid in voxel space
@@ -963,7 +983,21 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
   // Compute polar decomposition of the affine matrix
   vnl_svd<TReal> svd(A);
   Mat3 R = svd.U() * svd.V().transpose();
+  Vec3 q = this->GetAxisAngle(R);
 
+  // Make result
+  vnl_vector<double> x(6);
+  x[0] = q[0]; x[1] = q[1]; x[2] = q[2];
+  x[3] = b[0]; x[4] = b[1]; x[5] = b[2];
+
+  return x;
+}
+
+template <unsigned int VDim, typename TReal>
+typename GreedyApproach<VDim, TReal>::RigidCostFunction::Vec3
+GreedyApproach<VDim, TReal>::RigidCostFunction
+::GetAxisAngle(const Mat3 &R)
+{
   double eps = 1e-4;
   double f_thresh = cos(eps);
 
@@ -987,24 +1021,59 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
     q *= theta / (2 * sin_theta);
     }
 
-  // Make result
+  return q;
+}
+
+
+
+template <unsigned int VDim, typename TReal>
+vnl_vector<double>
+GreedyApproach<VDim, TReal>::RigidCostFunction
+::GetRandomCoeff(const vnl_vector<double> &xInit, vnl_random &randy, double sigma_angle, double sigma_xyz,
+                 const Vec3 &C_fixed, const Vec3 &C_moving)
+{
+  // Generate a random rotation using given angles
+  Vec3 q;
+  for(int d = 0; d < 3; d++)
+    q[d] = randy.normal() * sigma_angle;
+  Mat3 R = this->GetRotationMatrix(q);
+
+  // Generate a rotation matrix for the initial parameters
+  Vec3 qInit;
+  for(int d = 0; d < 3; d++)
+    qInit[d] = xInit[d];
+  Mat3 R_init = this->GetRotationMatrix(qInit);
+
+  // Combined rotation
+  Mat3 R_comb = R * R_init;
+
+  // Take the log map
+  Vec3 q_comb = this->GetAxisAngle(R_comb);
+
+  // Generate the offset
+  Vec3 b = C_moving - R_comb * C_fixed;
+
+  // Apply random offset
+  for(int d = 0; d < 3; d++)
+    b[d] += randy.normal() * sigma_xyz;
+
+  // Generate output vector
   vnl_vector<double> x(6);
-  x[0] = q[0]; x[1] = q[1]; x[2] = q[2];
-  x[3] = b[0]; x[4] = b[1]; x[5] = b[2];
+  x[0] = q_comb[0];
+  x[1] = q_comb[1];
+  x[2] = q_comb[2];
+  x[3] = b[0];
+  x[4] = b[1];
+  x[5] = b[2];
 
   return x;
 }
 
 template <unsigned int VDim, typename TReal>
-void
+typename GreedyApproach<VDim, TReal>::RigidCostFunction::Mat3
 GreedyApproach<VDim, TReal>::RigidCostFunction
-::GetTransform(const vnl_vector<double> &x, TransformType *tran)
+::GetRotationMatrix(const Vec3 &q)
 {
-  // Place parameters into q and b
-  Vec3 q, b;
-  q[0] = x[0]; q[1] = x[1]; q[2] = x[2];
-  b[0] = x[3]; b[1] = x[4]; b[2] = x[5];
-
   // Compute theta
   double theta = q.magnitude();
 
@@ -1036,6 +1105,22 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
     {
     R += Qmat;
     }
+
+  return R;
+}
+
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>::RigidCostFunction
+::GetTransform(const vnl_vector<double> &x, TransformType *tran)
+{
+  // Place parameters into q and b
+  Vec3 q, b;
+  q[0] = x[0]; q[1] = x[1]; q[2] = x[2];
+  b[0] = x[3]; b[1] = x[4]; b[2] = x[5];
+
+  // Get the rotation matrix
+  Mat3 R = this->GetRotationMatrix(q);
 
   // This gives us the physical space affine matrices. Flatten and map to voxel space
   vnl_vector<double> x_aff_phys(m_AffineFn.get_number_of_unknowns());
@@ -1296,6 +1381,75 @@ GreedyApproach<VDim, TReal>
   tran->SetOffset(tran_b);
 }
 
+/**
+ * Find a plane of symmetry in an image
+ */
+/*
+template <unsigned int VDim, typename TReal>
+vnl_vector<double>
+GreedyApproach<VDim, TReal>
+::FindSymmetryPlane(ImageType *image, int N, int n_search_pts)
+{
+  typedef vnl_vector_fixed<double, 3> Vec3;
+  typedef vnl_matrix_fixed<double, 3, 3> Mat3;
+
+  // Loop over direction on a sphere, using the Saff & Kuijlaars algorithm
+  // https://perswww.kuleuven.be/~u0017946/publications/Papers97/art97a-Saff-Kuijlaars-MI/Saff-Kuijlaars-MathIntel97.pdf
+  double phi = 0.0;
+  double spiral_const = 3.6 / sqrt(N);
+  for(int k = 0; k < n_sphere_pts; k++)
+    {
+    // Height of the k-th point
+    double cos_theta = -1 * (2 * k) / (N - 1);
+    double sin_theta = sqrt(1 - cos_theta * cos_theta);
+
+    // Phase of the k-th point
+    if(k > 0 && k < N-1)
+      phi = fmod(phi_last + spiral_const / sin_theta, vnl_math::pi * 2);
+    else
+      phi = 0.0;
+
+    // We now have the polar coordinates of the points, get cartesian coordinates
+    Vec3 q;
+    q[0] = sin_theta * cos(phi);
+    q[1] = sin_theta * sin(phi);
+    q[2] = cos_theta;
+
+    // Now q * (x,y,z) = 0 defines a plane through the origin. We will test whether the image
+    // is symmetric across this plane. We first construct the reflection matrix
+    Mat3 R;
+    R(0,0) =  1 - q[0] * q[0]; R(0,1) = -2 * q[1] * q[0]; R(0,2) = -2 * q[2] * q[0];
+    R(1,0) = -2 * q[0] * q[1]; R(1,1) =  1 - q[1] * q[1]; R(1,2) = -2 * q[2] * q[1];
+    R(2,0) = -2 * q[0] * q[2]; R(2,1) = -2 * q[1] * q[2]; R(2,2) =  1 - q[2] * q[2];
+
+    // We must find the reasonable range of intercepts to search for. An intercept is reasonable
+    // if the plane cuts the image volume in at least a 80/20 ratio (let's say)
+
+
+    // This is a test axis of rotation. We will now measure the symmetry of the image across this axis
+    // To do so, we will construct a series of flips across this direction
+
+    }
+}
+*/
+
+/**
+ * This method performs initial alignment by first searching for a plane of symmetry
+ * in each image, and then finding the transform between the planes of symmetry.
+ *
+ * The goal is to have an almost sure-fire method for brain alignment, yet generic
+ * enough to work for other data as well.
+ */
+/*
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::SymmetrySearch(GreedyParameters &param, int level, OFHelperType *of_helper)
+{
+
+}
+*/
+
+
 
 
 template <unsigned int VDim, typename TReal>
@@ -1394,6 +1548,63 @@ int GreedyApproach<VDim, TReal>
 
         // Map back into transform format
         acf->GetTransform(xInit, tLevel);
+        }
+
+      // If the uses asks for rigid search, do it!
+      if(param.rigid_search.iterations > 0)
+        {
+        // Create a pure rigid acf
+        RigidCostFunction search_fun(&param, level, &of_helper);
+
+        // Get the parameters corresponding to the current transform
+        vnl_vector<double> xRigidInit = search_fun.GetCoefficients(tLevel);
+
+        // Get center of fixed and moving images in physical space
+        itk::Point<double, VDim> ctr_Fixed, ctr_Moving;
+        itk::Index<VDim> idx_Fixed = of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetIndex();
+        for(int d = 0; d < 3; d++)
+          idx_Fixed[d] += of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()[d] / 2;
+        of_helper.GetReferenceSpace(level)->TransformIndexToPhysicalPoint(idx_Fixed, ctr_Fixed);
+
+        itk::Index<VDim> idx_Moving = of_helper.GetMovingReferenceSpace(level)->GetBufferedRegion().GetIndex();
+        for(int d = 0; d < 3; d++)
+          idx_Moving[d] += of_helper.GetMovingReferenceSpace(level)->GetBufferedRegion().GetSize()[d] / 2;
+        of_helper.GetMovingReferenceSpace(level)->TransformIndexToPhysicalPoint(idx_Moving, ctr_Moving);
+
+        // At random, try a whole bunch of transforms, around 5 degrees
+        vnl_random randy(12345);
+
+        // TODO: make a heap of k best tries
+        double fBest;
+        vnl_vector<double> xBest = xRigidInit;
+        search_fun.compute(xBest, &fBest, NULL);
+
+        // Report the initial best
+        std::cout << "Rigid search -> Initial best: " << fBest << " " << xBest << std::endl;
+
+        for(int i = 0; i < param.rigid_search.iterations; i++)
+          {
+          // Get random coefficient
+          // Compute a random rotation
+          vnl_vector<double> xTry = search_fun.GetRandomCoeff(xRigidInit, randy,
+                                                              param.rigid_search.sigma_angle,
+                                                              param.rigid_search.sigma_xyz,
+                                                              ctr_Fixed.GetVnlVector(), ctr_Moving.GetVnlVector());
+
+          // Evaluate this transform
+          double f;
+          search_fun.compute(xTry, &f, NULL);
+
+          if(f < fBest)
+            {
+            fBest = f;
+            xBest = xTry;
+            std::cout << "New best: " << fBest << " " << xBest << std::endl;
+            }
+          }
+
+        xInit = xBest;
+        search_fun.GetTransform(xInit, tLevel);
         }
       }
     else
@@ -1759,6 +1970,7 @@ int GreedyApproach<VDim, TReal>
 
         total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, param.epsilon) / param.epsilon;
         printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
+        fflush(stdout);
         }
 
       // If there is a mask, multiply the gradient by the mask
@@ -2624,6 +2836,12 @@ int main(int argc, char *argv[])
       else if(arg == "-jitter")
         {
         param.affine_jitter = cl.read_double();
+        }
+      else if(arg == "-search")
+        {
+        param.rigid_search.iterations = cl.read_integer();
+        param.rigid_search.sigma_angle = cl.read_double();
+        param.rigid_search.sigma_xyz = cl.read_double();
         }
       else if(arg == "-it")
         {
