@@ -112,89 +112,102 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
     // Iterate over the pixels in the line
     for(; !iter.IsAtEndOfLine(); ++iter)
       {
-      // Get the output pointer for this voxel
-      OutputComponentType *out = iter.GetOutputLine();
-
-      // Interpolate the moving image at the current position. The worker knows
-      // whether to interpolate the gradient or not
-      typename FastInterpolator::InOut status = iter.Interpolate();
-
-      // TODO: debugging border issues: setting mask=0 on the border
-      // TODO: i added this check for affine/non-affine. Seems like there were some problems previously
-      // with the NCC metric at the border in deformable mode, but in affine mode you need the border
-      // values to be included.
-      // Outside interpolations are ignored
-      if((m_Parent->GetComputeAffine() && status == FastInterpolator::OUTSIDE) ||
-         (!m_Parent->GetComputeAffine() && (status == FastInterpolator::OUTSIDE || status == FastInterpolator::BORDER)))
+      // The mask is 0.5 for points in range of the user mask, and 1.0 for the user mask
+      // We can safely ignore the points outside of range - they have no impact on the
+      // region that we are going to measure
+      if(iter.CheckFixedMask(0.0))
         {
-        // Place a zero in the output
-        *out++ = 1.0;
+        // Get the output pointer for this voxel
+        OutputComponentType *out = iter.GetOutputLine();
 
-        // Iterate over the components
-        for(int k = 0; k < ncomp_in; k++)
+        // Interpolate the moving image at the current position. The worker knows
+        // whether to interpolate the gradient or not
+        typename FastInterpolator::InOut status = iter.Interpolate();
+
+        // TODO: debugging border issues: setting mask=0 on the border
+        // TODO: i added this check for affine/non-affine. Seems like there were some problems previously
+        // with the NCC metric at the border in deformable mode, but in affine mode you need the border
+        // values to be included.
+        // Outside interpolations are ignored
+        if((m_Parent->GetComputeAffine() && status == FastInterpolator::OUTSIDE) ||
+           (!m_Parent->GetComputeAffine() && (status == FastInterpolator::OUTSIDE || status == FastInterpolator::BORDER)))
           {
-          InputComponentType x_fix = iter.GetFixedLine()[k];
-          *out++ = x_fix;
-          *out++ = 0.0;
-          *out++ = x_fix * x_fix;
-          *out++ = 0.0;
-          *out++ = 0.0;
+          // Place a zero in the output
+          *out++ = 1.0;
 
-          int n = m_Parent->GetComputeGradient()
-                  ? ( m_Parent->GetComputeAffine()
-                      ? 3 * ImageDimension * (1 + ImageDimension)
-                      : 3 * ImageDimension)
-                  : 0;
-
-          for(int j = 0; j < n; j++)
+          // Iterate over the components
+          for(int k = 0; k < ncomp_in; k++)
+            {
+            InputComponentType x_fix = iter.GetFixedLine()[k];
+            *out++ = x_fix;
             *out++ = 0.0;
+            *out++ = x_fix * x_fix;
+            *out++ = 0.0;
+            *out++ = 0.0;
+
+            int n = m_Parent->GetComputeGradient()
+                    ? ( m_Parent->GetComputeAffine()
+                        ? 3 * ImageDimension * (1 + ImageDimension)
+                        : 3 * ImageDimension)
+                    : 0;
+
+            for(int j = 0; j < n; j++)
+              *out++ = 0.0;
+            }
+          }
+        else
+          {
+          // Place a zero in the output
+          *out++ = 1.0;
+
+          // Iterate over the components
+          for(int k = 0; k < ncomp_in; k++)
+            {
+            InputComponentType x_mov = iter.GetMovingSample()[k];
+            InputComponentType x_fix = iter.GetFixedLine()[k];
+
+            // Write the five components
+            *out++ = x_fix;
+            *out++ = x_mov;
+            *out++ = x_fix * x_fix;
+            *out++ = x_mov * x_mov;
+            *out++ = x_fix * x_mov;
+
+            // If gradient, do more
+            if(m_Parent->GetComputeGradient())
+              {
+              const InputComponentType *mov_grad = iter.GetMovingSampleGradient(k);
+              for(int i = 0; i < ImageDimension; i++)
+                {
+                InputComponentType mov_grad_i = mov_grad[i];
+                *out++ = mov_grad_i;
+                *out++ = x_fix * mov_grad_i;
+                *out++ = x_mov * mov_grad_i;
+
+                if(m_Parent->GetComputeAffine())
+                  {
+                  for(int j = 0; j < ImageDimension; j++)
+                    {
+                    double x = iter.GetIndex()[j];
+                    *out++ = mov_grad_i * x;
+                    *out++ = x_fix * mov_grad_i * x;
+                    *out++ = x_mov * mov_grad_i * x;
+                    }
+                  }
+                }
+
+              // If affine, tack on additional components
+
+              }
+            }
           }
         }
       else
         {
-        // Place a zero in the output
-        *out++ = 1.0;
-
-        // Iterate over the components
-        for(int k = 0; k < ncomp_in; k++)
-          {
-          InputComponentType x_mov = iter.GetMovingSample()[k];
-          InputComponentType x_fix = iter.GetFixedLine()[k];
-
-          // Write the five components
-          *out++ = x_fix;
-          *out++ = x_mov;
-          *out++ = x_fix * x_fix;
-          *out++ = x_mov * x_mov;
-          *out++ = x_fix * x_mov;
-
-          // If gradient, do more
-          if(m_Parent->GetComputeGradient())
-            {
-            const InputComponentType *mov_grad = iter.GetMovingSampleGradient(k);
-            for(int i = 0; i < ImageDimension; i++)
-              {
-              InputComponentType mov_grad_i = mov_grad[i];
-              *out++ = mov_grad_i;
-              *out++ = x_fix * mov_grad_i;
-              *out++ = x_mov * mov_grad_i;
-
-              if(m_Parent->GetComputeAffine())
-                {
-                for(int j = 0; j < ImageDimension; j++)
-                  {
-                  double x = iter.GetIndex()[j];
-                  *out++ = mov_grad_i * x;
-                  *out++ = x_fix * mov_grad_i * x;
-                  *out++ = x_mov * mov_grad_i * x;
-                  }
-                }
-              }
-
-            // If affine, tack on additional components
-
-            }
-          }
+        // TODO: do we need this? Zero out the images
+        OutputComponentType *out = iter.GetOutputLine();
+        for(int q = 0; q < ncomp_out; q++)
+          *out++ = 0;
         }
       }
     }
@@ -393,9 +406,12 @@ MultiComponentNCCImageMetric<TMetricTraits>
   // Execute the filter
   preFilter->Update();
 
+  // Get the output image
+  InputImageType *img_pre = preFilter->GetOutput();
+
 #ifdef DUMP_NCC
   typename itk::ImageFileWriter<InputImageType>::Pointer pwriter = itk::ImageFileWriter<InputImageType>::New();
-  pwriter->SetInput(preFilter->GetOutput());
+  pwriter->SetInput(img_pre);
   pwriter->SetFileName("nccpre.nii.gz");
   pwriter->Update();
 #endif
@@ -403,27 +419,12 @@ MultiComponentNCCImageMetric<TMetricTraits>
   // Currently, we have all the stuff we need to compute the metric in the working
   // image. Next, we run the fast sum computation to give us the local average of
   // intensities, products, gradients in the working image
-  typedef OneDimensionalInPlaceAccumulateFilter<InputImageType> AccumFilterType;
-
-  // Create a chain of separable 1-D filters
-  typename itk::ImageSource<InputImageType>::Pointer pipeTail;
-  for(int dir = 0; dir < ImageDimension; dir++)
-    {
-    typename AccumFilterType::Pointer accum = AccumFilterType::New();
-    if(pipeTail.IsNull())
-      accum->SetInput(preFilter->GetOutput());
-    else
-      accum->SetInput(pipeTail->GetOutput());
-    accum->SetDimension(dir);
-    accum->SetRadius(m_Radius[dir]);
-    pipeTail = accum;
-
-    accum->Update();
-    }
+  typename InputImageType::Pointer img_accum =
+      AccumulateNeighborhoodSumsInPlace(img_pre, m_Radius);
 
 #ifdef DUMP_NCC
   typename itk::ImageFileWriter<InputImageType>::Pointer pwriter = itk::ImageFileWriter<InputImageType>::New();
-  pwriter->SetInput(pipeTail->GetOutput());
+  pwriter->SetInput(img_accum);
   pwriter->SetFileName("nccaccum.nii.gz");
   pwriter->Update();
 #endif
@@ -467,6 +468,11 @@ MultiComponentNCCImageMetric<TMetricTraits>
                                        ? this->GetDeformationGradientOutput()->GetBufferPointer() + offset_in_pixels
                                        : NULL;
 
+    // Get the fixed mask like
+    typename MaskImageType::PixelType *fixed_mask_line =
+        this->GetFixedMaskImage()
+        ? this->GetFixedMaskImage()->GetBufferPointer() + offset_in_pixels
+        : NULL;
 
     // Case 1 - dense gradient field requested
     if(!this->m_ComputeAffine)
@@ -480,8 +486,16 @@ MultiComponentNCCImageMetric<TMetricTraits>
           *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
           *p_grad_metric = itk::NumericTraits<GradientPixelType>::Zero;
 
-          p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, this->m_Weights.data_block(),
-                                                     p_metric, p_grad_metric++, ImageDimension);
+          if(!fixed_mask_line || fixed_mask_line[i] > 0.5)
+            {
+            p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, this->m_Weights.data_block(),
+                                                       p_metric, p_grad_metric++, ImageDimension);
+            }
+          else
+            {
+            p_grad_metric++;
+            p_input+=nc;
+            }
 
           // Accumulate the total metric
           td.metric += *p_metric;
@@ -497,8 +511,16 @@ MultiComponentNCCImageMetric<TMetricTraits>
           *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
 
           // Apply the post computation
-          p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, this->m_Weights.data_block(),
-                                                     p_metric, (GradientPixelType *)(NULL), ImageDimension);
+          if(!fixed_mask_line || fixed_mask_line[i] > 0.5)
+            {
+            p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, this->m_Weights.data_block(),
+                                                       p_metric, (GradientPixelType *)(NULL), ImageDimension);
+            }
+          else
+            {
+            p_grad_metric++;
+            p_input+=nc;
+            }
 
           // Accumulate the total metric
           td.metric += *p_metric;

@@ -1309,6 +1309,17 @@ void GreedyApproach<VDim, TReal>
 
     ofhelper.SetGradientMask(readmask->GetOutput());
     }
+
+  // Generate the optimized composite images. For the NCC metric, we add random noise to
+  // the composite images, specified in units of the interquartile intensity range.
+  double noise = (param.metric == GreedyParameters::NCC) ? param.ncc_noise_factor : 0.0;
+
+  // Build the composite images
+  ofhelper.BuildCompositeImages(noise);
+
+  // If the metric is NCC, then also apply special processing to the gradient masks
+  if(param.metric == GreedyParameters::NCC)
+    ofhelper.DilateCompositeGradientMasksForNCC(array_caster<VDim>::to_itkSize(param.metric_radius));
 }
 
 #include <vnl/algo/vnl_lbfgs.h>
@@ -1465,15 +1476,8 @@ int GreedyApproach<VDim, TReal>
   // Add random sampling jitter for affine stability at voxel edges
   of_helper.SetJitterSigma(param.affine_jitter);
 
-  // Read the image pairs to register
+  // Read the image pairs to register - this will also build the composite pyramids
   ReadImages(param, of_helper);
-
-  // Generate the optimized composite images. For the NCC metric, we add random noise to
-  // the composite images, specified in units of the interquartile intensity range.
-  double noise = (param.metric == GreedyParameters::NCC) ? param.ncc_noise_factor : 0.0;
-
-  // Build the composite images
-  of_helper.BuildCompositeImages(noise);
 
   // Matrix describing current transform in physical space
   vnl_matrix<double> Q_physical;
@@ -1783,13 +1787,6 @@ int GreedyApproach<VDim, TReal>
   // Read the image pairs to register
   ReadImages(param, of_helper);
 
-  // Generate the optimized composite images. For the NCC metric, we add random noise to
-  // the composite images, specified in units of the interquartile intensity range.
-  double noise = (param.metric == GreedyParameters::NCC) ? param.ncc_noise_factor : 0.0;
-
-  // Build the composite images
-  of_helper.BuildCompositeImages(noise);
-
   // An image pointer desribing the current estimate of the deformation
   VectorImagePointer uLevel = NULL;
 
@@ -1876,6 +1873,10 @@ int GreedyApproach<VDim, TReal>
         vnl_vector<double> all_metrics =
             of_helper.ComputeOpticalFlowField(level, uk, iTemp, uk1, param.epsilon)  / param.epsilon;
 
+        // If there is a mask, multiply the gradient by the mask
+        if(param.gradient_mask.size())
+          LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask(level));
+
         printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
         total_energy = 0.0;
         for(int i = 0;  i < all_metrics.size(); i++)
@@ -1890,6 +1891,10 @@ int GreedyApproach<VDim, TReal>
         {
         vnl_vector<double> all_metrics =
             of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, uk, iTemp, uk1, param.epsilon);
+
+        // If there is a mask, multiply the gradient by the mask
+        if(param.gradient_mask.size())
+          LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask(level));
 
         printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
         total_energy = 0.0;
@@ -1968,14 +1973,13 @@ int GreedyApproach<VDim, TReal>
           }
           */
 
+        // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
         total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, param.epsilon) / param.epsilon;
+
+
         printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
         fflush(stdout);
         }
-
-      // If there is a mask, multiply the gradient by the mask
-      if(param.gradient_mask.size())
-        LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask(level));
 
       // Dump the gradient image if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
@@ -2089,9 +2093,6 @@ int GreedyApproach<VDim, TReal>
 
   // Read the image pairs to register
   ReadImages(param, of_helper);
-
-  // Build the composite images
-  of_helper.BuildCompositeImages(param.ncc_noise_factor);
 
   // Reference space
   ImageBaseType *refspace = of_helper.GetReferenceSpace(0);

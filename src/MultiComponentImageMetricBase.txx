@@ -451,9 +451,9 @@ public:
 
   /**
    * Returns true if the voxel is not masked out, i.e., either the mask is NULL or
-   * the mask value is > 0
+   * the mask value is > threshold
    */
-  bool CheckFixedMask() const { return !m_FixedMaskLine || *m_FixedMaskLine > 0; }
+  bool CheckFixedMask(double threshold = 0.0) const { return !m_FixedMaskLine || *m_FixedMaskLine > threshold; }
 
   OutputComponentType *GetOutputLine() { return m_OutputLine; }
 

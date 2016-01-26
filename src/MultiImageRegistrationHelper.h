@@ -77,6 +77,18 @@ public:
   /** Compute the composite image - must be run before any sampling is done */
   void BuildCompositeImages(double noise_sigma_relative = 0.0);
 
+  /**
+   * Apply a dilation to the fixed gradient masks - this is used with the NCC metric. The initial
+   * user-specified mask is transformed into a dilated mask, with values as follows:
+   *   1.0 : voxel is inside the user-specified mask
+   *   0.5 : voxel is within radius of the user-specified mask
+   *   0.0 : voxel is outside of the user-specified mask
+   *
+   * NCC metrics exploit this mask format for faster processing - region where the mask is zero are
+   * excluded from NCC computation and accumulation
+   */
+  void DilateCompositeGradientMasksForNCC(SizeType radius);
+
   /** Get the reference image for level k */
   ImageBaseType *GetReferenceSpace(int level);
 

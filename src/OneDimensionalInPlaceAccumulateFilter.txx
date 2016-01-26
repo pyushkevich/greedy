@@ -200,3 +200,23 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
   delete line;
 }
 
+template <class TInputImage>
+typename TInputImage::Pointer
+AccumulateNeighborhoodSumsInPlace(TInputImage *image, const typename TInputImage::SizeType &radius)
+{
+  typedef OneDimensionalInPlaceAccumulateFilter<TInputImage> AccumFilterType;
+
+  typename itk::ImageSource<TInputImage>::Pointer pipeTail;
+  for(int dir = 0; dir < TInputImage::ImageDimension; dir++)
+    {
+    typename AccumFilterType::Pointer accum = AccumFilterType::New();
+    accum->SetInput(pipeTail.IsNull() ? image : pipeTail->GetOutput());
+    accum->SetDimension(dir);
+    accum->SetRadius(radius[dir]);
+    pipeTail = accum;
+
+    accum->Update();
+    }
+
+  return pipeTail->GetOutput();
+}

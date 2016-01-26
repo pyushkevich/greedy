@@ -134,6 +134,36 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
+::DilateCompositeGradientMasksForNCC(SizeType radius)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  for(int level = 0; level < m_PyramidFactors.size(); level++)
+    {
+    // Threshold the mask itself
+    LDDMMType::img_threshold_in_place(m_GradientMaskComposite[level], 0.5, 1e100, 0.5, 0);
+
+    // Make a copy of the mask
+    typename FloatImageType::Pointer mask_copy;
+    LDDMMType::alloc_img(mask_copy, m_GradientMaskComposite[level]);
+    LDDMMType::img_copy(m_GradientMaskComposite[level], mask_copy);
+
+    // Run the accumulation filter on the mask
+    typename FloatImageType::Pointer mask_accum =
+        AccumulateNeighborhoodSumsInPlace(mask_copy.GetPointer(), radius);
+
+    // Threshold the mask copy
+    LDDMMType::img_threshold_in_place(mask_accum, 0.25, 1e100, 0.5, 0);
+
+    // Add the two images - the result has 1 for the initial mask, 0.5 for the 'outer' mask
+    LDDMMType::img_add_in_place(m_GradientMaskComposite[level], mask_accum);
+    }
+}
+
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
 ::BuildCompositeImages(double noise_sigma_relative)
 {
   typedef LDDMMData<TFloat, VDim> LDDMMType;
@@ -271,7 +301,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         // Downsampling the mask involves smoothing, so the mask will no longer be binary
         LDDMMType::img_downsample(m_GradientMaskImage, m_GradientMaskComposite[i], m_PyramidFactors[i]);
         LDDMMType::img_threshold_in_place(m_GradientMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
-        }
+        }      
       }
     }
 
@@ -475,6 +505,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->GetDeformationGradientOutput()->Graft(out_gradient);
   filter->SetRadius(radius);
   filter->SetWorkingImage(m_NCCWorkingImage);
+  filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
   filter->Update();
 
   // Get the vector of the normalized metrics

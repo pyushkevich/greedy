@@ -148,6 +148,7 @@ public:
                                                  bool scale_down_only);
 
   // Scalar math
+  static void img_add_in_place(ImagePointer &trg, ImageType *a);
   static void img_subtract_in_place(ImagePointer &trg, ImageType *a);
   static void img_multiply_in_place(ImagePointer &trg, ImageType *a);
   static TFloat img_euclidean_norm_sq(ImageType *trg);

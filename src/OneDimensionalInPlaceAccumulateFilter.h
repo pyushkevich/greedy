@@ -103,6 +103,12 @@ protected:
 
 };
 
+/**
+ * This helper function strings N 1-D filters together
+ */
+template <class TInputImage>
+typename TInputImage::Pointer
+AccumulateNeighborhoodSumsInPlace(TInputImage *image, const typename TInputImage::SizeType &radius);
 
 
 #ifndef ITK_MANUAL_INSTANTIATION

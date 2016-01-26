@@ -319,6 +319,20 @@ LDDMMData<TFloat, VDim>
 }
 
 // Scalar math
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::img_add_in_place(ImagePointer &trg, ImageType *a)
+{
+  typedef itk::AddImageFilter<ImageType> AddFilter;
+  typename AddFilter::Pointer flt = AddFilter::New();
+  flt->SetInput(0,trg);
+  flt->SetInput(1,a);
+  flt->GraftOutput(trg);
+  flt->Update();
+}
+
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
