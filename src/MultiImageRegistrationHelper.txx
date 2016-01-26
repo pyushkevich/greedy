@@ -140,23 +140,26 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   for(int level = 0; level < m_PyramidFactors.size(); level++)
     {
-    // Threshold the mask itself
-    LDDMMType::img_threshold_in_place(m_GradientMaskComposite[level], 0.5, 1e100, 0.5, 0);
+    if(m_GradientMaskComposite[level])
+      {
+      // Threshold the mask itself
+      LDDMMType::img_threshold_in_place(m_GradientMaskComposite[level], 0.5, 1e100, 0.5, 0);
 
-    // Make a copy of the mask
-    typename FloatImageType::Pointer mask_copy;
-    LDDMMType::alloc_img(mask_copy, m_GradientMaskComposite[level]);
-    LDDMMType::img_copy(m_GradientMaskComposite[level], mask_copy);
+      // Make a copy of the mask
+      typename FloatImageType::Pointer mask_copy;
+      LDDMMType::alloc_img(mask_copy, m_GradientMaskComposite[level]);
+      LDDMMType::img_copy(m_GradientMaskComposite[level], mask_copy);
 
-    // Run the accumulation filter on the mask
-    typename FloatImageType::Pointer mask_accum =
-        AccumulateNeighborhoodSumsInPlace(mask_copy.GetPointer(), radius);
+      // Run the accumulation filter on the mask
+      typename FloatImageType::Pointer mask_accum =
+          AccumulateNeighborhoodSumsInPlace(mask_copy.GetPointer(), radius);
 
-    // Threshold the mask copy
-    LDDMMType::img_threshold_in_place(mask_accum, 0.25, 1e100, 0.5, 0);
+      // Threshold the mask copy
+      LDDMMType::img_threshold_in_place(mask_accum, 0.25, 1e100, 0.5, 0);
 
-    // Add the two images - the result has 1 for the initial mask, 0.5 for the 'outer' mask
-    LDDMMType::img_add_in_place(m_GradientMaskComposite[level], mask_accum);
+      // Add the two images - the result has 1 for the initial mask, 0.5 for the 'outer' mask
+      LDDMMType::img_add_in_place(m_GradientMaskComposite[level], mask_accum);
+      }
     }
 }
 

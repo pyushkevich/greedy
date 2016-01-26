@@ -518,7 +518,6 @@ MultiComponentNCCImageMetric<TMetricTraits>
             }
           else
             {
-            p_grad_metric++;
             p_input+=nc;
             }
 
@@ -542,20 +541,24 @@ MultiComponentNCCImageMetric<TMetricTraits>
       for(int i = 0; i < line_len; ++i)
         {
         // Use mask
-        if(mask_line && mask_line[i] == 0.0)
-          continue;
+        if(!fixed_mask_line || fixed_mask_line[i] > 0.5)
+          {
+          // Clear the metric and the gradient
+          *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
 
-        // Clear the metric and the gradient
-        *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
+          // Apply the post computation
+          p_input = MultiImageNNCPostComputeAffineGradientFunction(
+                      p_input, p_input + nc, this->m_Weights.data_block(),
+                      p_metric, p_grad, ImageDimension);
 
-        // Apply the post computation
-        p_input = MultiImageNNCPostComputeAffineGradientFunction(
-                    p_input, p_input + nc, this->m_Weights.data_block(),
-                    p_metric, p_grad, ImageDimension);
-
-        // Accumulate the total metric
-        td.metric += *p_metric;
-        td.mask += 1.0;
+          // Accumulate the total metric
+          td.metric += *p_metric;
+          td.mask += 1.0;
+          }
+        else
+          {
+          p_input+=nc;
+          }
         }
       }
     }
