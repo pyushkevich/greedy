@@ -57,7 +57,7 @@ public:
   typedef itk::Size<VDim> SizeType;
   typedef itk::CovariantVector<TFloat, VDim> Vec;
 
-  typedef itk::MatrixOffsetTransformBase<double, VDim, VDim> LinearTransformType;
+  typedef itk::MatrixOffsetTransformBase<TFloat, VDim, VDim> LinearTransformType;
 
   /** Set default (power of two) pyramid factors */
   void SetDefaultPyramidFactors(int n_levels);

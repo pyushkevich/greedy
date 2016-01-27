@@ -185,13 +185,13 @@ private:
   // Combined histogram representation
   struct Histogram
   {
-    vnl_matrix<double> Pfm, Wfm;
-    vnl_vector<double> Pf, Pm;
+    vnl_matrix<RealType> Pfm, Wfm;
+    vnl_vector<RealType> Pf, Pm;
     Histogram(int bins) : Pfm(bins, bins, 0.0), Pf(bins, 0.0), Pm(bins, 0.0), Wfm(bins, bins, 0.0) {}
   };
 
   // Histogram accumulator - array over the components in the image
-  typedef std::vector< vnl_matrix<double> > HistogramAccumType;
+  typedef std::vector< vnl_matrix<RealType> > HistogramAccumType;
 
   // Weights for gradient computation - derived from the histogram. For each component, this is a
   // matrix holding derivatives of the metric with respect to the height of the i,j-th bin in the

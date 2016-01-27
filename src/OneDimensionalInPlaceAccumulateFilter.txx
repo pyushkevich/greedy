@@ -111,6 +111,10 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
   // Pointers into the sum array for the included components
   OutputImageComponentType *sum_start = sum + c_first, *sum_end = sum + c_last + 1, *p_sum;
 
+  // Two versions of the code - I thought that maybe the second version (further down) would be
+  // more optimized by the compiler, but if anything, I see an opposite effect (although tiny)
+#ifndef _ACCUM_ITER_CODE_
+
   // Start iterating over lines
   for(itLine.GoToBegin(); !itLine.IsAtEnd(); itLine.NextLine())
     {
@@ -195,6 +199,84 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
       p_tail += n_skipped;
       }
     }
+
+#else
+
+  // Start iterating over lines
+  for(itLine.GoToBegin(); !itLine.IsAtEnd(); itLine.NextLine())
+    {
+    int i, k, m;
+
+    // Initialize the sum to zero
+    for(int k = c_first; k <= c_last; k++)
+      sum[k] = itk::NumericTraits<OutputImageComponentType>::Zero;
+
+
+
+    // Pointer to the current position in the line
+    OutputImageComponentType *p_line = line, *p_tail = p_line;
+
+    // Pointer to the beginning of the scan line
+    long offset_in_pixels = itLine.GetPosition() - image->GetBufferPointer();
+    long offset_in_comp = offset_in_pixels * nc;
+
+    // Where we are scanning from
+    const OutputImageComponentType *p_scan_pixel = image->GetBufferPointer() + offset_in_comp;
+
+    // Pointer used for writing, it will trail the scan pointer
+    OutputImageComponentType *p_write_pixel = const_cast<OutputImageComponentType *>(p_scan_pixel);
+
+    // Compute the initial sum
+    for(i = 0, m = 0; i < m_Radius; i++)
+      {
+      for(k = c_first; k <= c_last; k++)
+        {
+        sum[k] += p_line[k] = p_scan_pixel[k];
+        }
+      p_scan_pixel += jump;
+      p_line += nc;
+      }
+
+    // For the next Radius + 1 values, add to the sum and write
+    for(; i < kernel_width; i++)
+      {
+      for(k = c_first; k <= c_last; k++)
+        {
+        p_write_pixel[k] = (sum[k] += p_line[k] = p_scan_pixel[k]);
+        }
+
+      p_scan_pixel += jump;
+      p_write_pixel += jump;
+      p_line += nc;
+      }
+
+    // Continue until we hit the end of the scanline
+    for(; i < line_length; i++)
+      {
+      for(k = c_first; k <= c_last; k++)
+        {
+        p_write_pixel[k] = (sum[k] += (p_line[k] = p_scan_pixel[k]) - p_tail[k]);
+        }
+
+      p_scan_pixel += jump;
+      p_write_pixel += jump;
+      p_line += nc;
+      p_tail += nc;
+      }
+
+    // Fill out the last bit
+    for(; i < line_length + m_Radius; i++)
+      {
+      for(k = c_first; k <= c_last; k++)
+        {
+        p_write_pixel[k] = (sum[k] -= p_tail[k]);
+        }
+
+      p_write_pixel += jump;
+      p_tail += nc;
+      }
+    }
+#endif
 
   delete sum;
   delete line;

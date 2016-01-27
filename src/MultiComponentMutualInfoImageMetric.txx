@@ -190,11 +190,11 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
 
   // Create the per-thread histograms
   m_MIThreadData.resize(this->GetNumberOfThreads(),
-                        HistogramAccumType(ncomp, vnl_matrix<double>(m_Bins, m_Bins, 0.0)));
+                        HistogramAccumType(ncomp, vnl_matrix<RealType>(m_Bins, m_Bins, 0.0)));
 
   // Initialize the gradient matrices
   if(this->m_ComputeGradient)
-    m_GradWeights.resize(ncomp, vnl_matrix<double>(m_Bins, m_Bins, 0.0));
+    m_GradWeights.resize(ncomp, vnl_matrix<RealType>(m_Bins, m_Bins, 0.0));
 
   // Code to determine the actual number of threads used below
   itk::ThreadIdType nbOfThreads = this->GetNumberOfThreads();
@@ -279,7 +279,7 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
         for(int bm = 1; bm < m_Bins; bm++)
           {
           // Reference to the joint probability entry
-          double &Pfm = hc.Pfm(bf,bm);
+          RealType &Pfm = hc.Pfm(bf,bm);
 
           // Add the entries from all threads
           for(int q = 0; q < this->GetNumberOfThreads(); q++)
@@ -296,7 +296,7 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
         for(int bm = 1; bm < m_Bins; bm++)
           {
           // Reference to the joint probability entry
-          double &Pfm = hc.Pfm(bf,bm);
+          RealType &Pfm = hc.Pfm(bf,bm);
 
           // Normalize to make a probability
           Pfm /= hist_sum;

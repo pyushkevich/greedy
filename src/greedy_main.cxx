@@ -42,6 +42,7 @@
 #include <itkShrinkImageFilter.h>
 #include <itkAffineTransform.h>
 #include <itkTransformFactory.h>
+#include <itkTimeProbe.h>
 
 #include "MultiImageRegistrationHelper.h"
 #include "FastWarpCompositeImageFilter.h"
@@ -62,8 +63,70 @@ public:
       sz[i] = t[i];
     return sz;
   }
-
 };
+
+template <class TITKMatrix, class TVNLMatrix>
+void vnl_matrix_to_itk_matrix(
+    const TVNLMatrix &vmat,
+    TITKMatrix &imat)
+{
+  for(int r = 0; r < TITKMatrix::RowDimensions; r++)
+    for(int c = 0; c < TITKMatrix::ColumnDimensions; c++)
+      imat(r,c) = static_cast<typename TITKMatrix::ValueType>(vmat(r,c));
+}
+
+template <class TITKVector, class TVNLVector>
+void vnl_vector_to_itk_vector(
+    const TVNLVector &vvec,
+    TITKVector &ivec)
+{
+  for(int r = 0; r < TITKVector::Dimension; r++)
+    ivec[r] = static_cast<typename TITKVector::ValueType>(vvec(r));
+}
+
+template <class TITKMatrix, class TVNL>
+void itk_matrix_to_vnl_matrix(
+    const TITKMatrix &imat,
+    vnl_matrix_fixed<TVNL,TITKMatrix::RowDimensions,TITKMatrix::ColumnDimensions>  &vmat)
+{
+  for(int r = 0; r < TITKMatrix::RowDimensions; r++)
+    for(int c = 0; c < TITKMatrix::ColumnDimensions; c++)
+      vmat(r,c) = static_cast<TVNL>(imat(r,c));
+}
+
+template <class TITKMatrix, class TVNL>
+void itk_matrix_to_vnl_matrix(
+    const TITKMatrix &imat,
+    vnl_matrix<TVNL>  &vmat)
+{
+  vmat.set_size(TITKMatrix::RowDimensions,TITKMatrix::ColumnDimensions);
+  for(int r = 0; r < TITKMatrix::RowDimensions; r++)
+    for(int c = 0; c < TITKMatrix::ColumnDimensions; c++)
+      vmat(r,c) = static_cast<TVNL>(imat(r,c));
+}
+
+template <class TITKVector, class TVNL>
+void itk_vector_to_vnl_vector(
+    const TITKVector &ivec,
+    vnl_vector_fixed<TVNL,TITKVector::Dimension> &vvec)
+{
+  for(int r = 0; r < TITKVector::Dimension; r++)
+    vvec(r) = static_cast<TVNL>(ivec[r]);
+}
+
+template <class TITKVector, class TVNL>
+void itk_vector_to_vnl_vector(
+    const TITKVector &ivec,
+    vnl_vector<TVNL> &vvec)
+{
+  vvec.set_size(TITKVector::Dimension);
+  for(int r = 0; r < TITKVector::Dimension; r++)
+    vvec(r) = static_cast<TVNL>(ivec[r]);
+}
+
+
+
+
 
 /**
  * A simple exception class with string formatting
@@ -146,6 +209,7 @@ int usage()
   printf("  -dump-moving           : dump moving image at each iter\n");
   printf("  -dump-freq N           : dump frequency\n");
   printf("  -powell                : use Powell's method instead of LGBFS\n");
+  printf("  -float                 : use single precision floating point (off by default)\n");
 
   return -1;
 }
@@ -283,6 +347,9 @@ struct GreedyParameters
 
   // Rigid search
   RigidSearchSpec rigid_search;
+
+  // Floating point precision?
+  bool flag_float_math;
 };
 
 
@@ -295,6 +362,7 @@ GetVoxelSpaceToNiftiSpaceTransform(itk::ImageBase<VDim> *image,
                                    TVec &b)
 {
   // Generate intermediate terms
+  typedef typename TMat::element_type TReal;
   vnl_matrix<double> m_dir, m_ras_matrix;
   vnl_diag_matrix<double> m_scale, m_lps_to_ras;
   vnl_vector<double> v_origin, v_ras_offset;
@@ -526,7 +594,7 @@ protected:
 
     // Create a random set of parameters, such that on average point C_fixed maps to point C_mov
     vnl_vector<double> GetRandomCoeff(const vnl_vector<double> &xInit, vnl_random &randy, double sigma_angle, double sigma_xyz,
-                                      const Vec3 &C_fixed, const Vec3 &C_moving);
+                                     const Vec3 &C_fixed, const Vec3 &C_moving);
 
   protected:
 
@@ -791,8 +859,11 @@ GreedyApproach<VDim, TReal>::PhysicalSpaceAffineCostFunction
 ::GetCoefficients(TransformType *tran)
 {
   // The input transform is in voxel space, we must return parameters in physical space
-  Mat A_vox = tran->GetMatrix().GetVnlMatrix(), A_phys;
-  Vec b_vox = tran->GetOffset().GetVnlVector(), b_phys;
+  Mat A_vox, A_phys;
+  Vec b_vox, b_phys;
+
+  itk_matrix_to_vnl_matrix(tran->GetMatrix(), A_vox);
+  itk_vector_to_vnl_vector(tran->GetOffset(), b_vox);
 
   // convert into physical-space affine transform
   A_phys = Q_mov * A_vox * Q_fix_inv;
@@ -981,7 +1052,7 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
   unflatten_affine_transform(x_aff_phys.data_block(), A, b);
 
   // Compute polar decomposition of the affine matrix
-  vnl_svd<TReal> svd(A);
+  vnl_svd<double> svd(A);
   Mat3 R = svd.U() * svd.V().transpose();
   Vec3 q = this->GetAxisAngle(R);
 
@@ -1132,7 +1203,7 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
 /*
 template <unsigned int VDim, typename TReal>
 void
-GreedyApproach<VDim, TReal>::AffineCostFunction
+GreedyApproach<VDim, double>::AffineCostFunction
 ::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
 {
   // Form a matrix/vector from x
@@ -1164,10 +1235,10 @@ GreedyApproach<VDim, TReal>::AffineCostFunction
 #include "itkTransformFileReader.h"
 
 template <typename TReal, unsigned int VDim>
-vnl_matrix<TReal> ReadAffineMatrix(const TransformSpec &ts)
+vnl_matrix<double> ReadAffineMatrix(const TransformSpec &ts)
 {
   // Physical (RAS) space transform matrix
-  vnl_matrix<TReal> Qp(VDim+1, VDim+1);
+  vnl_matrix<double> Qp(VDim+1, VDim+1);
 
   // Open the file and read the first line
   std::ifstream fin(ts.filename.c_str());
@@ -1181,8 +1252,8 @@ vnl_matrix<TReal> ReadAffineMatrix(const TransformSpec &ts)
       {
       // First we try to load the transform using ITK code
       // This code is from c3d_affine_tool
-      typedef itk::MatrixOffsetTransformBase<TReal, VDim, VDim> MOTBType;
-      typedef itk::AffineTransform<TReal, VDim> AffTran;
+      typedef itk::MatrixOffsetTransformBase<double, VDim, VDim> MOTBType;
+      typedef itk::AffineTransform<double, VDim> AffTran;
       itk::TransformFactory<MOTBType>::RegisterTransform();
       itk::TransformFactory<AffTran>::RegisterTransform();
 
@@ -1191,7 +1262,7 @@ vnl_matrix<TReal> ReadAffineMatrix(const TransformSpec &ts)
       fltReader->Update();
 
       itk::TransformBase *base = fltReader->GetTransformList()->front();
-      typedef itk::MatrixOffsetTransformBase<TReal, VDim, VDim> MOTBType;
+      typedef itk::MatrixOffsetTransformBase<double, VDim, VDim> MOTBType;
       MOTBType *motb = dynamic_cast<MOTBType *>(base);
 
       Qp.set_identity();
@@ -1240,7 +1311,7 @@ vnl_matrix<TReal> ReadAffineMatrix(const TransformSpec &ts)
     }
   else if(ts.exponent == -1.0)
     {
-    return vnl_matrix_inverse<TReal>(Qp);
+    return vnl_matrix_inverse<double>(Qp);
     }
   else
     {
@@ -1337,8 +1408,9 @@ GreedyApproach<VDim, TReal>
 
   GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetReferenceSpace(level), T_fix, s_fix);
   GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetMovingReferenceSpace(level), T_mov, s_mov);
-  A = tran->GetMatrix().GetVnlMatrix();
-  b = tran->GetOffset().GetVnlVector();
+
+  itk_matrix_to_vnl_matrix(tran->GetMatrix(), A);
+  itk_vector_to_vnl_vector(tran->GetOffset(), b);
 
   Q = T_mov * A * vnl_matrix_inverse<double>(T_fix);
   p = T_mov * b + s_mov - Q * s_fix;
@@ -1385,8 +1457,8 @@ GreedyApproach<VDim, TReal>
   typename OFHelperType::LinearTransformType::MatrixType tran_A;
   typename OFHelperType::LinearTransformType::OffsetType tran_b;
 
-  tran_A = A;
-  tran_b.SetVnlVector(b);
+  vnl_matrix_to_itk_matrix(A, tran_A);
+  vnl_vector_to_itk_vector(b, tran_b);
 
   tran->SetMatrix(tran_A);
   tran->SetOffset(tran_b);
@@ -1812,6 +1884,9 @@ int GreedyApproach<VDim, TReal>
     std::cout << "LEVEL " << level+1 << " of " << nlevels << std::endl;
     std::cout << "  Smoothing sigmas: " << sigma_pre_phys << ", " << sigma_post_phys << std::endl;
 
+    // Set up timers for different critical components of the optimization
+    itk::TimeProbe tm_Gradient, tm_Gaussian1, tm_Gaussian2, tm_Iteration;
+
     // Intermediate images
     ImagePointer iTemp = ImageType::New();
     VectorImagePointer viTemp = VectorImageType::New();
@@ -1864,18 +1939,26 @@ int GreedyApproach<VDim, TReal>
     // Iterate for this level
     for(unsigned int iter = 0; iter < param.iter_per_level[level]; iter++)
       {
+      // Start the iteration timer
+      tm_Iteration.Start();
 
       // Compute the gradient of objective
       double total_energy;
 
       if(param.metric == GreedyParameters::SSD)
         {
+        // Begin gradient computation
+        tm_Gradient.Start();
+
         vnl_vector<double> all_metrics =
             of_helper.ComputeOpticalFlowField(level, uk, iTemp, uk1, param.epsilon)  / param.epsilon;
 
         // If there is a mask, multiply the gradient by the mask
         if(param.gradient_mask.size())
           LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask(level));
+
+        // End gradient computation
+        tm_Gradient.Stop();
 
         printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
         total_energy = 0.0;
@@ -1889,12 +1972,18 @@ int GreedyApproach<VDim, TReal>
 
       else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
         {
+        // Begin gradient computation
+        tm_Gradient.Start();
+
         vnl_vector<double> all_metrics =
             of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, uk, iTemp, uk1, param.epsilon);
 
         // If there is a mask, multiply the gradient by the mask
         if(param.gradient_mask.size())
           LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask(level));
+
+        // End gradient computation
+        tm_Gradient.Stop();
 
         printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
         total_energy = 0.0;
@@ -1973,9 +2062,14 @@ int GreedyApproach<VDim, TReal>
           }
           */
 
+        // Begin gradient computation
+        tm_Gradient.Start();
+
         // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
         total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, param.epsilon) / param.epsilon;
 
+        // End gradient computation
+        tm_Gradient.Stop();
 
         printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
         fflush(stdout);
@@ -1990,7 +2084,9 @@ int GreedyApproach<VDim, TReal>
         }
 
       // We have now computed the gradient vector field. Next, we smooth it
+      tm_Gaussian1.Start();
       LDDMMType::vimg_smooth_withborder(uk1, viTemp, sigma_pre_phys, 1);
+      tm_Gaussian1.Stop();
 
       // After smoothing, compute the maximum vector norm and use it as a normalizing
       // factor for the displacement field
@@ -2020,7 +2116,11 @@ int GreedyApproach<VDim, TReal>
         }
 
       // Another layer of smoothing
+      tm_Gaussian2.Start();
       LDDMMType::vimg_smooth_withborder(uk1, uk, sigma_post_phys, 1);
+      tm_Gaussian2.Stop();
+
+      tm_Iteration.Stop();
       }
 
     // Store the end result
@@ -2031,6 +2131,12 @@ int GreedyApproach<VDim, TReal>
     TReal jac_min, jac_max;
     LDDMMType::img_min_max(iTemp, jac_min, jac_max);
     printf("END OF LEVEL %5d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
+
+    // Print timing information
+    printf("  Avg. Gradient Time  : %6.4fs  %5.2f%% \n", tm_Gradient.GetMean(), tm_Gradient.GetMean() * 100.0 / tm_Iteration.GetMean());
+    printf("  Avg. Gaussian Time  : %6.4fs  %5.2f%% \n", tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean(),
+           (tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean()) * 100.0 / tm_Iteration.GetMean());
+    printf("  Avg. Iteration Time : %6.4fs \n", tm_Iteration.GetMean());
 
     }
 
@@ -2201,7 +2307,7 @@ void GreedyApproach<VDim, TReal>
     else
       {
       // Read the transform as a matrix
-      vnl_matrix<TReal> mat = ReadAffineMatrix<TReal, VDim>(tran_chain[i]);
+      vnl_matrix<double> mat = ReadAffineMatrix<double, VDim>(tran_chain[i]);
       vnl_matrix<double>  A = mat.extract(VDim, VDim);
       vnl_vector<double> b = mat.get_column(VDim).extract(VDim), q;
 
@@ -2209,7 +2315,7 @@ void GreedyApproach<VDim, TReal>
       typedef itk::ImageRegionIteratorWithIndex<VectorImageType> IterType;
       for(IterType it(out_warp, out_warp->GetBufferedRegion()); !it.IsAtEnd(); ++it)
         {
-        typename VectorImageType::PointType pt, pt2;
+        itk::Point<double, VDim> pt, pt2;
         typename VectorImageType::IndexType idx = it.GetIndex();
 
         // Get the physical position
@@ -2740,6 +2846,7 @@ int main(int argc, char *argv[])
   param.affine_init_mode = VOX_IDENTITY;
   param.affine_dof = GreedyParameters::DOF_AFFINE;
   param.affine_jitter = 0.5;
+  param.flag_float_math = false;
 
   // reslice mode parameters
   InterpSpec interp_current;
@@ -2761,6 +2868,10 @@ int main(int argc, char *argv[])
       if(arg == "-d")
         {
         param.dim = cl.read_integer();
+        }
+      else if(arg == "-float")
+        {
+        param.flag_float_math = true;
         }
       else if(arg == "-n")
         {
@@ -2967,12 +3078,25 @@ int main(int argc, char *argv[])
       }
 
     // Run the main code
-    switch(param.dim)
+    if(param.flag_float_math)
       {
-      case 2: return GreedyApproach<2, double>::Run(param); break;
-      case 3: return GreedyApproach<3, double>::Run(param); break;
-      case 4: return GreedyApproach<4, double>::Run(param); break;
-      default: throw GreedyException("Wrong number of dimensions requested: %d", param.dim);
+      switch(param.dim)
+        {
+        case 2: return GreedyApproach<2, float>::Run(param); break;
+        case 3: return GreedyApproach<3, float>::Run(param); break;
+        case 4: return GreedyApproach<4, float>::Run(param); break;
+        default: throw GreedyException("Wrong number of dimensions requested: %d", param.dim);
+        }
+      }
+    else
+      {
+      switch(param.dim)
+        {
+        case 2: return GreedyApproach<2, double>::Run(param); break;
+        case 3: return GreedyApproach<3, double>::Run(param); break;
+        case 4: return GreedyApproach<4, double>::Run(param); break;
+        default: throw GreedyException("Wrong number of dimensions requested: %d", param.dim);
+        }
       }
   }
   catch(std::exception &exc)
