@@ -202,7 +202,8 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
 
 template <class TInputImage>
 typename TInputImage::Pointer
-AccumulateNeighborhoodSumsInPlace(TInputImage *image, const typename TInputImage::SizeType &radius)
+AccumulateNeighborhoodSumsInPlace(TInputImage *image, const typename TInputImage::SizeType &radius,
+                                  int num_ignored_at_start, int num_ignored_at_end)
 {
   typedef OneDimensionalInPlaceAccumulateFilter<TInputImage> AccumFilterType;
 
@@ -213,6 +214,7 @@ AccumulateNeighborhoodSumsInPlace(TInputImage *image, const typename TInputImage
     accum->SetInput(pipeTail.IsNull() ? image : pipeTail->GetOutput());
     accum->SetDimension(dir);
     accum->SetRadius(radius[dir]);
+    accum->SetComponentRange(num_ignored_at_start, num_ignored_at_end);
     pipeTail = accum;
 
     accum->Update();

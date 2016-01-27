@@ -108,7 +108,8 @@ protected:
  */
 template <class TInputImage>
 typename TInputImage::Pointer
-AccumulateNeighborhoodSumsInPlace(TInputImage *image, const typename TInputImage::SizeType &radius);
+AccumulateNeighborhoodSumsInPlace(TInputImage *image, const typename TInputImage::SizeType &radius,
+                                  int num_ignored_at_start = 0, int num_ignored_at_end = 0);
 
 
 #ifndef ITK_MANUAL_INSTANTIATION

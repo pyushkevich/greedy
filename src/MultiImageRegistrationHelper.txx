@@ -498,6 +498,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   if(m_NCCWorkingImage.IsNull())
     m_NCCWorkingImage = MultiComponentImageType::New();
 
+  // Is this the first time that this function is being called with this image?
+  bool first_run =
+      m_NCCWorkingImage->GetBufferedRegion() != m_FixedComposite[level]->GetBufferedRegion();
+
   // Run the filter
   filter->SetFixedImage(m_FixedComposite[level]);
   filter->SetMovingImage(m_MovingComposite[level]);
@@ -508,6 +512,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->GetDeformationGradientOutput()->Graft(out_gradient);
   filter->SetRadius(radius);
   filter->SetWorkingImage(m_NCCWorkingImage);
+  filter->SetReuseWorkingImageFixedComponents(!first_run);
   filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
   filter->Update();
 
@@ -677,6 +682,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   typedef MultiComponentNCCImageMetric<TraitsType> MetricType;
   typename MetricType::Pointer metric = MetricType::New();
 
+  // Is this the first time that this function is being called with this image?
+  bool first_run =
+      m_NCCWorkingImage->GetBufferedRegion() != m_FixedComposite[level]->GetBufferedRegion();
+
   metric->SetFixedImage(m_FixedComposite[level]);
   metric->SetMovingImage(m_MovingComposite[level]);
   metric->SetWeights(wscaled);
@@ -686,6 +695,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetComputeGradient(grad != NULL);
   metric->SetRadius(radius);
   metric->SetWorkingImage(m_NCCWorkingImage);
+  metric->SetReuseWorkingImageFixedComponents(!first_run);
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
   metric->SetJitterImage(m_JitterComposite[level]);
   metric->Update();

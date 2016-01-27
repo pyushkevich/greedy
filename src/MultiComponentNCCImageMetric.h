@@ -104,6 +104,12 @@ public:
   itkSetObjectMacro(WorkingImage, InputImageType)
 
   /**
+   * Whether we should reuse the fixed components in the working image. This is true
+   * if the filter is being run repeatedly on the same image
+   */
+  itkSetMacro(ReuseWorkingImageFixedComponents, bool)
+
+  /**
    * Get the gradient scaling factor. To get the actual gradient of the metric, multiply the
    * gradient output of this filter by the scaling factor. Explanation: for efficiency, the
    * metrics return an arbitrarily scaled vector, such that adding the gradient to the
@@ -115,7 +121,8 @@ public:
 
 
 protected:
-  MultiComponentNCCImageMetric() : m_ApproximateGradient(false)
+  MultiComponentNCCImageMetric()
+    : m_ApproximateGradient(false), m_ReuseWorkingImageFixedComponents(false)
     { m_Radius.Fill(1); }
 
   ~MultiComponentNCCImageMetric() {}
@@ -134,6 +141,10 @@ private:
   // A pointer to the working image. The user should supply this image in order to prevent
   // unnecessary memory allocation
   typename InputImageType::Pointer m_WorkingImage;
+
+  // Whether we should reuse the fixed components in the working image. This is true
+  // if the filter is being run repeatedly on the same image
+  bool m_ReuseWorkingImageFixedComponents;
 
   // Radius of the cross-correlation
   SizeType m_Radius;
@@ -211,6 +222,16 @@ public:
   /** Get the number of components in the output */
   int GetNumberOfOutputComponents();
 
+  /** Get the number of components in the output */
+  int GetNumberOfFixedOnlyOutputComponents();
+
+  /**
+   * Set whether the filter is being run for the first time. When run for the first
+   * time, fixed components and products will be stored in the output. Otherwise,
+   * these are skipped over in memory
+   */
+  itkSetMacro(FlagGenerateFixedComponents, bool)
+
 
 protected:
   MultiImageNCCPrecomputeFilter();
@@ -233,6 +254,8 @@ private:
   void operator=(const Self&); //purposely not implemented
 
   ParentType *m_Parent;
+
+  bool m_FlagGenerateFixedComponents;
 };
 
 
