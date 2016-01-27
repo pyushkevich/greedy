@@ -175,13 +175,17 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
     // Compute the initial sum
     for(i = 0; i < m_Radius; i++)
       {
-      #pragma clang loop vectorize(enable) interleave(enable)
       for(k = 0; k < nc_padded; k+=4)
         {
+        #pragma clang loop vectorize(enable) interleave(enable)
+        for(int j = 0; j < 4; j++)
+          sum_align[k+j] += p_line[k+j];
+
+          /*
         sum_align[k] += p_line[k];
         sum_align[k+1] += p_line[k+1];
         sum_align[k+2] += p_line[k+2];
-        sum_align[k+3] += p_line[k+3];
+        sum_align[k+3] += p_line[k+3];*/
         }
       p_line += nc_padded;
       }
@@ -189,13 +193,16 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
     // For the next Radius + 1 values, add to the sum and write
     for(; i < kernel_width; i++)
       {
-      #pragma clang loop vectorize(enable) interleave(enable)
       for(k = 0; k < nc_padded; k+=4)
         {
-        p_write_pixel[k] = (sum_align[k] += p_line[k]);
+        #pragma clang loop vectorize(enable) interleave(enable)
+        for(int j = 0; j < 4; j++)
+          p_write_pixel[k + j] = (sum_align[k + j] += p_line[k + j]);
+        /*
         p_write_pixel[k+1] = (sum_align[k+1] += p_line[k+1]);
         p_write_pixel[k+2] = (sum_align[k+2] += p_line[k+2]);
         p_write_pixel[k+3] = (sum_align[k+3] += p_line[k+3]);
+        */
         }
 
       p_write_pixel += nc_padded;
@@ -205,13 +212,17 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
     // Continue until we hit the end of the scanline
     for(; i < line_length; i++)
       {
-      #pragma clang loop vectorize(enable) interleave(enable)
       for(k = 0; k < nc_padded; k+=4)
         {
+        #pragma clang loop vectorize(enable) interleave(enable)
+        for(int j = 0; j < 4; j++)
+          p_write_pixel[k+j] = (sum_align[k+j] += (p_line[k+j] - p_tail[k+j]));
+
+/*
         p_write_pixel[k] = (sum_align[k] += (p_line[k] - p_tail[k]));
         p_write_pixel[k+1] = (sum_align[k+1] += (p_line[k+1] - p_tail[k+1]));
         p_write_pixel[k+2] = (sum_align[k+2] += (p_line[k+2] - p_tail[k+2]));
-        p_write_pixel[k+3] = (sum_align[k+3] += (p_line[k+3] - p_tail[k+3]));
+        p_write_pixel[k+3] = (sum_align[k+3] += (p_line[k+3] - p_tail[k+3])); */
         }
 
       p_write_pixel += nc_padded;
@@ -222,13 +233,18 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
     // Fill out the last bit
     for(; i < line_length + m_Radius; i++)
       {
-      #pragma clang loop vectorize(enable) interleave(enable)
       for(k = 0; k < nc_padded; k+=4)
         {
+        #pragma clang loop vectorize(enable) interleave(enable)
+        for(int j = 0; j < 4; j++)
+          p_write_pixel[k+j] = (sum_align[k+j] -= p_tail[k+j]);
+
+        /*
         p_write_pixel[k] = (sum_align[k] -= p_tail[k]);
         p_write_pixel[k+1] = (sum_align[k+1] -= p_tail[k+1]);
         p_write_pixel[k+2] = (sum_align[k+2] -= p_tail[k+2]);
         p_write_pixel[k+3] = (sum_align[k+3] -= p_tail[k+3]);
+        */
         }
 
       p_write_pixel += nc_padded;
