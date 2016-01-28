@@ -78,6 +78,9 @@ public:
    */
   void SetComponentRange(int num_ignored_at_start, int num_ignored_at_end);
 
+  itkGetMacro(ComponentOffsetFront, int)
+  itkGetMacro(ComponentOffsetBack, int)
+
 protected:
 
   OneDimensionalInPlaceAccumulateFilter();
