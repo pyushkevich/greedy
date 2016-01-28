@@ -482,8 +482,12 @@ MultiComponentNCCImageMetric<TMetricTraits>
   // Currently, we have all the stuff we need to compute the metric in the working
   // image. Next, we run the fast sum computation to give us the local average of
   // intensities, products, gradients in the working image
+  itk::TimeProbe tp;
+  tp.Start();
   typename InputImageType::Pointer img_accum =
       AccumulateNeighborhoodSumsInPlace(img_pre, m_Radius, ncomp_ignore, n_overalloc_comp);
+  tp.Stop();
+  printf("Accum time: %6.2f\n", tp.GetTotal() * 1000);
 
 #ifdef DUMP_NCC
   typename itk::ImageFileWriter<InputImageType>::Pointer pwriter = itk::ImageFileWriter<InputImageType>::New();

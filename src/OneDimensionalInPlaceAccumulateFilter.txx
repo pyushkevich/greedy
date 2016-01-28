@@ -72,6 +72,156 @@ T* allocate_aligned(unsigned int n_elts)
 
 #ifdef _NCC_SSE_
 
+#include <xmmintrin.h>
+
+template <class TPixel>
+void
+line_accumulate(
+    TPixel *p_scan_pixel,
+    TPixel *scanline,
+    TPixel *p_scanline_end,
+    TPixel *tailline,
+    TPixel *sum_align,
+    int line_length,
+    int radius,
+    int nc_used,
+    int nc_padded,
+    int kernel_width,
+    int bytes_per_pixel,
+    int padded_bytes_per_pixel,
+    int jump)
+{
+
+}
+
+template<>
+void
+line_accumulate<float>(
+    float *p_scan_pixel,
+    float *scanline,
+    float *p_scanline_end,
+    float *tailline,
+    float *sum_align,
+    int line_length,
+    int radius,
+    int nc_used,
+    int nc_padded,
+    int kernel_width,
+    int bytes_per_pixel,
+    int padded_bytes_per_pixel,
+    int jump)
+{
+  typedef float OutputImageComponentType;
+  int i, k;
+
+  // Registers
+  __m128 m_line, m_tail, m_sum_cur, m_sum_new;
+
+  // Copy the contents of the image into the aligned line
+  OutputImageComponentType *p_copy = scanline;
+  const OutputImageComponentType *p_src = p_scan_pixel;
+  for(; p_copy < p_scanline_end; p_copy += nc_padded, p_src += jump)
+    {
+    __builtin_prefetch(p_src + 5 * jump, 0, 0);
+    for(i = 0; i < nc_used; i++)
+      p_copy[i] = p_src[i];
+
+    // memcpy(p_copy, p_src, bytes_per_pixel);
+    }
+
+  // Make a copy of the scan line
+  for(p_src = scanline, p_copy = tailline; p_src < p_scanline_end; p_copy+=4, p_src+=4)
+    {
+    m_line = _mm_load_ps(p_src);
+    _mm_store_ps(p_copy, m_line);
+    }
+
+  // Clear the sum array at the beginning
+  for(int k = 0; k < nc_padded; k++)
+    sum_align[k] = 0.0;
+
+  // Pointer to the current position in the line
+  OutputImageComponentType *p_line = scanline, *p_tail = tailline;
+
+  // Pointer used for writing, it will trail the scan pointer
+  OutputImageComponentType *p_write_pixel = scanline;
+
+  // Pointer used for writing, it will trail the scan pointer
+  OutputImageComponentType *p_sum_end = sum_align + nc_padded, *p_sum;
+
+  // Compute the initial sum
+  for(i = 0; i < radius; i++)
+    {
+    #pragma unroll
+    for(p_sum = sum_align; p_sum < p_sum_end; p_sum+=4, p_line+=4)
+      {
+      m_line = _mm_load_ps(p_line);
+      m_sum_cur = _mm_load_ps(p_sum);
+      m_sum_new = _mm_add_ps(m_sum_cur, m_line);
+      _mm_store_ps(p_sum, m_sum_new);
+      }
+    }
+
+  // For the next Radius + 1 values, add to the sum and write
+  for(; i < kernel_width; i++)
+    {
+    #pragma unroll
+    for(p_sum = sum_align; p_sum < p_sum_end; p_sum+=4, p_line+=4, p_write_pixel+=4)
+      {
+      m_line = _mm_load_ps(p_line);
+      m_sum_cur = _mm_load_ps(p_sum);
+      m_sum_new = _mm_add_ps(m_sum_cur, m_line);
+      _mm_store_ps(p_sum, m_sum_new);
+      _mm_store_ps(p_write_pixel, m_sum_new);
+      }
+    }
+
+  // Continue until we hit the end of the scanline
+  for(; i < line_length; i++)
+    {
+    #pragma unroll
+    for(p_sum = sum_align; p_sum < p_sum_end; p_sum+=4, p_line+=4, p_tail+=4, p_write_pixel+=4)
+      {
+      m_line = _mm_load_ps(p_line);
+      m_tail = _mm_load_ps(p_tail);
+      m_sum_cur = _mm_load_ps(p_sum);
+      m_sum_new = _mm_add_ps(m_sum_cur, _mm_sub_ps(m_line, m_tail));
+      _mm_store_ps(p_sum, m_sum_new);
+      _mm_store_ps(p_write_pixel, m_sum_new);
+      }
+    }
+
+  // Fill out the last bit
+  for(; i < line_length + radius; i++)
+    {
+    #pragma unroll
+    for(p_sum = sum_align; p_sum < p_sum_end; p_sum+=4, p_tail+=4, p_write_pixel+=4)
+      {
+      m_tail = _mm_load_ps(p_tail);
+      m_sum_cur = _mm_load_ps(p_sum);
+      m_sum_new = _mm_sub_ps(m_sum_cur, m_tail);
+      _mm_store_ps(p_sum, m_sum_new);
+      _mm_store_ps(p_write_pixel, m_sum_new);
+      }
+    }
+
+  // Copy the accumulated pixels back into the main image
+  OutputImageComponentType *p_copy_back = const_cast<OutputImageComponentType *>(p_scan_pixel);
+  const OutputImageComponentType *p_src_back = scanline;
+  for(; p_src_back < p_scanline_end; p_src_back += nc_padded, p_copy_back += jump)
+    {
+    __builtin_prefetch(p_copy_back + 5 * jump, 1, 0);
+    for(i = 0; i < nc_used; i++)
+      p_copy_back[i] = p_src_back[i];
+
+    //
+    // for(i = 0; i < nc; i++)
+    //  p_copy_back[i] = p_src_back[i];
+
+    // memcpy(p_copy_back, p_src_back, bytes_per_pixel);
+    }
+}
+
 template <class TInputImage>
 void
 OneDimensionalInPlaceAccumulateFilter<TInputImage>
@@ -112,7 +262,8 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
   int kernel_width = 2 * m_Radius + 1;
 
   // We want some alignment for SIMD purposes. So we need to make a stride be a factor of 16 bytes
-  int bytes_per_pixel = sizeof(OutputImageComponentType) * (nc - n_skipped);
+  int nc_used = nc - n_skipped;
+  int bytes_per_pixel = sizeof(OutputImageComponentType) * (nc_used - n_skipped);
 
   // Round up, so it works out to 16 bytes
   int align_stride = 4 * sizeof(OutputImageComponentType);
@@ -146,118 +297,12 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
     // Get the pointer to first component in first pixel
     const OutputImageComponentType *p_scan_pixel = image->GetBufferPointer() + offset_in_comp + c_first;
 
-    // Copy the contents of the image into the aligned line
-    OutputImageComponentType *p_copy = scanline;
-    const OutputImageComponentType *p_src = p_scan_pixel;
-    for(; p_copy < p_scanline_end; p_copy += nc_padded, p_src += jump)
-      {
-      memcpy(p_copy, p_src, bytes_per_pixel);
-      }
+    // Run the main method
+    line_accumulate<OutputImageComponentType>(
+          const_cast<OutputImageComponentType *>(p_scan_pixel),
+          scanline, p_scanline_end, tailline, sum_align,
+          line_length, m_Radius, nc_used, nc_padded, kernel_width, bytes_per_pixel, padded_bytes_per_pixel, jump);
 
-    // Make a copy of the scan line
-    memcpy(tailline, scanline, line_length * padded_bytes_per_pixel);
-
-    // Clear the sum array at the beginning
-    for(int k = 0; k < nc_padded; k+=4)
-      {
-      sum_align[k] = itk::NumericTraits<OutputImageComponentType>::Zero;
-      sum_align[k+1] = itk::NumericTraits<OutputImageComponentType>::Zero;
-      sum_align[k+2] = itk::NumericTraits<OutputImageComponentType>::Zero;
-      sum_align[k+3] = itk::NumericTraits<OutputImageComponentType>::Zero;
-      }
-
-    // Pointer to the current position in the line
-    OutputImageComponentType *p_line = scanline, *p_tail = tailline;
-
-    // Pointer used for writing, it will trail the scan pointer
-    OutputImageComponentType *p_write_pixel = scanline;
-
-    // Compute the initial sum
-    for(i = 0; i < m_Radius; i++)
-      {
-      for(k = 0; k < nc_padded; k+=4)
-        {
-        #pragma clang loop vectorize(enable) interleave(enable)
-        for(int j = 0; j < 4; j++)
-          sum_align[k+j] += p_line[k+j];
-
-          /*
-        sum_align[k] += p_line[k];
-        sum_align[k+1] += p_line[k+1];
-        sum_align[k+2] += p_line[k+2];
-        sum_align[k+3] += p_line[k+3];*/
-        }
-      p_line += nc_padded;
-      }
-
-    // For the next Radius + 1 values, add to the sum and write
-    for(; i < kernel_width; i++)
-      {
-      for(k = 0; k < nc_padded; k+=4)
-        {
-        #pragma clang loop vectorize(enable) interleave(enable)
-        for(int j = 0; j < 4; j++)
-          p_write_pixel[k + j] = (sum_align[k + j] += p_line[k + j]);
-        /*
-        p_write_pixel[k+1] = (sum_align[k+1] += p_line[k+1]);
-        p_write_pixel[k+2] = (sum_align[k+2] += p_line[k+2]);
-        p_write_pixel[k+3] = (sum_align[k+3] += p_line[k+3]);
-        */
-        }
-
-      p_write_pixel += nc_padded;
-      p_line += nc_padded;
-      }
-
-    // Continue until we hit the end of the scanline
-    for(; i < line_length; i++)
-      {
-      for(k = 0; k < nc_padded; k+=4)
-        {
-        #pragma clang loop vectorize(enable) interleave(enable)
-        for(int j = 0; j < 4; j++)
-          p_write_pixel[k+j] = (sum_align[k+j] += (p_line[k+j] - p_tail[k+j]));
-
-/*
-        p_write_pixel[k] = (sum_align[k] += (p_line[k] - p_tail[k]));
-        p_write_pixel[k+1] = (sum_align[k+1] += (p_line[k+1] - p_tail[k+1]));
-        p_write_pixel[k+2] = (sum_align[k+2] += (p_line[k+2] - p_tail[k+2]));
-        p_write_pixel[k+3] = (sum_align[k+3] += (p_line[k+3] - p_tail[k+3])); */
-        }
-
-      p_write_pixel += nc_padded;
-      p_line += nc_padded;
-      p_tail += nc_padded;
-      }
-
-    // Fill out the last bit
-    for(; i < line_length + m_Radius; i++)
-      {
-      for(k = 0; k < nc_padded; k+=4)
-        {
-        #pragma clang loop vectorize(enable) interleave(enable)
-        for(int j = 0; j < 4; j++)
-          p_write_pixel[k+j] = (sum_align[k+j] -= p_tail[k+j]);
-
-        /*
-        p_write_pixel[k] = (sum_align[k] -= p_tail[k]);
-        p_write_pixel[k+1] = (sum_align[k+1] -= p_tail[k+1]);
-        p_write_pixel[k+2] = (sum_align[k+2] -= p_tail[k+2]);
-        p_write_pixel[k+3] = (sum_align[k+3] -= p_tail[k+3]);
-        */
-        }
-
-      p_write_pixel += nc_padded;
-      p_tail += nc_padded;
-      }
-
-    // Copy the accumulated pixels back into the main image
-    OutputImageComponentType *p_copy_back = const_cast<OutputImageComponentType *>(p_scan_pixel);
-    const OutputImageComponentType *p_src_back = scanline;
-    for(; p_src_back < p_scanline_end; p_src_back += nc_padded, p_copy_back += jump)
-      {
-      memcpy(p_copy_back, p_src_back, bytes_per_pixel);
-      }
     }
 
   // Free allocated memory

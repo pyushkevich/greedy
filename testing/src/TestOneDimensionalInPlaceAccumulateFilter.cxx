@@ -27,6 +27,7 @@
 #include "itkImageFileReader.h"
 #include "itkImageFileWriter.h"
 #include "OneDimensionalInPlaceAccumulateFilter.h"
+#include "itkTimeProbe.h"
 
 int main(int argc, char *argv[])
 {
@@ -39,10 +40,29 @@ int main(int argc, char *argv[])
   reader->Update();
 
   ImageType::SizeType radius; radius.Fill(2);
-  ImageType::Pointer accum = AccumulateNeighborhoodSumsInPlace(reader->GetOutput(), radius);
+
+
+  typedef OneDimensionalInPlaceAccumulateFilter<ImageType> AccumFilterType;
+
+  itk::ImageSource<ImageType>::Pointer pipeTail;
+  for(int dir = 0; dir < ImageType::ImageDimension; dir++)
+    {
+    AccumFilterType::Pointer accum = AccumFilterType::New();
+    accum->SetInput(pipeTail.IsNull() ? reader->GetOutput() : pipeTail->GetOutput());
+    accum->SetDimension(dir);
+    accum->SetRadius(radius[dir]);
+    pipeTail = accum;
+
+    itk::TimeProbe tp;
+    tp.Start();
+    accum->Update();
+    tp.Stop();
+
+    printf("Direction %d elapsed ms: %6.2f\n", dir, 1000 * tp.GetTotal());
+    }
 
   WriterType::Pointer writer = WriterType::New();
   writer->SetFileName(argv[2]);
-  writer->SetInput(accum);
+  writer->SetInput(pipeTail->GetOutput());
   writer->Update();
 }
