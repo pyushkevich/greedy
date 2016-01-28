@@ -108,7 +108,8 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
   // Get the first and last component for accumulation - these are optionally
   // specified by the user
   int c_first = filter->GetComponentOffsetFront(),
-      c_last = (nc - 1) - filter->GetComponentOffsetFront();
+      c_last = (nc - 1) - filter->GetComponentOffsetBack();
+  int n_skipped = filter->GetComponentOffsetFront() + filter->GetComponentOffsetBack();
 
   // Get the offset corresponding to a move along the line for this iterator
   typename IteratorType::OffsetValueType jump = itLine.GetOffset(dimension) * nc;
