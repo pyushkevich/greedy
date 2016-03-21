@@ -36,10 +36,6 @@
 #include "lddmm_data.h"
 
 #include <itkImageFileReader.h>
-#include <itkGaussianInterpolateImageFunction.h>
-#include <itkResampleImageFilter.h>
-#include <itkIdentityTransform.h>
-#include <itkShrinkImageFilter.h>
 #include <itkAffineTransform.h>
 #include <itkTransformFactory.h>
 #include <itkTimeProbe.h>
