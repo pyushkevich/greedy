@@ -2506,6 +2506,7 @@ int GreedyApproach<VDim, TReal>
       typedef itk::ImageFileWriter<LabelImageType> WriterType;
       typename WriterType::Pointer writer = WriterType::New();
       writer->SetFileName(r_param.images[i].output.c_str());
+      writer->SetUseCompression(true);
       writer->SetInput(fltVoting->GetOutput());
       writer->Update();
       }

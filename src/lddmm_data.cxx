@@ -783,6 +783,7 @@ write_cast(TInputImage *image, const char *filename)
   typename WriterType::Pointer writer = WriterType::New();
   writer->SetInput(cast->GetOutput());
   writer->SetFileName(filename);
+  writer->SetUseCompression(true);
   writer->Update();
 }
 
@@ -850,6 +851,7 @@ void write_cast_to_iocomp(TInputImage *image, const char *filename,
       typename WriterType::Pointer writer = WriterType::New();
       writer->SetInput(image);
       writer->SetFileName(filename);
+      writer->SetUseCompression(true);
       writer->Update();
     }
 }
