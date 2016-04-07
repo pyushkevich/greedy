@@ -310,12 +310,14 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
 
 #include <xmmintrin.h>
 
-template <class T>
-T* allocate_aligned(int elements)
+void allocate_aligned(int elements, float ** pointer)
 {
-  void* pointer;
-  posix_memalign(&pointer, 16, elements * sizeof(T));
-  return static_cast<T *>(pointer)  ;
+  int rc = posix_memalign( (void **) pointer, 16, elements * sizeof(float));
+  if(rc != 0)
+    {
+    std::cerr << "posix_memalign return value " << rc << " input " << elements * sizeof(float) << std::endl;
+    throw std::string("posix_memalign allocation error");
+    }
 }
 
 
@@ -381,7 +383,7 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
 
   // We want some alignment for SIMD purposes. So we need to make a stride be a factor of 16 bytes
   int nc_used = nc - n_skipped;
-  int bytes_per_pixel = sizeof(float) * (nc_used - n_skipped);
+  int bytes_per_pixel = sizeof(float) * nc_used;
 
   // Round up, so it works out to 16 bytes
   int align_stride = 4 * sizeof(float);
@@ -391,17 +393,20 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
   // Number of chunks of four components per pixel
   int nc_padded = padded_bytes_per_pixel / sizeof(float);
 
+  // The following arrays are allocated temporarily
+  float *scanline, *tailline, *sum_align;
+
   // This is a byte-aligned copy of the pixel column from the image
-  float *scanline = allocate_aligned<float>(line_length * nc_padded);
+  allocate_aligned(line_length * nc_padded, &scanline);
 
   // This is a second aligned copy
-  float *tailline = allocate_aligned<float>(line_length * nc_padded);
+  allocate_aligned(line_length * nc_padded, &tailline);
 
   // End of the scanline
   float *p_scanline_end = scanline + line_length * nc_padded;
 
   // Aligned sum array - where the sums are computed
-  float *sum_align = allocate_aligned<float>(nc_padded);
+  allocate_aligned(nc_padded, &sum_align);
 
   // Start iterating over lines
   for(itLine.GoToBegin(); !itLine.IsAtEnd(); itLine.NextLine())
