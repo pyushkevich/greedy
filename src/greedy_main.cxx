@@ -164,6 +164,7 @@ int usage()
   printf("  -brute radius          : Perform a brute force search around each voxel \n");
   printf("  -r [tran_spec]         : Reslice images instead of doing registration \n");
   printf("                               tran_spec is a series of warps, affine matrices\n");
+  printf("  -iw in_warp outwarp    : Invert previously computed warp\n");
   printf("Options in deformable / affine mode: \n");
   printf("  -w weight              : weight of the next -i pair\n");
   printf("  -m metric              : metric for the entire registration\n");
@@ -280,11 +281,18 @@ struct GreedyResliceParameters
   std::vector<TransformSpec> transforms;
 };
 
+// Parameters for inverse warp command
+struct GreedyInvertWarpParameters
+{
+  std::string in_warp, out_warp;
+};
+
+
 struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, MI, NMI };
   enum TimeStepMode { CONST=0, SCALE, SCALEDOWN };
-  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE };
+  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP };
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
 
   std::vector<ImagePairSpec> inputs;
@@ -293,6 +301,9 @@ struct GreedyParameters
 
   // Reslice parameters
   GreedyResliceParameters reslice_param;
+
+  // Inversion parameters
+  GreedyInvertWarpParameters invwarp_param;
 
   // Registration mode
   Mode mode;
@@ -410,6 +421,8 @@ public:
   static int RunBrute(GreedyParameters &param);
 
   static int RunReslice(GreedyParameters &param);
+
+  static int RunInvertWarp(GreedyParameters &param);
 
 protected:
 
@@ -1833,6 +1846,8 @@ int GreedyApproach<VDim, TReal>
       return Self::RunBrute(param);
     case GreedyParameters::RESLICE:
       return Self::RunReslice(param);
+    case GreedyParameters::INVERT_WARP:
+      return Self::RunInvertWarp(param);
     }
 
   return -1;
@@ -2534,7 +2549,33 @@ int GreedyApproach<VDim, TReal>
   return 0;
 }
 
+/**
+ * Post-hoc warp inversion - the Achilles heel of non-symmetric registration :(
+ */
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::RunInvertWarp(GreedyParameters &param)
+{
+  // Read the warp as a transform chain
+  VectorImagePointer warp;
 
+  // Read the warp file
+  LDDMMType::vimg_read(param.invwarp_param.in_warp.c_str(), warp);
+
+  // Convert the warp file into voxel units from physical units
+  OFHelperType::PhysicalWarpToVoxelWarp(warp, warp, warp);
+  
+
+  // Compute the inverse of the warp
+  VectorImagePointer uInverse = VectorImageType::New();
+  LDDMMType::alloc_vimg(uInverse, warp);
+  OFHelperType::ComputeDeformationFieldInverse(warp, uInverse, param.inverse_exponent, true);
+
+  // Write the warp using compressed format
+  OFHelperType::WriteCompressedWarpInPhysicalSpace(uInverse, warp, param.invwarp_param.out_warp.c_str(), param.warp_precision);
+
+  return 0;
+}
 
 
 #include "itksys/SystemTools.hxx"
@@ -3009,6 +3050,12 @@ int main(int argc, char *argv[])
         int nFiles = cl.command_arg_count();
         for(int i = 0; i < nFiles; i++)
           param.reslice_param.transforms.push_back(cl.read_transform_spec());
+        }
+      else if(arg == "-iw")
+        {
+        param.mode = GreedyParameters::INVERT_WARP;
+        param.invwarp_param.in_warp = cl.read_existing_filename();
+        param.invwarp_param.out_warp = cl.read_output_filename();
         }
       else if(arg == "-rm")
         {

@@ -156,7 +156,15 @@ public:
   static void AffineToField(LinearTransformType *tran, VectorImageType *def);
 
   /** Convert a warp to physical space */
-  void VoxelWarpToPhysicalWarp(int level, VectorImageType *warp, VectorImageType *result);
+  static void VoxelWarpToPhysicalWarp(VectorImageType *warp, ImageBaseType *moving_space, VectorImageType *result);
+  static void PhysicalWarpToVoxelWarp(VectorImageType *warp, ImageBaseType *moving_space, VectorImageType *result);
+
+  /* 
+   * Write a warp to a file. The warp must be in voxel space, not physical space 
+   * this is the static version of this method
+   */
+  static void WriteCompressedWarpInPhysicalSpace(
+    VectorImageType *warp, ImageBaseType *moving_ref_space, const char *filename, double precision);
 
   /** Write a warp to a file. The warp must be in voxel space, not physical space */
   void WriteCompressedWarpInPhysicalSpace(int level, VectorImageType *warp, const char *filename, double precision);
@@ -165,7 +173,7 @@ public:
    * Invert a deformation field by first dividing it into small transformations using the
    * square root command, and then inverting the small transformations
    */
-  void ComputeDeformationFieldInverse(VectorImageType *warp, VectorImageType *result, int n_sqrt);
+  static void ComputeDeformationFieldInverse(VectorImageType *warp, VectorImageType *result, int n_sqrt, bool verbose = false);
 
   MultiImageOpticalFlowHelper() : m_JitterSigma(0.0) {}
 

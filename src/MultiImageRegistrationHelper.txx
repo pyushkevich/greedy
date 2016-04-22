@@ -911,6 +911,57 @@ protected:
   ImageBaseType *m_MovingSpace;
 };
 
+
+template <class TWarpImage>
+class PhysicalToVoxelWarpFunctor
+{
+public:
+  typedef itk::ImageBase<TWarpImage::ImageDimension> ImageBaseType;
+  typedef typename TWarpImage::PixelType VectorType;
+  typedef itk::Index<TWarpImage::ImageDimension> IndexType;
+
+  VectorType operator()(const VectorType &v, const IndexType &pos)
+  {
+    // Get the voxel offset between the tip of the arrow and the input position
+    // Get the physical point for the tail of the arrow
+    typedef itk::ContinuousIndex<double, TWarpImage::ImageDimension> CIType;
+    typedef typename TWarpImage::PointType PtType;
+
+    CIType ia, ib;
+    PtType pa, pb;
+
+    // Get the base physical position
+    for(int i = 0; i < TWarpImage::ImageDimension; i++)
+      ia[i] = pos[i];
+    m_Warp->TransformContinuousIndexToPhysicalPoint(ia, pa);
+
+    // Compute the tip physical position
+    for(int i = 0; i < TWarpImage::ImageDimension; i++)
+      pb[i] = pa[i] + v[i];
+
+    // Map the tip into continuous index
+    m_MovingSpace->TransformPhysicalPointToContinuousIndex(pb, ib);
+
+    VectorType y;
+    for(int i = 0; i < TWarpImage::ImageDimension; i++)
+      y[i] = ib[i] - ia[i];
+
+    return y;
+  }
+
+  PhysicalToVoxelWarpFunctor(TWarpImage *warp, ImageBaseType *moving)
+    : m_Warp(warp), m_MovingSpace(moving) {}
+
+  PhysicalToVoxelWarpFunctor() {}
+
+protected:
+
+  TWarpImage *m_Warp;
+  ImageBaseType *m_MovingSpace;
+};
+
+
+
 /**
  * This functor is used to compress a warp before saving it. The input
  * to this functor is a voxel-space warp, and the output is a physical
@@ -967,11 +1018,27 @@ protected:
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::VoxelWarpToPhysicalWarp(int level, VectorImageType *warp, VectorImageType *result)
+::VoxelWarpToPhysicalWarp(VectorImageType *warp, ImageBaseType *moving_space, VectorImageType *result)
 {
   typedef VoxelToPhysicalWarpFunctor<VectorImageType> Functor;
   typedef UnaryPositionBasedFunctorImageFilter<VectorImageType,VectorImageType,Functor> Filter;
-  Functor functor(warp, this->GetMovingReferenceSpace(level));
+  Functor functor(warp, moving_space);
+
+  typename Filter::Pointer filter = Filter::New();
+  filter->SetFunctor(functor);
+  filter->SetInput(warp);
+  filter->GraftOutput(result);
+  filter->Update();
+}
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::PhysicalWarpToVoxelWarp(VectorImageType *warp, ImageBaseType *moving_space, VectorImageType *result)
+{
+  typedef PhysicalToVoxelWarpFunctor<VectorImageType> Functor;
+  typedef UnaryPositionBasedFunctorImageFilter<VectorImageType,VectorImageType,Functor> Filter;
+  Functor functor(warp, moving_space);
 
   typename Filter::Pointer filter = Filter::New();
   filter->SetFunctor(functor);
@@ -985,13 +1052,21 @@ void
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::WriteCompressedWarpInPhysicalSpace(int level, VectorImageType *warp, const char *filename, double precision)
 {
+  WriteCompressedWarpInPhysicalSpace(warp, this->GetMovingReferenceSpace(level), filename, precision);
+}
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::WriteCompressedWarpInPhysicalSpace(VectorImageType *warp, ImageBaseType *moving_ref_space, const char *filename, double precision)
+{
   // Define a _float_ output type, even if working with double precision (less space on disk)
   typedef itk::CovariantVector<float, VDim> OutputVectorType;
   typedef itk::Image<OutputVectorType, VDim> OutputWarpType;
   typedef CompressWarpFunctor<VectorImageType, OutputWarpType> Functor;
 
   typedef UnaryPositionBasedFunctorImageFilter<VectorImageType,OutputWarpType,Functor> Filter;
-  Functor functor(warp, this->GetMovingReferenceSpace(level), precision);
+  Functor functor(warp, moving_ref_space, precision);
 
   typename Filter::Pointer filter = Filter::New();
   filter->SetFunctor(functor);
@@ -1001,13 +1076,11 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   LDDMMData<float, VDim>::vimg_write(filter->GetOutput(), filename);
 }
 
-
-
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeDeformationFieldInverse(
-    VectorImageType *warp, VectorImageType *uInverse, int n_sqrt)
+    VectorImageType *warp, VectorImageType *uInverse, int n_sqrt, bool verbose)
 {
   typedef LDDMMData<TFloat, VDim> LDDMMType;
 
@@ -1061,6 +1134,18 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     {
     LDDMMType::interp_vimg(uInverse, uInverse, 1.0, uWork);
     LDDMMType::vimg_add_in_place(uInverse, uWork);
+    }
+
+  // If verbose, compute the maximum error
+  if(verbose)
+    {
+    FloatImagePointer iNorm = FloatImageType::New();
+    LDDMMType::alloc_img(iNorm, uWork);
+    LDDMMType::interp_vimg(uInverse, uForward, 1.0, uWork);
+    LDDMMType::vimg_add_in_place(uWork, uForward);
+    TFloat norm_min, norm_max;
+    LDDMMType::vimg_norm_min_max(uWork, iNorm, norm_min, norm_max);
+    std::cout << "Warp inverse max residual: " << norm_max << std::endl;
     }
 }
 
