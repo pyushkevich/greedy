@@ -304,7 +304,8 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
   delete line;
 }
 
-
+// ### PY, 05/18/2016: checked again, this SSE code is not causing any differences in float/double
+//                     processing, safe to keep as is!
 #define _NCC_SSE_
 #ifdef _NCC_SSE_
 

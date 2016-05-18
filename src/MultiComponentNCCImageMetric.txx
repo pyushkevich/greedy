@@ -252,32 +252,35 @@ TPixel *
 MultiImageNNCPostComputeFunction(
     TPixel *ptr, TPixel *ptr_end, int n_comp, TWeight *weights, TMetric *ptr_metric, TGradient *ptr_gradient, int ImageDimension)
 {
+  // IMPORTANT: this code uses double precision because single precision float seems
+  // to mess up and lead to unstable computations
+
   // Get the size of the mean filter kernel
-  TPixel n = *ptr++, one_over_n = 1.0 / n;
+  double n = *ptr++, one_over_n = 1.0 / n;
 
   // Get the pointer for the fixed only components, and for the moving components
   TPixel *ptr_fix = ptr; ptr += n_comp * 2;
 
   // Loop over components
   int i_wgt = 0;
-  const TPixel eps = 1e-8;
+  const double eps = 1e-8;
 
   // Initialize metric to zero
   *ptr_metric = 0;
 
   for(; ptr < ptr_end; ++i_wgt)
     {
-    TPixel x_fix = *ptr_fix++;
-    TPixel x_mov = *ptr++;
-    TPixel x_fix_sq = *ptr_fix++;
-    TPixel x_mov_sq = *ptr++;
-    TPixel x_fix_mov = *ptr++;
+    double x_fix = *ptr_fix++;
+    double x_mov = *ptr++;
+    double x_fix_sq = *ptr_fix++;
+    double x_mov_sq = *ptr++;
+    double x_fix_mov = *ptr++;
 
-    TPixel x_fix_over_n = x_fix * one_over_n;
-    TPixel x_mov_over_n = x_mov * one_over_n;
+    double x_fix_over_n = x_fix * one_over_n;
+    double x_mov_over_n = x_mov * one_over_n;
 
-    TPixel var_fix = x_fix_sq - x_fix * x_fix_over_n;
-    TPixel var_mov = x_mov_sq - x_mov * x_mov_over_n;
+    double var_fix = x_fix_sq - x_fix * x_fix_over_n;
+    double var_mov = x_mov_sq - x_mov * x_mov_over_n;
 
     if(var_fix < eps || var_mov < eps)
       {
@@ -286,10 +289,10 @@ MultiImageNNCPostComputeFunction(
       continue;
       }
 
-    TPixel cov_fix_mov = x_fix_mov - x_fix * x_mov_over_n;
-    TPixel one_over_denom = 1.0 / (var_fix * var_mov);
-    TPixel cov_fix_mov_over_denom = cov_fix_mov * one_over_denom;
-    TPixel ncc_fix_mov = cov_fix_mov * cov_fix_mov_over_denom;
+    double cov_fix_mov = x_fix_mov - x_fix * x_mov_over_n;
+    double one_over_denom = 1.0 / (var_fix * var_mov);
+    double cov_fix_mov_over_denom = cov_fix_mov * one_over_denom;
+    double ncc_fix_mov = cov_fix_mov * cov_fix_mov_over_denom;
 
     // Weight - includes scaling of squared covariance by direction
     TWeight w = (cov_fix_mov < 0) ? -weights[i_wgt] : weights[i_wgt];
@@ -298,25 +301,30 @@ MultiImageNNCPostComputeFunction(
       {
       for(int i = 0; i < ImageDimension; i++)
         {
-        TPixel x_grad_mov_i = *ptr++;
-        TPixel x_fix_grad_mov_i = *ptr++;
-        TPixel x_mov_grad_mov_i = *ptr++;
+        double x_grad_mov_i = *ptr++;
+        double x_fix_grad_mov_i = *ptr++;
+        double x_mov_grad_mov_i = *ptr++;
 
         // Derivative of cov_fix_mov
-        TPixel grad_cov_fix_mov_i = x_fix_grad_mov_i - x_fix_over_n * x_grad_mov_i;
+        double grad_cov_fix_mov_i = x_fix_grad_mov_i - x_fix_over_n * x_grad_mov_i;
 
         // One half derivative of var_mov
-        TPixel half_grad_var_mov_i = x_mov_grad_mov_i - x_mov_over_n * x_grad_mov_i;
+        double half_grad_var_mov_i = x_mov_grad_mov_i - x_mov_over_n * x_grad_mov_i;
 
-        TPixel grad_ncc_fix_mov_i =
+        double grad_ncc_fix_mov_i =
             2 * cov_fix_mov_over_denom * (grad_cov_fix_mov_i - var_fix * half_grad_var_mov_i * cov_fix_mov_over_denom);
 
-        (*ptr_gradient)[i] += w * grad_ncc_fix_mov_i;
+        if(fabs(grad_ncc_fix_mov_i) > 1000)
+          {
+          printf("big value: %f\n", grad_ncc_fix_mov_i);
+          }
+
+        (*ptr_gradient)[i] += (TPixel) (w * grad_ncc_fix_mov_i);
         }
       }
 
     // Accumulate the metric
-    *ptr_metric += w * ncc_fix_mov;
+    *ptr_metric += (TPixel) (w * ncc_fix_mov);
     }
 
   return ptr;
