@@ -4,6 +4,10 @@
 #include "itkImageRegionConstIteratorWithIndex.h"
 #include "itkImageLinearIteratorWithIndex.h"
 
+namespace itk {
+  template <typename TPixel, unsigned int VDim> class VectorImage;
+}
+
 template <class TIterator>
 class IteratorExtender : public TIterator
 {

@@ -37,18 +37,29 @@ SET(HEADERS
   src/itkOptVectorLinearInterpolateImageFunction.txx
   src/lddmm_common.h
   src/lddmm_data.h
+  src/GreedyAPI.h
+  src/GreedyParameters.h
+  src/CommandLineHelper.h
 )
 
-SET(LDDMM_SRC
-  src/lddmm_main.cxx
-  src/lddmm_data.cxx)
+SET(GREEDY_LIB_SRC
+  src/lddmm_data.cxx
+  src/GreedyAPI.cxx
+  src/GreedyParameters.cxx
+  src/CommandLineHelper.cxx
+)
 
-SET(GREEDY_SRC
-  src/greedy_main.cxx
-  src/lddmm_data.cxx)
+SET(LDDMM_SRC src/lddmm_main.cxx)
 
+SET(GREEDY_SRC src/greedy_main.cxx)
+
+ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
 LINK_LIBRARIES(${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB})
-ADD_EXECUTABLE(lddmm ${LDDMM_SRC} ${HEADERS})
-ADD_EXECUTABLE(greedy ${GREEDY_SRC} ${HEADERS})
+
+ADD_EXECUTABLE(lddmm ${LDDMM_SRC})
+TARGET_LINK_LIBRARIES(lddmm greedyapi)
+
+ADD_EXECUTABLE(greedy ${GREEDY_SRC})
+TARGET_LINK_LIBRARIES(greedy greedyapi)
 
 ADD_EXECUTABLE(test_accum testing/src/TestOneDimensionalInPlaceAccumulateFilter.cxx)

@@ -1175,6 +1175,9 @@ LDDMMData<TFloat, VDim>
 
 /* =============================== */
 
+#ifdef _LDDMM_FFT_
+
+
 template <class TFloat, uint VDim>
 LDDMMFFTInterface<TFloat, VDim>
 ::LDDMMFFTInterface(ImageType *ref)
@@ -1308,6 +1311,9 @@ LDDMMFFTInterface<TFloat, VDim>
   fftw_free(m_Data);
 }
 
+#endif // _LDDMM_FFT_
+
+
 template <class TFloat, uint VDim>
 LDDMMImageMatchingObjective<TFloat, VDim>
 ::LDDMMImageMatchingObjective(LDDMM &p)
@@ -1412,18 +1418,15 @@ template class LDDMMData<float, 2>;
 template class LDDMMData<float, 3>;
 template class LDDMMData<float, 4>;
 
-/*
-template class LDDMMFFTInterface<float, 2>;
-template class LDDMMFFTInterface<float, 3>;
-*/
-
 template class LDDMMData<double, 2>;
 template class LDDMMData<double, 3>;
 template class LDDMMData<double, 4>;
 
+#ifdef _LDDMM_FFT_
 template class LDDMMFFTInterface<double, 2>;
 template class LDDMMFFTInterface<double, 3>;
 template class LDDMMFFTInterface<double, 4>;
+#endif
 
 template class LDDMMImageMatchingObjective<myreal, 2>;
 template class LDDMMImageMatchingObjective<myreal, 3>;

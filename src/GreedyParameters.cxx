@@ -24,51 +24,41 @@
   along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
-#ifndef _LDDMM_COMMON_H_
-#define _LDDMM_COMMON_H_
-
-typedef unsigned int uint;
-
-typedef double myreal;
-
-// A macro for defining named inputs and outputs to ITK filters
-#define itkNamedInputMacro(name, type, key) \
-  virtual void Set##name (type *_arg) \
-    { \
-    itk::ProcessObject::SetInput(key, _arg); \
-    } \
-  \
-  virtual type * Get##name() \
-    { \
-    return dynamic_cast<type *>(itk::ProcessObject::GetInput(key)); \
-    }
-
-#define itkNamedInputGetMacro(name, type, key) \
-  virtual type * Get##name() \
-    { \
-    return dynamic_cast<type *>(itk::ProcessObject::GetInput(key)); \
-    }
-
-// A macro for defining named inputs and outputs to ITK filters
-#define itkNamedOutputMacro(name, type, key) \
-  virtual void Set##name (type *_arg) \
-    { \
-    itk::ProcessObject::SetOutput(key, _arg); \
-    } \
-  \
-  virtual type * Get##name() \
-    { \
-    return dynamic_cast<type *>(itk::ProcessObject::GetOutput(key)); \
-    }
-
-#define itkNamedOutputGetMacro(name, type, key) \
-  virtual type * Get##name() \
-    { \
-    return dynamic_cast<type *>(itk::ProcessObject::GetOutput(key)); \
-    }
+#include "GreedyParameters.h"
 
 
 
+void
+GreedyParameters
+::SetToDefaults(GreedyParameters &param)
+{
+  param.dim = 2;
+  param.mode = GreedyParameters::GREEDY;
+  param.flag_dump_moving = false;
+  param.flag_debug_deriv = false;
+  param.flag_debug_aff_obj = false;
+  param.dump_frequency = 1;
+  param.epsilon = 1.0;
+  param.sigma_pre.sigma = sqrt(3.0);
+  param.sigma_pre.physical_units = false;
+  param.sigma_post.sigma = sqrt(0.5);
+  param.sigma_post.physical_units = false;
+  param.threads = 0;
+  param.metric = GreedyParameters::SSD;
+  param.time_step_mode = GreedyParameters::SCALE;
+  param.deriv_epsilon = 1e-4;
+  param.flag_powell = false;
+  param.inverse_exponent = 2;
+  param.warp_precision = 0.1;
+  param.ncc_noise_factor = 0.001;
+  param.affine_init_mode = VOX_IDENTITY;
+  param.affine_dof = GreedyParameters::DOF_AFFINE;
+  param.affine_jitter = 0.5;
+  param.flag_float_math = false;
 
+  // reslice mode parameters
+  InterpSpec interp_current;
 
-#endif
+  param.iter_per_level.push_back(100);
+  param.iter_per_level.push_back(100);
+}

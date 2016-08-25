@@ -311,7 +311,7 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
 
 #include <xmmintrin.h>
 
-void allocate_aligned(int elements, float ** pointer)
+inline void allocate_aligned(int elements, float ** pointer)
 {
   int rc = posix_memalign( (void **) pointer, 16, elements * sizeof(float));
   if(rc != 0)

@@ -38,7 +38,9 @@
 
 #include <itkImageIOBase.h>
 
+#ifdef _LDDMM_FFT_
 #include <fftw3.h>
+#endif
 
 template<class TFloat, uint VDim>
 class LDDMMData
@@ -208,6 +210,8 @@ protected:
 
 };
 
+#ifdef _LDDMM_FFT_
+
 template <class TFloat, uint VDim>
 class LDDMMFFTInterface
 {
@@ -236,6 +240,28 @@ private:
   fftw_plan m_Plan, m_InvPlan;
 
 };
+
+#else
+
+template <class TFloat, uint VDim>
+class LDDMMFFTInterface
+{
+public:
+  typedef typename LDDMMData<TFloat, VDim>::ImageType ImageType;
+  typedef typename LDDMMData<TFloat, VDim>::VectorImageType VectorImageType;
+  typedef typename LDDMMData<TFloat, VDim>::Vec Vec;
+
+  LDDMMFFTInterface(ImageType *ref) {}
+  ~LDDMMFFTInterface() {}
+
+   void convolution_fft(
+       VectorImageType *img, ImageType *kernel_ft, bool inv_kernel,
+       VectorImageType *out) { throw std::string("Code was not compiled with _LDDMM_FFT_"); }
+
+};
+
+#endif // _LDDMM_FFT_
+
 
 // Class for iteratively computing the objective function
 template<class TFloat, uint VDim>
