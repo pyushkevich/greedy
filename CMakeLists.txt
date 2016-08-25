@@ -10,9 +10,15 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
   FIND_PACKAGE(ITK 4.8.2 REQUIRED)
   INCLUDE(${ITK_USE_FILE})
 
+  # Advanced option to link with FFT 
+  OPTION(USE_FFTW "Use features provided by the FFTW library, only for experimental LDDMM code" OFF)
+
   # Deal with FFTW - only used by experimental LDDMM code
-  SET(ITK_USE_FFTWF ON)
-  INCLUDE(CMake/FindFFTW.cmake)
+  IF(USE_FFTW)
+    SET(ITK_USE_FFTWF ON)
+    INCLUDE(CMake/FindFFTW.cmake)
+    ADD_DEFINITIONS(-D_LDDMM_FFT_)
+  ENDIF(USE_FFTW)
 
 ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)
 
