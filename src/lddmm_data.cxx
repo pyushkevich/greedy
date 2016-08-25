@@ -958,7 +958,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::vimg_copy(const LDDMMData::VectorImageType *src, LDDMMData::VectorImageType *trg)
+::vimg_copy(const VectorImageType *src, VectorImageType *trg)
 {
   typedef itk::CastImageFilter<VectorImageType, VectorImageType> CastFilter;
   typename CastFilter::Pointer fltCast = CastFilter::New();
@@ -970,7 +970,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::img_copy(const LDDMMData::ImageType *src, LDDMMData::ImageType *trg)
+::img_copy(const ImageType *src, ImageType *trg)
 {
   typedef itk::CastImageFilter<ImageType, ImageType> CastFilter;
   typename CastFilter::Pointer fltCast = CastFilter::New();
@@ -1102,7 +1102,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::img_threshold_in_place(LDDMMData::ImageType *src, double lt, double ut, double fore, double back)
+::img_threshold_in_place(ImageType *src, double lt, double ut, double fore, double back)
 {
   typedef itk::BinaryThresholdImageFilter<ImageType, ImageType> FilterType;
   typename FilterType::Pointer filter = FilterType::New();

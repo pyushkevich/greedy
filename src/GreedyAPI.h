@@ -149,11 +149,6 @@ protected:
 
   void ReadImages(GreedyParameters &param, OFHelperType &ofhelper);
 
-  void ResampleImages(GreedyParameters &param,
-                      const std::vector<ImagePair> &imgRaw,
-                      std::vector<ImagePair> &img,
-                      int level);
-
   void ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
                           ImageBaseType *ref_space,
                           VectorImagePointer &out_warp);

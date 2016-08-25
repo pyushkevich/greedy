@@ -131,12 +131,14 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
   TPixel *sum = new TPixel[nc];
 
   // Pointers into the sum array for the included components
-  TPixel *sum_start = sum + c_first, *sum_end = sum + c_last + 1, *p_sum;
+  TPixel *sum_start = sum + c_first, *sum_end = sum + c_last + 1;
 
   // Two versions of the code - I thought that maybe the second version (further down) would be
   // more optimized by the compiler, but if anything, I see an opposite effect (although tiny)
 
 #ifdef _ACCUM_ITER_CODE_
+
+  TPixel *p_sum;
 
   // Start iterating over lines
   for(itLine.GoToBegin(); !itLine.IsAtEnd(); itLine.NextLine())
@@ -311,16 +313,27 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
 
 #include <xmmintrin.h>
 
+#ifdef WIN32
+inline void allocate_aligned(int elements, float ** pointer)
+{
+  *pointer = (float *)_aligned_malloc(elements * sizeof(float), 16);
+  if (*pointer == NULL)
+  {
+    std::cerr << "_aligned_malloc returned NULL input " << elements * sizeof(float) << std::endl;
+    throw std::string("_aligned_malloc allocation error");
+  }
+}
+#else
 inline void allocate_aligned(int elements, float ** pointer)
 {
   int rc = posix_memalign( (void **) pointer, 16, elements * sizeof(float));
   if(rc != 0)
-    {
+  {
     std::cerr << "posix_memalign return value " << rc << " input " << elements * sizeof(float) << std::endl;
     throw std::string("posix_memalign allocation error");
-    }
+  }
 }
-
+#endif
 
 /**
  * A specialization of the threaded generate data method for floating point images that uses
@@ -429,8 +442,11 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
     const float *p_src = p_scan_pixel;
     for(; p_copy < p_scanline_end; p_copy += nc_padded, p_src += jump)
       {
+#ifndef WIN32
       __builtin_prefetch(p_src + 5 * jump, 0, 0);
-      for(i = 0; i < nc_used; i++)
+#endif 
+
+      for (i = 0; i < nc_used; i++)
         p_copy[i] = p_src[i];
       }
 
@@ -515,7 +531,9 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
     const float *p_src_back = scanline;
     for(; p_src_back < p_scanline_end; p_src_back += nc_padded, p_copy_back += jump)
       {
+#ifndef WIN32
       __builtin_prefetch(p_copy_back + 5 * jump, 1, 0);
+#endif
       for(i = 0; i < nc_used; i++)
         p_copy_back[i] = p_src_back[i];
       }

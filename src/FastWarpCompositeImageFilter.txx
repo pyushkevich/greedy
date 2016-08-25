@@ -124,7 +124,7 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
 template <class TInputImage, class TOutputImage, class TDeformationField>
 void
 FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
-::FastWarpCompositeImageFilter::GenerateInputRequestedRegion()
+::GenerateInputRequestedRegion()
 {
   this->GetDeformationField()->SetRequestedRegion(this->GetOutput()->GetRequestedRegion());
   this->GetMovingImage()->SetRequestedRegionToLargestPossibleRegion();

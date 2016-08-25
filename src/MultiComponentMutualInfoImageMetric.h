@@ -32,6 +32,7 @@
 #include "itkBarrier.h"
 #include <queue>
 #include <vector>
+#include <functional>
 
 /**
  * Default traits for parameterizing the metric filters below.
