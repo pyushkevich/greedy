@@ -1,15 +1,25 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
+PROJECT(GREEDY_TOOL)
 
-PROJECT(LDDMM_TOOL)
+# If we are building as a sub-project we skip the extra steps
+IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
 
-FIND_PACKAGE(ITK 3.20 REQUIRED)
+  # Stand-alone build stuff
+  CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
 
-INCLUDE(${ITK_USE_FILE})
-INCLUDE_DIRECTORIES(${LDDMM_TOOL_SOURCE_DIR}/src)
+  # ITK
+  FIND_PACKAGE(ITK 4.8.2 REQUIRED)
+  INCLUDE(${ITK_USE_FILE})
 
-SET(ITK_USE_FFTWF ON)
-INCLUDE(CMake/FindFFTW.cmake)
+  # Deal with FFTW - only used by experimental LDDMM code
+  SET(ITK_USE_FFTWF ON)
+  INCLUDE(CMake/FindFFTW.cmake)
 
+ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)
+
+# Include the header directories
+INCLUDE_DIRECTORIES(${GREEDY_TOOL_SOURCE_DIR}/src)
+
+# Define header files
 SET(HEADERS
   src/FastLinearInterpolator.h
   src/FastWarpCompositeImageFilter.h
@@ -42,6 +52,7 @@ SET(HEADERS
   src/CommandLineHelper.h
 )
 
+# Define greedy library files
 SET(GREEDY_LIB_SRC
   src/lddmm_data.cxx
   src/GreedyAPI.cxx
@@ -50,7 +61,6 @@ SET(GREEDY_LIB_SRC
 )
 
 SET(LDDMM_SRC src/lddmm_main.cxx)
-
 SET(GREEDY_SRC src/greedy_main.cxx)
 
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
