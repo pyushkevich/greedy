@@ -1525,10 +1525,19 @@ int GreedyApproach<VDim, TReal>
         delete optimizer;
         }
 
-      // Get the final transform
-      typename LinearTransformType::Pointer tFinal = LinearTransformType::New();
-      acf->GetTransform(xLevel, tFinal.GetPointer());
-      Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tFinal);
+      // Did the registration succeed?
+      if(xLevel.size() > 0)
+        {
+        // Get the final transform
+        typename LinearTransformType::Pointer tFinal = LinearTransformType::New();
+        acf->GetTransform(xLevel, tFinal.GetPointer());
+        Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tFinal);
+        }
+      else
+        {
+        // Use the pre-initialization transform parameters
+        Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
+        }
       }
 
     std::cout << "Final RAS Transform: " << std::endl << Q_physical << std::endl;
