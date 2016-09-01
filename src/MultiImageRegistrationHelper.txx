@@ -69,7 +69,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 ::AddImagePair(MultiComponentImageType *fixed, MultiComponentImageType *moving, double weight)
 {
   // Collect the weights
-  for(int i = 0; i < fixed->GetNumberOfComponentsPerPixel(); i++)
+  for(unsigned i = 0; i < fixed->GetNumberOfComponentsPerPixel(); i++)
     m_Weights.push_back(weight);
 
   // Store the images
@@ -182,7 +182,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   for(int j = 0; j < m_Fixed.size(); j++)
     {
     // Repeat for each component
-    for(int k = 0; k < m_Fixed[j]->GetNumberOfComponentsPerPixel(); k++)
+    for(unsigned k = 0; k < m_Fixed[j]->GetNumberOfComponentsPerPixel(); k++)
       {
       // Extract the k-th image component from fixed and moving images
       typedef itk::VectorIndexSelectionCastImageFilter<MultiComponentImageType, FloatImageType> ExtractType;
@@ -386,7 +386,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
-  for(int i = 0; i < wscaled.size(); i++)
+  for (unsigned i = 0; i < wscaled.size(); i++)
     wscaled[i] = m_Weights[i] * result_scaling;
 
   // Run the filter
@@ -415,7 +415,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 {
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
-  for(int i = 0; i < wscaled.size(); i++)
+  for (unsigned i = 0; i < wscaled.size(); i++)
     wscaled[i] = m_Weights[i] * result_scaling;
 
   // Set up the mutual information metric
@@ -491,7 +491,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
-  for(int i = 0; i < wscaled.size(); i++)
+  for (unsigned i = 0; i < wscaled.size(); i++)
     wscaled[i] = m_Weights[i] * result_scaling;
 
   // Allocate a working image
@@ -536,7 +536,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 {
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
-  for(int i = 0; i < wscaled.size(); i++)
+  for (unsigned i = 0; i < wscaled.size(); i++)
     wscaled[i] = m_Weights[i];
 
   // Set up the optical flow computation
@@ -593,7 +593,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 {
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
-  for(int i = 0; i < wscaled.size(); i++)
+  for (unsigned i = 0; i < wscaled.size(); i++)
     wscaled[i] = m_Weights[i];
 
   // Set up the mutual information metric
@@ -670,7 +670,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 {
   // Scale the weights by epsilon
   vnl_vector<float> wscaled(m_Weights.size());
-  for(int i = 0; i < wscaled.size(); i++)
+  for (unsigned i = 0; i < wscaled.size(); i++)
     wscaled[i] = m_Weights[i];
 
   // Allocate a working image

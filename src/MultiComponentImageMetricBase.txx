@@ -108,7 +108,7 @@ MultiComponentImageMetricBase<TMetricTraits>
 
   // Create the prototype results vector
   m_ThreadData.clear();
-  for(int i = 0; i < this->GetNumberOfThreads(); i++)
+  for (unsigned i = 0; i < this->GetNumberOfThreads(); i++)
     {
     ThreadData td;
     td.comp_metric = vnl_vector<double>(fixed->GetNumberOfComponentsPerPixel(), 0.0);
@@ -152,7 +152,7 @@ MultiComponentImageMetricBase<TMetricTraits>
 
 
     vnl_vector<double> grad_metric(m_AccumulatedData.gradient.size());
-    for(int j = 0; j < m_AccumulatedData.gradient.size(); j++)
+    for (unsigned j = 0; j < m_AccumulatedData.gradient.size(); j++)
       {
       grad_metric[j] =
           (this->GetGradientScalingFactor() * m_AccumulatedData.gradient[j]
