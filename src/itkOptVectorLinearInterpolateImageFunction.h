@@ -513,8 +513,8 @@ private:
 # include "Templates/itkOptVectorLinearInterpolateImageFunction+-.h"
 #endif
 
-#if ITK_TEMPLATE_TXX
-# include "itkOptVectorLinearInterpolateImageFunction.txx"
+#ifndef ITK_MANUAL_INSTANTIATION
+#include "itkOptVectorLinearInterpolateImageFunction.txx"
 #endif
 
 #endif

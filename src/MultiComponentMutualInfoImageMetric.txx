@@ -274,15 +274,15 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
 
       // First pass, add thread data and compute the sum of all non-outside histogram bin balues
       double hist_sum = 0.0;
-      for(int bf = 1; bf < m_Bins; bf++)
+      for (unsigned bf = 1; bf < m_Bins; bf++)
         {
-        for(int bm = 1; bm < m_Bins; bm++)
+        for(unsigned bm = 1; bm < m_Bins; bm++)
           {
           // Reference to the joint probability entry
           RealType &Pfm = hc.Pfm(bf,bm);
 
           // Add the entries from all threads
-          for(int q = 0; q < this->GetNumberOfThreads(); q++)
+          for (unsigned q = 0; q < this->GetNumberOfThreads(); q++)
             Pfm += m_MIThreadData[q][c][bf][bm];
 
           // Accumulate the sum of all entries
@@ -291,9 +291,9 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
         }
 
       // Second pass, normalize the entries and compute marginals
-      for(int bf = 1; bf < m_Bins; bf++)
+      for (unsigned bf = 1; bf < m_Bins; bf++)
         {
-        for(int bm = 1; bm < m_Bins; bm++)
+        for(unsigned bm = 1; bm < m_Bins; bm++)
           {
           // Reference to the joint probability entry
           RealType &Pfm = hc.Pfm(bf,bm);
@@ -327,9 +327,9 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
         // in terms of the bin counts
         double grad_weights_dot_Pfm = 0.0;
 
-        for(int bf = 1; bf < m_Bins; bf++)
+        for (unsigned bf = 1; bf < m_Bins; bf++)
           {
-          for(int bm = 1; bm < m_Bins; bm++)
+          for(unsigned bm = 1; bm < m_Bins; bm++)
             {
             double Pfm = hc.Pfm(bf, bm);
             if(Pfm > 0)
@@ -337,9 +337,9 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
             }
           }
 
-        for(int bf = 1; bf < m_Bins; bf++)
+        for (unsigned bf = 1; bf < m_Bins; bf++)
           {
-          for(int bm = 1; bm < m_Bins; bm++)
+          for(unsigned bm = 1; bm < m_Bins; bm++)
             {
             m_GradWeights[c][bf][bm] = (m_GradWeights[c][bf][bm] - grad_weights_dot_Pfm) / hist_sum;
             }
@@ -527,7 +527,7 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
     if(threadId == 0)
       {
       // Combine the priority queues
-      for(int q = 1; q < this->GetNumberOfThreads(); q++)
+      for(unsigned q = 1; q < this->GetNumberOfThreads(); q++)
         {
         ThreadData &tdq = m_ThreadData[q];
         while(!tdq.heap_lower.empty())
@@ -558,7 +558,7 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
       continue;
 
     // Which bin do we start at
-    int start_bin = m_StartAtBinOne ? 1 : 0;
+    unsigned start_bin = m_StartAtBinOne ? 1 : 0;
 
     // Compute the scale and shift
     double scale = (m_Bins - start_bin) * 1.0 / (m_UpperQuantileValues[k] - m_LowerQuantileValues[k]);
@@ -574,7 +574,7 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
       // Iterate over the line
       for(int p = 0; p < line_length; p++, line+=ncomp, out_line+=ncomp)
         {
-        int bin = (int) (*line * scale - shift);
+        unsigned bin = (int) (*line * scale - shift);
         if(bin < start_bin)
           *out_line = start_bin;
         else if(bin >= m_Bins)

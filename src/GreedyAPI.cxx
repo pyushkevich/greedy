@@ -1302,7 +1302,7 @@ int GreedyApproach<VDim, TReal>
   vnl_matrix<double> Q_physical;
 
   // The number of resolution levels
-  int nlevels = param.iter_per_level.size();
+  unsigned nlevels = param.iter_per_level.size();
 
   // Clear the metric log
   m_MetricLog.clear();
@@ -1371,7 +1371,7 @@ int GreedyApproach<VDim, TReal>
         {
         // Apply jitter
         vnl_random rndy(12345);
-        for(int i = 0; i < xInit.size(); i++)
+        for (unsigned i = 0; i < xInit.size(); i++)
           xInit[i] += rndy.drand32(-0.4, 0.4);
 
         // Map back into transform format
@@ -1457,7 +1457,7 @@ int GreedyApproach<VDim, TReal>
       std::cout << "Initial RAS Transform: " << std::endl << Q_physical  << std::endl;
 
       printf("ANL gradient: ");
-      for(int i = 0; i < xGrad.size(); i++)
+      for (unsigned i = 0; i < xGrad.size(); i++)
         printf("%11.4f ", xGrad[i]);
       printf("\n");
 
@@ -1480,7 +1480,7 @@ int GreedyApproach<VDim, TReal>
         }
 
       printf("NUM gradient: ");
-      for(int i = 0; i < xGradN.size(); i++)
+      for (unsigned i = 0; i < xGradN.size(); i++)
         printf("%11.4f ", xGradN[i]);
       printf("\n");
 
@@ -1600,7 +1600,7 @@ int GreedyApproach<VDim, TReal>
   VectorImagePointer uLevel = NULL;
 
   // The number of resolution levels
-  int nlevels = param.iter_per_level.size();
+  unsigned nlevels = param.iter_per_level.size();
 
   // Iterate over the resolution levels
   for(unsigned int level = 0; level < nlevels; ++level)
@@ -1698,7 +1698,7 @@ int GreedyApproach<VDim, TReal>
 
         printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
         total_energy = 0.0;
-        for(int i = 0;  i < all_metrics.size(); i++)
+        for (unsigned i = 0; i < all_metrics.size(); i++)
           {
           printf("  %8.6f", all_metrics[i]);
           total_energy += all_metrics[i];
@@ -1723,7 +1723,7 @@ int GreedyApproach<VDim, TReal>
 
         printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
         total_energy = 0.0;
-        for(int i = 0;  i < all_metrics.size(); i++)
+        for (unsigned i = 0; i < all_metrics.size(); i++)
           {
           printf("  %8.6f", all_metrics[i]);
           total_energy += all_metrics[i];

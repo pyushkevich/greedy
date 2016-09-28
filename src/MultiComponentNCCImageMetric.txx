@@ -426,8 +426,8 @@ MultiComponentNCCImageMetric<TMetricTraits>
   preFilter->SetInput(this->GetFixedImage());
 
   // Number of components in the working image
-  int ncomp = preFilter->GetNumberOfOutputComponents();
-  int ncomp_ignore = 0;
+  unsigned ncomp = preFilter->GetNumberOfOutputComponents();
+  unsigned ncomp_ignore = 0;
 
   // If the working image is supplied, make sure that it has sufficient size
   bool flag_reuse = m_ReuseWorkingImageFixedComponents;
