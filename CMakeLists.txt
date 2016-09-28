@@ -72,10 +72,14 @@ SET(GREEDY_SRC src/greedy_main.cxx)
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
 LINK_LIBRARIES(${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB})
 
-ADD_EXECUTABLE(lddmm ${LDDMM_SRC})
-TARGET_LINK_LIBRARIES(lddmm greedyapi)
+# The executables are only compiled when the software is built as its own project
+IF(NOT GREEDY_TOOL_BUILD_AS_SUBPROJECT)
 
-ADD_EXECUTABLE(greedy ${GREEDY_SRC})
-TARGET_LINK_LIBRARIES(greedy greedyapi)
+  ADD_EXECUTABLE(lddmm ${LDDMM_SRC})
+  TARGET_LINK_LIBRARIES(lddmm greedyapi)
 
-ADD_EXECUTABLE(test_accum testing/src/TestOneDimensionalInPlaceAccumulateFilter.cxx)
+  ADD_EXECUTABLE(greedy ${GREEDY_SRC})
+  TARGET_LINK_LIBRARIES(greedy greedyapi)
+
+  ADD_EXECUTABLE(test_accum testing/src/TestOneDimensionalInPlaceAccumulateFilter.cxx)
+ENDIF(NOT GREEDY_TOOL_BUILD_AS_SUBPROJECT)
