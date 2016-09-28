@@ -237,13 +237,6 @@ GreedyApproach<VDim, TReal>::PureAffineCostFunction
       (*g) *= -10000.0;
 
       }
-
-    // Write out the current iteration transform
-    if(m_Param->output_intermediate.length())
-      {
-      vnl_matrix<double> Q_physical = MapAffineToPhysicalRASSpace(*m_OFHelper, m_Level, tran);
-      m_Parent->WriteAffineMatrixViaCache(m_Param->output_intermediate, Q_physical);
-      }
     }
   else
     {
@@ -268,6 +261,24 @@ GreedyApproach<VDim, TReal>::PureAffineCostFunction
               tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
 
       val *= -10000.0;
+      }
+    }
+
+  // Has the metric improved?
+  if(m_Parent->GetMetricLog().size())
+    {
+    const std::vector<double> &log = m_Parent->GetMetricLog().back();
+    if(log.size() == 0 || log.back() > val)
+      {
+      // Record the metric value
+      m_Parent->RecordMetricValue(val);
+
+      // Write out the current iteration transform
+      if(m_Param->output_intermediate.length())
+        {
+        vnl_matrix<double> Q_physical = MapAffineToPhysicalRASSpace(*m_OFHelper, m_Level, tran);
+        m_Parent->WriteAffineMatrixViaCache(m_Param->output_intermediate, Q_physical);
+        }
       }
     }
 
@@ -1193,6 +1204,15 @@ GreedyApproach<VDim, TReal>
   tran->SetOffset(tran_b);
 }
 
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>
+::RecordMetricValue(double val)
+{
+  if(m_MetricLog.size())
+    m_MetricLog.back().push_back(val);
+}
+
 /**
  * Find a plane of symmetry in an image
  */
@@ -1284,9 +1304,15 @@ int GreedyApproach<VDim, TReal>
   // The number of resolution levels
   int nlevels = param.iter_per_level.size();
 
+  // Clear the metric log
+  m_MetricLog.clear();
+
   // Iterate over the resolution levels
   for(unsigned int level = 0; level < nlevels; ++level)
     {
+    // Add stage to metric log
+    m_MetricLog.push_back(std::vector<double>());
+
     // Define the affine cost function
     AbstractAffineCostFunction *pure_acf, *acf;
     if(param.affine_dof == GreedyParameters::DOF_RIGID)
@@ -2279,6 +2305,14 @@ void GreedyApproach<VDim, TReal>
 ::AddCachedInputObject(std::string &string, itk::Object *object)
 {
   m_ImageCache[string] = object;
+}
+
+template <unsigned int VDim, typename TReal>
+const typename GreedyApproach<VDim,TReal>::MetricLogType &
+GreedyApproach<VDim,TReal>
+::GetMetricLog() const
+{
+  return m_MetricLog;
 }
 
 template <unsigned int VDim, typename TReal>

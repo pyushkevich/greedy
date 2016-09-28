@@ -83,6 +83,8 @@ public:
   typedef typename LDDMMType::CompositeImageType CompositeImageType;
   typedef typename LDDMMType::CompositeImagePointer CompositeImagePointer;
 
+  typedef std::vector<std::vector<double> > MetricLogType;
+
   typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
 
   typedef itk::MatrixOffsetTransformBase<TReal, VDim, VDim> LinearTransformType;
@@ -135,10 +137,21 @@ public:
    */
   void AddCachedInputObject(std::string &string, itk::Object *object);
 
+  /**
+   * Get the metric log - values of metric per level. Can be called from
+   * callback functions and observers
+   */
+  const MetricLogType &GetMetricLog() const;
+
+
 protected:
 
   typedef std::map<std::string, itk::Object *> ImageCache;
   ImageCache m_ImageCache;
+
+  // A log of metric values used during registration - so metric can be looked up
+  // in the callbacks to RunAffine, etc.
+  std::vector< std::vector<double> > m_MetricLog;
 
   template <class TImage>
   itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename);
@@ -161,6 +174,8 @@ protected:
       OFHelperType &of_helper, int level,
       vnl_matrix<double> &Qp,
       LinearTransformType *tran);
+
+  void RecordMetricValue(double val);
 
   class AbstractAffineCostFunction : public vnl_cost_function
   {
