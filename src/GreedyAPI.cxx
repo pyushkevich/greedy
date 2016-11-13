@@ -1678,6 +1678,9 @@ int GreedyApproach<VDim, TReal>
       // Start the iteration timer
       tm_Iteration.Start();
 
+      // The epsilon for this level
+      double eps= param.epsilon_per_level[level];
+
       // Compute the gradient of objective
       double total_energy;
 
@@ -1687,7 +1690,7 @@ int GreedyApproach<VDim, TReal>
         tm_Gradient.Start();
 
         vnl_vector<double> all_metrics =
-            of_helper.ComputeOpticalFlowField(level, uk, iTemp, uk1, param.epsilon)  / param.epsilon;
+            of_helper.ComputeOpticalFlowField(level, uk, iTemp, uk1, eps)  / eps;
 
         // If there is a mask, multiply the gradient by the mask
         if(param.gradient_mask.size())
@@ -1712,7 +1715,7 @@ int GreedyApproach<VDim, TReal>
         tm_Gradient.Start();
 
         vnl_vector<double> all_metrics =
-            of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, uk, iTemp, uk1, param.epsilon);
+            of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, uk, iTemp, uk1, eps);
 
         // If there is a mask, multiply the gradient by the mask
         if(param.gradient_mask.size())
@@ -1802,7 +1805,7 @@ int GreedyApproach<VDim, TReal>
         tm_Gradient.Start();
 
         // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
-        total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, param.epsilon) / param.epsilon;
+        total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, eps) / eps;
 
         // End gradient computation
         tm_Gradient.Stop();
@@ -1827,9 +1830,9 @@ int GreedyApproach<VDim, TReal>
       // After smoothing, compute the maximum vector norm and use it as a normalizing
       // factor for the displacement field
       if(param.time_step_mode == GreedyParameters::SCALE)
-        LDDMMType::vimg_normalize_to_fixed_max_length(viTemp, iTemp, param.epsilon, false);
+        LDDMMType::vimg_normalize_to_fixed_max_length(viTemp, iTemp, eps, false);
       else if (param.time_step_mode == GreedyParameters::SCALEDOWN)
-        LDDMMType::vimg_normalize_to_fixed_max_length(viTemp, iTemp, param.epsilon, true);
+        LDDMMType::vimg_normalize_to_fixed_max_length(viTemp, iTemp, eps, true);
 
       // Dump the smoothed gradient image if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)

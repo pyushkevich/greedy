@@ -136,7 +136,6 @@ struct GreedyParameters
 
   bool flag_dump_moving, flag_debug_deriv, flag_powell;
   int dump_frequency, threads;
-  double epsilon;
   double deriv_epsilon;
 
   double affine_jitter;
@@ -148,6 +147,8 @@ struct GreedyParameters
   TimeStepMode time_step_mode;
 
   // Iterations per level (i.e., 40x40x100)
+  std::vector<double> epsilon_per_level;
+  
   std::vector<int> iter_per_level;
 
   std::vector<int> metric_radius;

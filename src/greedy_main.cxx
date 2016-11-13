@@ -75,7 +75,8 @@ int usage()
   printf("                               MI:           mutual information\n");
   printf("                               NMI:          normalized mutual information\n");
   printf("                               NCC <radius>: normalized cross-correlation\n");
-  printf("  -e epsilon             : step size (default = 1.0)\n");
+  printf("  -e epsilon             : step size (default = 1.0), \n");
+  printf("                               may also be specified per level (e.g. 0.3x0.1)\n");
   printf("  -n NxNxN               : number of iterations per level of multi-res (100x100) \n");
   printf("  -threads N             : set the number of allowed concurrent threads\n");
   printf("  -gm mask.nii           : mask for gradient computation\n");
@@ -171,7 +172,7 @@ int main(int argc, char *argv[])
         }
       else if(arg == "-e")
         {
-        param.epsilon = cl.read_double();
+        param.epsilon_per_level = cl.read_double_vector();
         }
       else if(arg == "-m")
         {
@@ -369,6 +370,20 @@ int main(int argc, char *argv[])
       {
       std::cout << "Executing with the default number of threads: " << itk::MultiThreader::GetGlobalDefaultNumberOfThreads() << std::endl;
 
+      }
+
+    // Some parameters may be specified as either vector or scalar, and need to be verified
+    if(param.epsilon_per_level.size() != param.iter_per_level.size())
+      {
+      if(param.epsilon_per_level.size() == 1)
+        {
+        param.epsilon_per_level = 
+          std::vector<double>(param.iter_per_level.size(), param.epsilon_per_level.back());
+        }
+      else
+        {
+        throw GreedyException("Mismatch in size of vectors supplied with -n and -e options");
+        }
       }
 
     // Run the main code
