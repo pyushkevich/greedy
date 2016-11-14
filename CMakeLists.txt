@@ -64,12 +64,15 @@ SET(LDDMM_SRC src/lddmm_main.cxx)
 SET(GREEDY_SRC src/greedy_main.cxx)
 
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
-LINK_LIBRARIES(${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB})
 
 ADD_EXECUTABLE(lddmm ${LDDMM_SRC})
-TARGET_LINK_LIBRARIES(lddmm greedyapi)
+TARGET_LINK_LIBRARIES(lddmm greedyapi 
+  ${ITK_LIBRARIES} ${FFTWF_LIB}
+  ${FFTWF_THREADS_LIB})
 
 ADD_EXECUTABLE(greedy ${GREEDY_SRC})
-TARGET_LINK_LIBRARIES(greedy greedyapi)
+TARGET_LINK_LIBRARIES(greedy greedyapi ${ITK_LIBRARIES})
 
-ADD_EXECUTABLE(test_accum testing/src/TestOneDimensionalInPlaceAccumulateFilter.cxx)
+ADD_EXECUTABLE(test_accum
+  testing/src/TestOneDimensionalInPlaceAccumulateFilter.cxx)
+TARGET_LINK_LIBRARIES(test_accum ${ITK_LIBRARIES})
