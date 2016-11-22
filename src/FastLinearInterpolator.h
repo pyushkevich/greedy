@@ -350,6 +350,44 @@ public:
     else return Superclass::OUTSIDE;
   }
 
+  void Splat(RealType *cix, const InputComponentType *value)
+  {
+    // Compute the corners
+    this->ComputeCorners(cix);
+
+    // When inside, no checks are required
+    if(this->status == Superclass::INSIDE)
+      {
+      // Compute the corner weights using 4 multiplications (not 16)
+      RealType fxy = fx * fy, fyz = fy * fz, fxz = fx * fz, fxyz = fxy * fz;
+
+      RealType w111 = fxyz;
+      RealType w011 = fyz - fxyz;
+      RealType w101 = fxz - fxyz;
+      RealType w110 = fxy - fxyz;
+      RealType w001 = fz - fxz - w011;
+      RealType w010 = fy - fyz - w110;
+      RealType w100 = fx - fxy - w101;
+      RealType w000 = 1.0 - fx - fy + fxy - w001;
+
+      // Loop over the components
+      for(int iComp = 0; iComp < this->nComp; iComp++,
+          d000++, d001++, d010++, d011++,
+          d100++, d101++, d110++, d111++, value++)
+        {
+        // Assign the appropriate weight to each part of the histogram
+        InputComponentType val = *value;
+        *d000 += w000 * val;
+        *d001 += w001 * val;
+        *d010 += w010 * val;
+        *d011 += w011 * val;
+        *d100 += w100 * val;
+        *d101 += w101 * val;
+        *d110 += w110 * val;
+        *d111 += w111 * val;
+        }
+      }
+  }
 
   template <class THistContainer>
   void PartialVolumeHistogramSample(RealType *cix, const InputComponentType *fixptr, THistContainer &hist)
@@ -680,6 +718,36 @@ public:
     else return Superclass::OUTSIDE;
   }
 
+  void Splat(RealType *cix, const InputComponentType *value)
+  {
+    // Compute the corners
+    this->ComputeCorners(cix);
+
+    // When inside, no checks are required
+    if(this->status == Superclass::INSIDE)
+      {
+      // Compute the corner weights using 4 multiplications (not 16)
+      RealType fxy = fx * fy;
+
+      RealType w11 = fxy;
+      RealType w01 = fy - fxy;
+      RealType w10 = fx - fxy;
+      RealType w00 = 1.0 - fx - fy + fxy;
+
+      // Loop over the components
+      for(int iComp = 0; iComp < this->nComp; iComp++,
+          d00++, d01++, d10++, d11++, value++)
+        {
+        // Assign the appropriate weight to each part of the histogram
+        InputComponentType val = *value;
+
+        *d00 += w00 * val;
+        *d01 += w01 * val;
+        *d10 += w10 * val;
+        *d11 += w11 * val;
+        }
+      }
+  }
 
   template <class THistContainer>
   void PartialVolumeHistogramSample(RealType *cix, const InputComponentType *fixptr, THistContainer &hist)
