@@ -379,14 +379,14 @@ public:
         {
         // Assign the appropriate weight to each part of the histogram
         InputComponentType val = *value;
-        *d000 += w000 * val;
-        *d001 += w001 * val;
-        *d010 += w010 * val;
-        *d011 += w011 * val;
-        *d100 += w100 * val;
-        *d101 += w101 * val;
-        *d110 += w110 * val;
-        *d111 += w111 * val;
+        *const_cast<InputComponentType *>(d000) += w000 * val;
+        *const_cast<InputComponentType *>(d001) += w001 * val;
+        *const_cast<InputComponentType *>(d010) += w010 * val;
+        *const_cast<InputComponentType *>(d011) += w011 * val;
+        *const_cast<InputComponentType *>(d100) += w100 * val;
+        *const_cast<InputComponentType *>(d101) += w101 * val;
+        *const_cast<InputComponentType *>(d110) += w110 * val;
+        *const_cast<InputComponentType *>(d111) += w111 * val;
         }
       }
   }
@@ -743,10 +743,10 @@ public:
         // Assign the appropriate weight to each part of the histogram
         InputComponentType val = *value;
 
-        *d00 += w00 * val;
-        *d01 += w01 * val;
-        *d10 += w10 * val;
-        *d11 += w11 * val;
+        *const_cast<InputComponentType *>(d00) += w00 * val;
+        *const_cast<InputComponentType *>(d01) += w01 * val;
+        *const_cast<InputComponentType *>(d10) += w10 * val;
+        *const_cast<InputComponentType *>(d11) += w11 * val;
         }
       }
   }
