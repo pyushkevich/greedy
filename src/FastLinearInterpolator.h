@@ -157,6 +157,8 @@ public:
 
   TFloat GetMaskAndGradient(RealType *mask_gradient) { return 0.0; }
 
+  void Splat(RealType *cix, const InputComponentType *value) {}
+
   template <class THistContainer>
   void PartialVolumeHistogramSample(RealType *cix, const InputComponentType *fixptr, THistContainer &hist) {}
 
