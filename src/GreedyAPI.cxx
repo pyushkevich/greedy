@@ -2348,16 +2348,3 @@ template class GreedyApproach<4, float>;
 template class GreedyApproach<2, double>;
 template class GreedyApproach<3, double>;
 template class GreedyApproach<4, double>;
-
-
-
-GreedyException::GreedyException(const char *format, ...)
-{
-  buffer = new char[4096];
-  va_list args;
-  va_start (args, format);
-  vsprintf (buffer,format, args);
-  va_end (args);
-}
-
-

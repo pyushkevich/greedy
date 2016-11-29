@@ -28,6 +28,7 @@
 #define GREEDYAPI_H
 
 #include "GreedyParameters.h"
+#include "GreedyException.h"
 #include "lddmm_data.h"
 #include <vnl/vnl_cost_function.h>
 #include <vnl/vnl_random.h>
@@ -41,27 +42,6 @@ namespace itk {
   template <typename T, unsigned int D1, unsigned int D2> class MatrixOffsetTransformBase;
 
 }
-
-
-/**
- * A simple exception class with string formatting
- */
-class GreedyException : public std::exception
-{
-public:
-
-  GreedyException(const char *format, ...);
-
-  virtual const char* what() const throw() { return buffer; }
-
-  virtual ~GreedyException() throw() { delete buffer; }
-
-private:
-
-  char *buffer;
-
-};
-
 
 /**
  * This is the top level class for the greedy software. It contains methods

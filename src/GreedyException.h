@@ -24,6 +24,36 @@
   along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
-#include "CommandLineHelper.h"
+#ifndef __GreedyException_h_
+#define __GreedyException_h_
+
+#include <cstdio>
+
+/**
+ * A simple exception class with string formatting
+ */
+class GreedyException : public std::exception
+{
+public:
+
+  GreedyException(const char *format, ...)
+    {
+    buffer = new char[4096];
+    va_list args;
+    va_start (args, format);
+    vsprintf (buffer,format, args);
+    va_end (args);
+    }
+
+  virtual const char* what() const throw() { return buffer; }
+
+  virtual ~GreedyException() throw() { delete buffer; }
+
+private:
+
+  char *buffer;
+
+};
 
 
+#endif

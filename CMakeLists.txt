@@ -54,6 +54,7 @@ SET(HEADERS
   src/lddmm_common.h
   src/lddmm_data.h
   src/GreedyAPI.h
+  src/GreedyException.h
   src/GreedyParameters.h
   src/CommandLineHelper.h
 )
@@ -63,7 +64,6 @@ SET(GREEDY_LIB_SRC
   src/lddmm_data.cxx
   src/GreedyAPI.cxx
   src/GreedyParameters.cxx
-  src/CommandLineHelper.cxx
 )
 
 SET(LDDMM_SRC src/lddmm_main.cxx)

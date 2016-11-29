@@ -28,6 +28,7 @@
 #define COMMANDLINEHELPER_H
 
 #include <cerrno>
+#include "GreedyException.h"
 #include "GreedyParameters.h"
 #include "GreedyAPI.h"
 #include "itksys/SystemTools.hxx"
