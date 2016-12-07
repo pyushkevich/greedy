@@ -100,9 +100,10 @@ int usage()
   printf("  -search N s_ang s_xyz  : Random search over rigid transforms (N iter) before starting optimization\n");
   printf("                           s_ang, s_xyz: sigmas for rot-n angle (degrees) and offset between image centers\n");
   printf("Specific to reslice mode: \n");
-  printf("  -rf fixed.nii         : fixed image for reslicing\n");
-  printf("  -rm mov.nii out.nii   : moving/output image pair (may be repeated)\n");
-  printf("  -ri interp_mode       : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
+  printf("  -rf fixed.nii          : fixed image for reslicing\n");
+  printf("  -rm mov.nii out.nii    : moving/output image pair (may be repeated)\n");
+  printf("  -ri interp_mode        : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
+  printf("  -rc outwarp            : write composed transforms to outwarp \n");
   printf("For developers: \n");
   printf("  -debug-deriv           : enable periodic checks of derivatives (debug) \n");
   printf("  -debug-deriv-eps       : epsilon for derivative debugging \n");
@@ -319,6 +320,10 @@ int main(int argc, char *argv[])
       else if(arg == "-rf")
         {
         param.reslice_param.ref_image = cl.read_existing_filename();
+        }
+      else if(arg == "-rc")
+        {
+        param.reslice_param.out_composed_warp = cl.read_output_filename();
         }
       else if(arg == "-oinv")
         {

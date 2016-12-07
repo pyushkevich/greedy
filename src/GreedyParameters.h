@@ -100,6 +100,9 @@ struct GreedyResliceParameters
 
   // Chain of transforms
   std::vector<TransformSpec> transforms;
+
+  // Output warp
+  std::string out_composed_warp;
 };
 
 // Parameters for inverse warp command

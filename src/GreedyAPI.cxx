@@ -2135,8 +2135,10 @@ int GreedyApproach<VDim, TReal>
   if(!r_param.ref_image.size())
     throw GreedyException("A reference image (-rf) option is required for reslice commands");
 
-  if(!r_param.images.size())
-    throw GreedyException("At least one pair of moving/output images (-rm) is required for reslice commands");
+  if(!r_param.images.size() && !r_param.out_composed_warp.size())
+    throw GreedyException("At least one pair of moving/output images (-rm) "
+                          "or an output composed warp file (-rc) is required "
+                          "for reslice commands.");
 
   // Read the fixed as a plain image (we don't care if it's composite)
   ImagePointer ref = ImageType::New();
@@ -2146,6 +2148,13 @@ int GreedyApproach<VDim, TReal>
   // Read the transform chain
   VectorImagePointer warp;
   ReadTransformChain(param.reslice_param.transforms, ref_space, warp);
+
+  // Write the composite warp if requested
+  if(r_param.out_composed_warp.size())
+    {
+    LDDMMType::vimg_write(warp.GetPointer(), r_param.out_composed_warp.c_str(),
+                          itk::ImageIOBase::FLOAT);
+    }
 
   // Process image pairs
   for(int i = 0; i < r_param.images.size(); i++)
