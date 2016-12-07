@@ -28,6 +28,7 @@
 #define __GreedyException_h_
 
 #include <cstdio>
+#include <cstdarg>
 
 /**
  * A simple exception class with string formatting
