@@ -61,7 +61,7 @@ int usage()
   printf("Required options: \n");
   printf("  -d DIM                 : Number of image dimensions\n");
   printf("  -i fix.nii mov.nii     : Image pair (may be repeated)\n");
-  printf("  -o output.nii               : Output file\n");  
+  printf("  -o output.nii          : Output file\n");
   printf("Mode specification: \n");
   printf("  -a                     : Perform affine registration and save to output (-o)\n");
   printf("  -brute radius          : Perform a brute force search around each voxel \n");
@@ -102,6 +102,7 @@ int usage()
   printf("Specific to reslice mode: \n");
   printf("  -rf fixed.nii          : fixed image for reslicing\n");
   printf("  -rm mov.nii out.nii    : moving/output image pair (may be repeated)\n");
+  printf("  -rs mov.vtk out.vtk    : moving/output surface pair (vertices are warped from fixed space to moving)\n");
   printf("  -ri interp_mode        : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
   printf("  -rc outwarp            : write composed transforms to outwarp \n");
   printf("For developers: \n");
@@ -316,6 +317,13 @@ int main(int argc, char *argv[])
         rp.moving = cl.read_existing_filename();
         rp.output = cl.read_output_filename();
         param.reslice_param.images.push_back(rp);
+        }
+      else if(arg == "-rs")
+        {
+        ResliceMeshSpec rp;
+        rp.fixed = cl.read_existing_filename();
+        rp.output = cl.read_output_filename();
+        param.reslice_param.meshes.push_back(rp);
         }
       else if(arg == "-rf")
         {

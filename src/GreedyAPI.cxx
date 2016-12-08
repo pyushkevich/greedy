@@ -2122,6 +2122,148 @@ protected:
   int m_Size;
 };
 
+#include "itkMeshFileReader.h"
+#include "itkMeshFileWriter.h"
+#include "itkMesh.h"
+#include "itkTransformMeshFilter.h"
+
+template <unsigned int VDim, typename TArray>
+class PhysicalCoordinateTransform
+{
+  static void ras_to_lps(const TArray &src, TArray &trg) {}
+  static void lps_to_ras(const TArray &src, TArray &trg) {}
+};
+
+template <typename TArray>
+class PhysicalCoordinateTransform<2, TArray>
+{
+public:
+  static void ras_to_lps(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+  }
+
+  static void lps_to_ras(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+  }
+};
+
+template <typename TArray>
+class PhysicalCoordinateTransform<3, TArray>
+{
+public:
+  static void ras_to_lps(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+    trg[2] = src[2];
+  }
+
+  static void lps_to_ras(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+    trg[2] = src[2];
+  }
+};
+
+template <typename TArray>
+class PhysicalCoordinateTransform<4, TArray>
+{
+public:
+  static void ras_to_lps(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+    trg[2] = src[2];
+    trg[3] = src[3];
+  }
+
+  static void lps_to_ras(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+    trg[2] = src[2];
+    trg[3] = src[3];
+  }
+};
+
+
+
+template <unsigned int VDim, typename TReal>
+class WarpMeshTransformFunctor : public itk::DataObject
+{
+public:
+  typedef WarpMeshTransformFunctor<VDim, TReal>       Self;
+  typedef itk::DataObject                             Superclass;
+  typedef itk::SmartPointer<Self>                     Pointer;
+  typedef itk::SmartPointer<const Self>               ConstPointer;
+
+  itkTypeMacro(WarpMeshTransformFunctor, itk::DataObject)
+  itkNewMacro(Self)
+
+  typedef GreedyApproach<VDim, TReal> GreedyAPI;
+  typedef typename GreedyAPI::VectorImageType VectorImageType;
+  typedef typename GreedyAPI::ImageBaseType ImageBaseType;
+  typedef FastLinearInterpolator<VectorImageType, TReal, VDim> FastInterpolator;
+  typedef itk::ContinuousIndex<TReal, VDim> CIndexType;
+  typedef itk::Point<TReal, VDim> PointType;
+
+  void SetWarp(VectorImageType *warp)
+  {
+    if(m_Interpolator) delete m_Interpolator;
+    m_Interpolator = new FastInterpolator(warp);
+  }
+
+  void SetReferenceSpace(ImageBaseType *ref)
+  {
+    m_ReferenceSpace = ref;
+  }
+
+  PointType TransformPoint(const PointType &x)
+  {
+    // Our convention is to use NIFTI/RAS coordinates for meshes, whereas ITK
+    // uses the DICOM/LPS convention. We transform point to LPS first
+    PointType x_lps, phi_x;
+
+    PhysicalCoordinateTransform<VDim, PointType>::ras_to_lps(x, x_lps);
+
+    CIndexType cix;
+    typename VectorImageType::PixelType vec;
+    vec.Fill(0.0);
+    m_ReferenceSpace->TransformPhysicalPointToContinuousIndex(x_lps, cix);
+    m_Interpolator->Interpolate(cix.GetDataPointer(), &vec);
+
+    for(int d = 0; d < VDim; d++)
+      {
+      phi_x[d] = vec[d] + x_lps[d];
+      }
+
+
+    PhysicalCoordinateTransform<VDim, PointType>::lps_to_ras(phi_x, phi_x);
+
+    return phi_x;
+  }
+
+protected:
+
+  WarpMeshTransformFunctor() { m_Interpolator = NULL; }
+  ~WarpMeshTransformFunctor()
+  {
+    if(m_Interpolator)
+      delete m_Interpolator;
+  }
+
+private:
+
+  typename ImageBaseType::Pointer m_ReferenceSpace;
+  FastInterpolator *m_Interpolator;
+
+};
+
 /**
  * Run the reslice code - simply apply a warp or set of warps to images
  */
@@ -2135,10 +2277,10 @@ int GreedyApproach<VDim, TReal>
   if(!r_param.ref_image.size())
     throw GreedyException("A reference image (-rf) option is required for reslice commands");
 
-  if(!r_param.images.size() && !r_param.out_composed_warp.size())
-    throw GreedyException("At least one pair of moving/output images (-rm) "
-                          "or an output composed warp file (-rc) is required "
-                          "for reslice commands.");
+  if(r_param.images.size() + r_param.meshes.size() == 0
+     && !r_param.out_composed_warp.size())
+    throw GreedyException("No operation specified for reslice mode. "
+                          "Use one of -rm, -rs or -rc commands.");
 
   // Read the fixed as a plain image (we don't care if it's composite)
   ImagePointer ref = ImageType::New();
@@ -2279,6 +2421,32 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::cimg_write(warped, r_param.images[i].output.c_str(), comp);
       }
     }
+
+  // Process meshes
+  for(int i = 0; i < r_param.meshes.size(); i++)
+    {
+    typedef itk::Mesh<TReal, VDim> MeshType;
+    typedef itk::MeshFileReader<MeshType> MeshReader;
+    typename MeshReader::Pointer reader = MeshReader::New();
+    reader->SetFileName(r_param.meshes[i].fixed.c_str());
+
+    typedef WarpMeshTransformFunctor<VDim, TReal> TransformType;
+    typename TransformType::Pointer transform = TransformType::New();
+    transform->SetWarp(warp);
+    transform->SetReferenceSpace(ref);
+
+    typedef itk::TransformMeshFilter<MeshType, MeshType, TransformType> FilterType;
+    typename FilterType::Pointer filter = FilterType::New();
+    filter->SetTransform(transform);
+    filter->SetInput(reader->GetOutput());
+
+    typedef itk::MeshFileWriter<MeshType> MeshWriter;
+    typename MeshWriter::Pointer writer = MeshWriter::New();
+    writer->SetInput(filter->GetOutput());
+    writer->SetFileName(r_param.meshes[i].output.c_str());
+    writer->Update();
+    }
+
 
 
   return 0;

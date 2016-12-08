@@ -73,6 +73,12 @@ struct ResliceSpec
   InterpSpec interp;
 };
 
+struct ResliceMeshSpec
+{
+  std::string fixed;
+  std::string output;
+};
+
 struct TransformSpec
 {
   // Transform file
@@ -94,6 +100,7 @@ struct GreedyResliceParameters
 {
   // For reslice mode
   std::vector<ResliceSpec> images;
+  std::vector<ResliceMeshSpec> meshes;
 
   // Reference image
   std::string ref_image;
