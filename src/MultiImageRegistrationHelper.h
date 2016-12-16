@@ -71,6 +71,9 @@ public:
   /** Set the gradient image mask */
   void SetGradientMask(FloatImageType *maskImage) { m_GradientMaskImage = maskImage; }
 
+  /** Set the moving image mask */
+  void SetMovingMask(FloatImageType *maskImage) { m_MovingMaskImage = maskImage; }
+
   /** Set jitter sigma - for jittering image samples in affine mode */
   void SetJitterSigma(double sigma);
 
@@ -97,6 +100,9 @@ public:
 
   /** Get the gradient mask at a pyramid level */
   FloatImageType *GetGradientMask(int level) { return m_GradientMaskComposite[level]; }
+
+  /** Get the moving mask at a pyramid level */
+  FloatImageType *GetMovingMask(int level) { return m_MovingMaskComposite[level]; }
 
   /** Get the fixed image at a pyramid level */
   MultiComponentImageType *GetFixedComposite(int level) { return m_FixedComposite[level]; }
@@ -202,8 +208,11 @@ protected:
   // Gradient mask image - used to multiply the gradient
   typename FloatImageType::Pointer m_GradientMaskImage;
 
-  // Gradient mask composite
-  FloatImageSet m_GradientMaskComposite;
+  // Moving mask image - used to reduce region where metric is computed
+  typename FloatImageType::Pointer m_MovingMaskImage;
+
+  // Mask composites
+  FloatImageSet m_GradientMaskComposite, m_MovingMaskComposite;
 
   // Amount of jitter - for affine only
   double m_JitterSigma;

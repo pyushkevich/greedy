@@ -133,6 +133,9 @@ protected:
   // in the callbacks to RunAffine, etc.
   std::vector< std::vector<double> > m_MetricLog;
 
+  // This function reads the image from disk, or from a memory location mapped to a
+  // string. The first approach is used by the command-line interface, and the second
+  // approach is used by the API, allowing images to be passed from other software
   template <class TImage>
   itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename);
 

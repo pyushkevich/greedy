@@ -1061,22 +1061,9 @@ void GreedyApproach<VDim, TReal>
   // Read the input images and stick them into an image array
   for(int i = 0; i < param.inputs.size(); i++)
     {
-    // Read fixed
+    // Read fixed and moving images
     CompositeImagePointer imgFix = ReadImageViaCache<CompositeImageType>(param.inputs[i].fixed);
     CompositeImagePointer imgMov = ReadImageViaCache<CompositeImageType>(param.inputs[i].moving);
-
-    /*
-    typedef itk::ImageFileReader<CompositeImageType> ReaderType;
-    typename ReaderType::Pointer readfix = ReaderType::New();
-    readfix->SetFileName(param.inputs[i].fixed);
-    readfix->Update();
-
-    // Read moving
-    typedef itk::ImageFileReader<CompositeImageType> ReaderType;
-    typename ReaderType::Pointer readmov = ReaderType::New();
-    readmov->SetFileName(param.inputs[i].moving);
-    readmov->Update();
-    */
 
     // Read the pre-warps (only once)
     if(param.moving_pre_transforms.size() && moving_pre_warp.IsNull())
@@ -1104,21 +1091,40 @@ void GreedyApproach<VDim, TReal>
       }
     }
 
-  // Read the masks
+  // Read the fixed-space mask
   if(param.gradient_mask.size())
     {
     typedef typename OFHelperType::FloatImageType MaskType;
     typename MaskType::Pointer imgMask =
         ReadImageViaCache<MaskType>(param.gradient_mask);
 
-/*
-    // Read gradient mask
-    typedef itk::ImageFileReader<> ReaderType;
-    typename ReaderType::Pointer readmask = ReaderType::New();
-    readmask->SetFileName(param.gradient_mask);
-    readmask->Update(); */
-
     ofhelper.SetGradientMask(imgMask);
+    }
+
+  // Read the moving-space mask
+  if(param.moving_mask.size())
+    {
+    typedef typename OFHelperType::FloatImageType MaskType;
+    typename MaskType::Pointer imgMovMask =
+        ReadImageViaCache<MaskType>(param.moving_mask);
+
+    if(moving_pre_warp.IsNotNull())
+      {
+      // Create an image to store the warp
+      typename MaskType::Pointer warped_moving_mask;
+      LDDMMType::alloc_img(warped_moving_mask, moving_pre_warp);
+
+      // Interpolate the moving image using the transform chain
+      LDDMMType::interp_img(imgMovMask, moving_pre_warp, warped_moving_mask, false, true);
+
+      // Add the warped mask to the helper
+      ofhelper.SetMovingMask(warped_moving_mask);
+      }
+    else
+      {
+      // Add the mask to the helper object
+      ofhelper.SetMovingMask(imgMovMask);
+      }
     }
 
   // Generate the optimized composite images. For the NCC metric, we add random noise to

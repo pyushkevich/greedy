@@ -308,6 +308,30 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       }
     }
 
+  // Set up the moving mask pyramid
+  m_MovingMaskComposite.resize(m_PyramidFactors.size(), NULL);
+  if(m_MovingMaskImage)
+    {
+    for(int i = 0; i < m_PyramidFactors.size(); i++)
+      {
+      // Downsample the image to the right pyramid level
+      if (m_PyramidFactors[i] == 1)
+        {
+        m_MovingMaskComposite[i] = m_MovingMaskImage;
+        }
+      else
+        {
+        m_MovingMaskComposite[i] = FloatImageType::New();
+
+        // Downsampling the mask involves smoothing, so the mask will no longer be binary
+        LDDMMType::img_downsample(m_MovingMaskImage, m_MovingMaskComposite[i], m_PyramidFactors[i]);
+
+        // We don't need the moving mask to be binary, we can leave it be floating point...
+        // LDDMMType::img_threshold_in_place(m_MovingMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
+        }
+      }
+    }
+
   // Set up the jitter images
   m_JitterComposite.resize(m_PyramidFactors.size(), NULL);
   if(m_JitterSigma > 0)

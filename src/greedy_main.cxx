@@ -80,6 +80,7 @@ int usage()
   printf("  -n NxNxN               : number of iterations per level of multi-res (100x100) \n");
   printf("  -threads N             : set the number of allowed concurrent threads\n");
   printf("  -gm mask.nii           : mask for gradient computation\n");
+  printf("  -mm mask.nii           : mask for the moving image\n");
   printf("  -it filenames          : sequence of transforms to apply to the moving image first \n");
   printf("Specific to deformable mode: \n");
   printf("  -tscale MODE           : time step behavior mode: CONST, SCALE [def], SCALEDOWN\n");
@@ -255,6 +256,10 @@ int main(int argc, char *argv[])
       else if(arg == "-gm")
         {
         param.gradient_mask = cl.read_existing_filename();
+        }
+      else if(arg == "-mm")
+        {
+        param.moving_mask = cl.read_existing_filename();
         }
       else if(arg == "-o")
         {

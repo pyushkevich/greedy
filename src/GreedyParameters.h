@@ -173,8 +173,11 @@ struct GreedyParameters
   AffineDOF affine_dof;
   TransformSpec affine_init_transform;
 
-  // Mask for gradient
+  // Mask for gradient computation (fixed mask)
   std::string gradient_mask;
+
+  // Mask for the moving image
+  std::string moving_mask;
 
   // Inverse warp
   std::string inverse_warp;
