@@ -538,6 +538,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetWorkingImage(m_NCCWorkingImage);
   filter->SetReuseWorkingImageFixedComponents(!first_run);
   filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
+
+  // TODO: support moving masks...
+  // filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
   filter->Update();
 
   // Get the vector of the normalized metrics

@@ -88,6 +88,8 @@ public:
 
   int RunInvertWarp(GreedyParameters &param);
 
+  int RunRootWarp(GreedyParameters &param);
+
   /**
    * Add an image that is already in memory to the internal cache, and
    * associate it with a filename. This provides a way for images already

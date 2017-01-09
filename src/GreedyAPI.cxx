@@ -2486,6 +2486,65 @@ int GreedyApproach<VDim, TReal>
   return 0;
 }
 
+/**
+ * Post-hoc warp root
+ */
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::RunRootWarp(GreedyParameters &param)
+{
+  // Read the warp as a transform chain
+  VectorImagePointer warp;
+
+  // Read the warp file
+  LDDMMType::vimg_read(param.warproot_param.in_warp.c_str(), warp);
+
+  // Convert the warp file into voxel units from physical units
+  OFHelperType::PhysicalWarpToVoxelWarp(warp, warp, warp);
+
+  // Compute the inverse of the warp
+  VectorImagePointer uInverse = VectorImageType::New();
+  LDDMMType::alloc_vimg(uInverse, warp);
+
+  // Do the root computation
+
+  // Create a copy of the forward warp
+  VectorImagePointer uForward = VectorImageType::New();
+  LDDMMType::alloc_vimg(uForward, warp);
+  LDDMMType::vimg_copy(warp, uForward);
+
+  // Create a working image for the square root computation
+  VectorImagePointer uWork = VectorImageType::New();
+  LDDMMType::alloc_vimg(uWork, warp);
+
+  // Compute the square root
+  for(int k = 0; k < param.warproot_param.exponent; k++)
+    {
+    for(int i = 0; i < 20; i++)
+      {
+      LDDMMType::interp_vimg(uInverse, uInverse, 1.0, uWork);
+      LDDMMType::vimg_scale_in_place(uWork, -1.0);
+      LDDMMType::vimg_add_scaled_in_place(uWork, uInverse, -1.0);
+      LDDMMType::vimg_add_in_place(uWork, uForward);
+
+      // Check the maximum delta
+      // LDDMMType::vimg_norm_min_max(uDelta, iTemp, norm_min, norm_max);
+      // std::cout << "sqrt iter " << i << " max_delta " << norm_max << std::endl;
+
+      LDDMMType::vimg_add_scaled_in_place(uInverse, uWork, 0.5);
+      }
+
+    LDDMMType::vimg_copy(uInverse, uForward);
+    uInverse->FillBuffer(itk::NumericTraits<typename VectorImageType::PixelType>::Zero);
+    }
+
+  // Write the warp using compressed format
+  OFHelperType::WriteCompressedWarpInPhysicalSpace(uForward, warp, param.warproot_param.out_warp.c_str(), param.warp_precision);
+
+  return 0;
+}
+
+
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
 ::AddCachedInputObject(std::string &string, itk::Object *object)
@@ -2517,6 +2576,8 @@ int GreedyApproach<VDim, TReal>
       return Self::RunReslice(param);
     case GreedyParameters::INVERT_WARP:
       return Self::RunInvertWarp(param);
+    case GreedyParameters::ROOT_WARP:
+      return Self::RunRootWarp(param);
     }
 
   return -1;

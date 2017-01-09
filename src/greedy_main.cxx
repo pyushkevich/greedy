@@ -67,7 +67,8 @@ int usage()
   printf("  -brute radius          : Perform a brute force search around each voxel \n");
   printf("  -r [tran_spec]         : Reslice images instead of doing registration \n");
   printf("                               tran_spec is a series of warps, affine matrices\n");
-  printf("  -iw in_warp outwarp    : Invert previously computed warp\n");
+  printf("  -iw inwarp outwarp     : Invert previously computed warp\n");
+  printf("  -root inwarp outwarp N : Convert 2^N-th root of a warp \n");
   printf("Options in deformable / affine mode: \n");
   printf("  -w weight              : weight of the next -i pair\n");
   printf("  -m metric              : metric for the entire registration\n");
@@ -315,6 +316,14 @@ int main(int argc, char *argv[])
         param.invwarp_param.in_warp = cl.read_existing_filename();
         param.invwarp_param.out_warp = cl.read_output_filename();
         }
+      else if(arg == "-root")
+        {
+        param.mode = GreedyParameters::ROOT_WARP;
+        param.warproot_param.in_warp = cl.read_existing_filename();
+        param.warproot_param.out_warp = cl.read_output_filename();
+        param.warproot_param.exponent = cl.read_integer();
+        }
+
       else if(arg == "-rm")
         {
         ResliceSpec rp;

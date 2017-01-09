@@ -119,11 +119,19 @@ struct GreedyInvertWarpParameters
 };
 
 
+// Parameters for inverse warp command
+struct GreedyWarpRootParameters
+{
+  std::string in_warp, out_warp;
+  int exponent;
+};
+
+
 struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, MI, NMI };
   enum TimeStepMode { CONSTANT=0, SCALE, SCALEDOWN };
-  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP };
+  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP };
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
 
   std::vector<ImagePairSpec> inputs;
@@ -140,6 +148,9 @@ struct GreedyParameters
 
   // Inversion parameters
   GreedyInvertWarpParameters invwarp_param;
+
+  // Root warp parameters
+  GreedyWarpRootParameters warproot_param;
 
   // Registration mode
   Mode mode;
