@@ -2528,12 +2528,12 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::vimg_add_in_place(uWork, uForward);
 
       // Check the maximum delta
-      // LDDMMType::vimg_norm_min_max(uDelta, iTemp, norm_min, norm_max);
-      // std::cout << "sqrt iter " << i << " max_delta " << norm_max << std::endl;
+      std::cout << "." << std::flush;
 
       LDDMMType::vimg_add_scaled_in_place(uInverse, uWork, 0.5);
       }
 
+    std::cout << "." << std::endl;
     LDDMMType::vimg_copy(uInverse, uForward);
     uInverse->FillBuffer(itk::NumericTraits<typename VectorImageType::PixelType>::Zero);
     }
