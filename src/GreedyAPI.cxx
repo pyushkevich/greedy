@@ -2559,7 +2559,15 @@ int GreedyApproach<VDim, TReal>
 
     // Compute the rotation matrix - takes fixed coordinates into moving space
     MatFx R = Vm * F * Vf.transpose();
-    VecFx b = m1m - m1f;
+    VecFx b = m1m - R * m1f;
+
+    vnl_matrix<TReal> A(VDim+1, VDim+1, 0.0);
+    A.set_identity();
+    A.update(R, 0, 0);
+    for(int d= 0 ;d< VDim;d++)
+      A(d,VDim) = b[d];
+    std::cout << A << std::endl;
+
 
     // Ignore flips with the wrong determinant
     double det_R = vnl_determinant(R);
