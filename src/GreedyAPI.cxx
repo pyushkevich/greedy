@@ -45,6 +45,7 @@
 #include "FastWarpCompositeImageFilter.h"
 #include <vnl/algo/vnl_powell.h>
 #include <vnl/algo/vnl_svd.h>
+#include <vnl/algo/vnl_symmetric_eigensystem.h>
 #include <vnl/vnl_trace.h>
 
 // Little helper functions
@@ -2458,6 +2459,143 @@ int GreedyApproach<VDim, TReal>
   return 0;
 }
 
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
+::ComputeImageMoments(CompositeImageType *image,
+                      const std::vector<double> &weights,
+                      VecFx &m1, MatFx &m2)
+{
+  int n = image->GetNumberOfComponentsPerPixel();
+  TReal sum_I = 0.0;
+  m1.fill(0.0); m2.fill(0.0);
+
+  typedef itk::ImageRegionConstIteratorWithIndex<CompositeImageType> Iterator;
+  for(Iterator it(image, image->GetBufferedRegion()); !it.IsAtEnd(); ++it)
+    {
+    typedef itk::Point<TReal, VDim> PointType;
+    PointType p_lps, p_ras;
+    image->TransformIndexToPhysicalPoint(it.GetIndex(), p_lps);
+    PhysicalCoordinateTransform<VDim, PointType>::lps_to_ras(p_lps, p_ras);
+    VecFx X(p_ras.GetDataPointer());
+    MatFx X2 = outer_product(X, X);
+
+    typename CompositeImageType::PixelType pix = it.Get();
+
+    // Just weight the components of intensity by weight vector - this sort of makes sense?
+    TReal val = 0.0;
+    for(int k = 0; k < n; k++)
+      val += weights[k] * pix[k];
+
+    sum_I += val;
+    m1 += X * val;
+    m2 += X2 * val;
+    }
+
+  // Compute the mean and covariance from the sum of squares
+  m1 = m1 / sum_I;
+  m2 = (m2 - sum_I *  outer_product(m1, m1)) / sum_I;
+}
+
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::RunAlignMoments(GreedyParameters &param)
+{
+  // Create an optical flow helper object
+  OFHelperType of_helper;
+
+  // No multi-resolution
+  of_helper.SetDefaultPyramidFactors(1);
+
+  // Read the image pairs to register
+  ReadImages(param, of_helper);
+
+  // Compute the moments of intertia for the fixed and moving images. For now
+  // this is done in an iterator loop, out of laziness. Should be converted to
+  // a filter if this whole moments business proves useful
+  VecFx m1f, m1m;
+  MatFx m2f, m2m;
+
+
+  std::cout << "--- MATCHING BY MOMENTS ---" << std::endl;
+
+  ComputeImageMoments(of_helper.GetFixedComposite(0), of_helper.GetWeights(), m1f, m2f);
+
+  std::cout << "Fixed Mean        : " << m1f << std::endl;
+  std::cout << "Fixed Covariance  : " << std::endl << m2f << std::endl;
+
+  ComputeImageMoments(of_helper.GetMovingComposite(0), of_helper.GetWeights(), m1m, m2m);
+
+  std::cout << "Moving Mean       : " << m1m << std::endl;
+  std::cout << "Moving Covariance : " << std::endl << m2m << std::endl;
+
+  // This flag forces no rotation, only flip
+  if(param.flag_moments_id_covariance)
+    {
+    m2f.set_identity();
+    m2m.set_identity();
+    }
+
+  // Decompose covariance matrices into eigenvectors and eigenvalues
+  vnl_vector<TReal> Df, Dm;
+  vnl_matrix<TReal> Vf, Vm;
+  vnl_symmetric_eigensystem_compute<TReal>(m2f, Vf, Df);
+  vnl_symmetric_eigensystem_compute<TReal>(m2m, Vm, Dm);
+
+  // Create a rigid registration problem
+  PhysicalSpaceAffineCostFunction cost_fn(&param, this, 0, &of_helper);
+
+  // The best set of coefficients and the associated match value
+  vnl_vector<double> xBest;
+  TReal xBestMatch = 1e100;
+
+  // Generate all possible flip matrices
+  int n_flip = 1 << VDim;
+  for(int k_flip = 0; k_flip < n_flip; k_flip++)
+    {
+    // Generate the flip matrix
+    MatFx F(0.0);
+    for(int d = 0; d < VDim; d++)
+      F(d,d) = (k_flip & (1 << d)) ? 1 : -1;;
+
+    // Compute the rotation matrix - takes fixed coordinates into moving space
+    MatFx R = Vm * F * Vf.transpose();
+    VecFx b = m1m - m1f;
+
+    // Ignore flips with the wrong determinant
+    double det_R = vnl_determinant(R);
+    if((param.moments_flip_determinant == 1 && det_R < 0) ||
+       (param.moments_flip_determinant == -1 && det_R > 0))
+      {
+      continue;
+      }
+
+    // Generate affine coefficients from the rotation and shift
+    vnl_vector<double> x(cost_fn.get_number_of_unknowns());
+    flatten_affine_transform(R, b, x.data_block());
+
+    // Compute similarity
+    double f = 0.0;
+    cost_fn.compute(x, &f, NULL);
+
+    std::cout << "Metric for flip " << F.get_diagonal() << " : " << f << std::endl;
+
+    // Compare
+    if(xBestMatch > f || xBest.size() == 0)
+      {
+      xBestMatch = f;
+      xBest = x;
+      }
+    }
+
+  // Save the best transform
+  typename LinearTransformType::Pointer tran = LinearTransformType::New();
+  cost_fn.GetTransform(xBest, tran);
+  vnl_matrix<double> Q_physical = MapAffineToPhysicalRASSpace(of_helper, 0, tran);
+  this->WriteAffineMatrixViaCache(param.output, Q_physical);
+
+  return 0;
+}
+
 /**
  * Post-hoc warp inversion - the Achilles heel of non-symmetric registration :(
  */
@@ -2572,6 +2710,8 @@ int GreedyApproach<VDim, TReal>
       return Self::RunAffine(param);
     case GreedyParameters::BRUTE:
       return Self::RunBrute(param);
+    case GreedyParameters::MOMENTS:
+      return Self::RunAlignMoments(param);
     case GreedyParameters::RESLICE:
       return Self::RunReslice(param);
     case GreedyParameters::INVERT_WARP:

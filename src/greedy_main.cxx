@@ -65,6 +65,7 @@ int usage()
   printf("Mode specification: \n");
   printf("  -a                     : Perform affine registration and save to output (-o)\n");
   printf("  -brute radius          : Perform a brute force search around each voxel \n");
+  printf("  -moments               : Perform moments of inertia rigid alignment \n");
   printf("  -r [tran_spec]         : Reslice images instead of doing registration \n");
   printf("                               tran_spec is a series of warps, affine matrices\n");
   printf("  -iw inwarp outwarp     : Invert previously computed warp\n");
@@ -96,12 +97,15 @@ int usage()
   printf("Initial transform specification: \n");
   printf("  -ia filename           : initial affine matrix for optimization (not the same as -it) \n");
   printf("  -ia-identity           : initialize affine matrix based on NIFTI headers \n");
-  printf("Specific to affine mode:\n");
+  printf("Specific to affine mode (-a):\n");
   printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 12=affine\n");
   printf("  -jitter sigma          : Jitter (in voxel units) applied to sample points (def: 0.5)\n");
   printf("  -search N s_ang s_xyz  : Random search over rigid transforms (N iter) before starting optimization\n");
   printf("                           s_ang, s_xyz: sigmas for rot-n angle (degrees) and offset between image centers\n");
-  printf("Specific to reslice mode: \n");
+  printf("Specific to moments of inertia mode (-moments): \n");
+  printf("  -det <-1|1>            : Force the determinant of transform to be either 1 (no flip) or -1 (flip)\n");
+  printf("  -cov-id                : Assume identity covariance (translation and flip only)");
+  printf("Specific to reslice mode (-r): \n");
   printf("  -rf fixed.nii          : fixed image for reslicing\n");
   printf("  -rm mov.nii out.nii    : moving/output image pair (may be repeated)\n");
   printf("  -rs mov.vtk out.vtk    : moving/output surface pair (vertices are warped from fixed space to moving)\n");
@@ -298,6 +302,10 @@ int main(int argc, char *argv[])
         {
         param.mode = GreedyParameters::AFFINE;
         }
+      else if(arg == "-moments")
+        {
+        param.mode = GreedyParameters::MOMENTS;
+        }
       else if(arg == "-brute")
         {
         param.mode = GreedyParameters::BRUTE;
@@ -379,6 +387,20 @@ int main(int argc, char *argv[])
       else if(arg == "-wp")
         {
         param.warp_precision = cl.read_double();
+        }
+      else if(arg == "-det")
+        {
+        int det_value = cl.read_integer();
+        if(det_value != -1 && det_value != 1)
+          {
+          std::cerr << "Incorrect -det parameter value " << det_value << std::endl;
+          return -1;
+          }
+        param.moments_flip_determinant = det_value;
+        }
+      else if(arg == "-cov-id")
+        {
+        param.flag_moments_id_covariance = true;
         }
       else
         {

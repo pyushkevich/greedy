@@ -63,6 +63,9 @@ public:
   typedef typename LDDMMType::CompositeImageType CompositeImageType;
   typedef typename LDDMMType::CompositeImagePointer CompositeImagePointer;
 
+  typedef vnl_vector_fixed<TReal, VDim> VecFx;
+  typedef vnl_matrix_fixed<TReal, VDim, VDim> MatFx;
+
   typedef std::vector<std::vector<double> > MetricLogType;
 
   typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
@@ -89,6 +92,8 @@ public:
   int RunInvertWarp(GreedyParameters &param);
 
   int RunRootWarp(GreedyParameters &param);
+
+  int RunAlignMoments(GreedyParameters &param);
 
   /**
    * Add an image that is already in memory to the internal cache, and
@@ -126,6 +131,7 @@ public:
   const MetricLogType &GetMetricLog() const;
 
 
+
 protected:
 
   typedef std::map<std::string, itk::Object *> ImageCache;
@@ -161,6 +167,9 @@ protected:
       LinearTransformType *tran);
 
   void RecordMetricValue(double val);
+
+  // Compute the moments of a composite image (mean and covariance matrix of coordinate weighted by intensity)
+  void ComputeImageMoments(CompositeImageType *image, const std::vector<double> &weights, VecFx &m1, MatFx &m2);
 
   class AbstractAffineCostFunction : public vnl_cost_function
   {

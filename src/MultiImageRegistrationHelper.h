@@ -113,6 +113,9 @@ public:
   /** Get the smoothing factor for given level based on parameters */
   Vec GetSmoothingSigmasInPhysicalUnits(int level, double sigma, bool in_physical_units);
 
+  /** Get the component weights in the composite */
+  const std::vector<double> &GetWeights() const { return m_Weights; }
+
   /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
   vnl_vector<double> ComputeOpticalFlowField(
       int level, VectorImageType *def, FloatImageType *out_metric,

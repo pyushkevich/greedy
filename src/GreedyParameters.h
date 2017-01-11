@@ -131,7 +131,7 @@ struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, MI, NMI };
   enum TimeStepMode { CONSTANT=0, SCALE, SCALEDOWN };
-  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP };
+  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, MOMENTS };
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
 
   std::vector<ImagePairSpec> inputs;
@@ -205,6 +205,10 @@ struct GreedyParameters
 
   // Rigid search
   RigidSearchSpec rigid_search;
+
+  // Moments of inertia specification
+  int moments_flip_determinant;
+  bool flag_moments_id_covariance;
 
   // Floating point precision?
   bool flag_float_math;
