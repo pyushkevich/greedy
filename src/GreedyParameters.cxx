@@ -65,4 +65,5 @@ GreedyParameters
   // Moments of inertia parameters
   param.moments_flip_determinant = 0;
   param.flag_moments_id_covariance = false;
+  param.moments_order = 1;
 }

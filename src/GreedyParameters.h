@@ -208,6 +208,7 @@ struct GreedyParameters
 
   // Moments of inertia specification
   int moments_flip_determinant;
+  int moments_order;
   bool flag_moments_id_covariance;
 
   // Floating point precision?

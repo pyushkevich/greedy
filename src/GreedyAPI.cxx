@@ -2516,7 +2516,7 @@ int GreedyApproach<VDim, TReal>
   MatFx m2f, m2m;
 
 
-  std::cout << "--- MATCHING BY MOMENTS ---" << std::endl;
+  std::cout << "--- MATCHING BY MOMENTS OF ORDER " << param.moments_order << " ---" << std::endl;
 
   ComputeImageMoments(of_helper.GetFixedComposite(0), of_helper.GetWeights(), m1f, m2f);
 
@@ -2529,7 +2529,7 @@ int GreedyApproach<VDim, TReal>
   std::cout << "Moving Covariance : " << std::endl << m2m << std::endl;
 
   // This flag forces no rotation, only flip
-  if(param.flag_moments_id_covariance)
+  if(param.moments_order == 1 || param.flag_moments_id_covariance)
     {
     m2f.set_identity();
     m2m.set_identity();
@@ -2552,6 +2552,10 @@ int GreedyApproach<VDim, TReal>
   int n_flip = 1 << VDim;
   for(int k_flip = 0; k_flip < n_flip; k_flip++)
     {
+    // If using first moments, ignore all flips, only allow identity
+    if(param.moments_order == 1 && k_flip != n_flip - 1)
+      continue;
+
     // Generate the flip matrix
     MatFx F(0.0);
     for(int d = 0; d < VDim; d++)
@@ -2566,13 +2570,11 @@ int GreedyApproach<VDim, TReal>
     A.update(R, 0, 0);
     for(int d= 0 ;d< VDim;d++)
       A(d,VDim) = b[d];
-    std::cout << A << std::endl;
-
 
     // Ignore flips with the wrong determinant
     double det_R = vnl_determinant(R);
-    if((param.moments_flip_determinant == 1 && det_R < 0) ||
-       (param.moments_flip_determinant == -1 && det_R > 0))
+    if((param.moments_order == 2 && param.moments_flip_determinant == 1 && det_R < 0) ||
+       (param.moments_order == 2 && param.moments_flip_determinant == -1 && det_R > 0))
       {
       continue;
       }

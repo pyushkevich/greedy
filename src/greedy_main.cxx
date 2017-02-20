@@ -65,7 +65,9 @@ int usage()
   printf("Mode specification: \n");
   printf("  -a                     : Perform affine registration and save to output (-o)\n");
   printf("  -brute radius          : Perform a brute force search around each voxel \n");
-  printf("  -moments               : Perform moments of inertia rigid alignment \n");
+  printf("  -moments <1|2>         : Perform moments of inertia rigid alignment of given order.\n");
+  printf("                             order 1 matches center of mass only\n");
+  printf("                             order 2 matches second-order moments of inertia tensors\n");
   printf("  -r [tran_spec]         : Reslice images instead of doing registration \n");
   printf("                               tran_spec is a series of warps, affine matrices\n");
   printf("  -iw inwarp outwarp     : Invert previously computed warp\n");
@@ -102,9 +104,9 @@ int usage()
   printf("  -jitter sigma          : Jitter (in voxel units) applied to sample points (def: 0.5)\n");
   printf("  -search N s_ang s_xyz  : Random search over rigid transforms (N iter) before starting optimization\n");
   printf("                           s_ang, s_xyz: sigmas for rot-n angle (degrees) and offset between image centers\n");
-  printf("Specific to moments of inertia mode (-moments): \n");
+  printf("Specific to moments of inertia mode (-moments 2): \n");
   printf("  -det <-1|1>            : Force the determinant of transform to be either 1 (no flip) or -1 (flip)\n");
-  printf("  -cov-id                : Assume identity covariance (translation and flip only)");
+  printf("  -cov-id                : Assume identity covariance (match centers and do flips only, no rotation)\n");
   printf("Specific to reslice mode (-r): \n");
   printf("  -rf fixed.nii          : fixed image for reslicing\n");
   printf("  -rm mov.nii out.nii    : moving/output image pair (may be repeated)\n");
@@ -305,6 +307,11 @@ int main(int argc, char *argv[])
       else if(arg == "-moments")
         {
         param.mode = GreedyParameters::MOMENTS;
+
+        // For backward compatibility allow no parameter, which defaults to order 1
+        param.moments_order = cl.command_arg_count() > 0 ? cl.read_integer() : 2;
+        if(param.moments_order != 1 && param.moments_order != 2)
+          throw GreedyException("Parameter to -moments must be 1 or 2");
         }
       else if(arg == "-brute")
         {
