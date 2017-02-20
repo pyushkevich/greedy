@@ -225,6 +225,9 @@ protected:
 
   void PlaceIntoComposite(FloatImageType *src, MultiComponentImageType *target, int offset);
   void PlaceIntoComposite(VectorImageType *src, MultiComponentImageType *target, int offset);
+
+  // Adjust NCC radius to be smaller than half image size
+  SizeType AdjustNCCRadius(int level, const SizeType &radius, bool report_on_adjust);
 };
 
 

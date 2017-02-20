@@ -498,6 +498,29 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
 
 template <class TFloat, unsigned int VDim>
+typename MultiImageOpticalFlowHelper<TFloat, VDim>::SizeType
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::AdjustNCCRadius(int level, const SizeType &radius, bool report_on_adjust)
+{
+  SizeType radius_fix = radius;
+  for(int d = 0; d < VDim; d++)
+    {
+    int sz_d = (int) m_FixedComposite[level]->GetBufferedRegion().GetSize()[d];
+    if(radius_fix[d] * 2 + 1 >= sz_d)
+      radius_fix[d] = (sz_d - 1) / 2;
+    }
+
+  if(report_on_adjust && radius != radius_fix)
+    {
+    std::cout << "  *** NCC radius adjusted to " << radius_fix
+              << " because image too small at level " << level
+              << " (" << m_FixedComposite[level]->GetBufferedRegion().GetSize() << ")" << std::endl;
+    }
+
+  return radius_fix;
+}
+
+template <class TFloat, unsigned int VDim>
 double
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeNCCMetricImage(int level,
@@ -526,6 +549,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   bool first_run =
       m_NCCWorkingImage->GetBufferedRegion() != m_FixedComposite[level]->GetBufferedRegion();
 
+  // Check the radius against the size of the image
+  SizeType radius_fix = AdjustNCCRadius(level, radius, first_run);
+
   // Run the filter
   filter->SetFixedImage(m_FixedComposite[level]);
   filter->SetMovingImage(m_MovingComposite[level]);
@@ -534,7 +560,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetComputeGradient(true);
   filter->GetMetricOutput()->Graft(out_metric);
   filter->GetDeformationGradientOutput()->Graft(out_gradient);
-  filter->SetRadius(radius);
+  filter->SetRadius(radius_fix);
   filter->SetWorkingImage(m_NCCWorkingImage);
   filter->SetReuseWorkingImageFixedComponents(!first_run);
   filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
@@ -681,6 +707,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 }
 
 
+
 // TODO: there is a lot of code duplication here!
 template <class TFloat, unsigned int VDim>
 double
@@ -713,6 +740,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   bool first_run =
       m_NCCWorkingImage->GetBufferedRegion() != m_FixedComposite[level]->GetBufferedRegion();
 
+  // Check the radius against the size of the image
+  SizeType radius_fix = AdjustNCCRadius(level, radius, first_run);
+
   metric->SetFixedImage(m_FixedComposite[level]);
   metric->SetMovingImage(m_MovingComposite[level]);
   metric->SetWeights(wscaled);
@@ -720,7 +750,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetComputeMovingDomainMask(false);
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad != NULL);
-  metric->SetRadius(radius);
+  metric->SetRadius(radius_fix);
   metric->SetWorkingImage(m_NCCWorkingImage);
   metric->SetReuseWorkingImageFixedComponents(!first_run);
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
