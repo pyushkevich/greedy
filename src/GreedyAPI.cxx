@@ -47,6 +47,7 @@
 #include <vnl/algo/vnl_svd.h>
 #include <vnl/algo/vnl_symmetric_eigensystem.h>
 #include <vnl/vnl_trace.h>
+#include <vnl/vnl_numeric_traits.h>
 
 // Little helper functions
 template <unsigned int VDim> class array_caster
@@ -2546,7 +2547,7 @@ int GreedyApproach<VDim, TReal>
 
   // The best set of coefficients and the associated match value
   vnl_vector<double> xBest;
-  TReal xBestMatch = 1e100;
+  TReal xBestMatch = vnl_numeric_traits<TReal>::maxval;
 
   // Generate all possible flip matrices
   int n_flip = 1 << VDim;
