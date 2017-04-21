@@ -113,6 +113,7 @@ int usage()
   printf("  -rs mov.vtk out.vtk    : moving/output surface pair (vertices are warped from fixed space to moving)\n");
   printf("  -ri interp_mode        : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
   printf("  -rc outwarp            : write composed transforms to outwarp \n");
+  printf("  -rj outjacobian        : write Jacobian determinant image to outjacobian \n");
   printf("For developers: \n");
   printf("  -debug-deriv           : enable periodic checks of derivatives (debug) \n");
   printf("  -debug-deriv-eps       : epsilon for derivative debugging \n");
@@ -361,6 +362,10 @@ int main(int argc, char *argv[])
       else if(arg == "-rc")
         {
         param.reslice_param.out_composed_warp = cl.read_output_filename();
+        }
+      else if(arg == "-rj")
+        {
+        param.reslice_param.out_jacobian_image = cl.read_output_filename();
         }
       else if(arg == "-oinv")
         {

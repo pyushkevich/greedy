@@ -30,6 +30,8 @@ SET(HEADERS
   src/FastLinearInterpolator.h
   src/FastWarpCompositeImageFilter.h
   src/FastWarpCompositeImageFilter.txx
+  src/JacobianDeterminantImageFilter.h
+  src/JacobianDeterminantImageFilter.txx
   src/LinearTransformToWarpFilter.h
   src/LinearTransformToWarpFilter.txx
   src/MultiImageAffineMSDMetricFilter.h

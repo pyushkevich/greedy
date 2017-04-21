@@ -110,6 +110,9 @@ struct GreedyResliceParameters
 
   // Output warp
   std::string out_composed_warp;
+
+  // Output jacobian
+  std::string out_jacobian_image;
 };
 
 // Parameters for inverse warp command

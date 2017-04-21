@@ -43,6 +43,8 @@
 
 #include "MultiImageRegistrationHelper.h"
 #include "FastWarpCompositeImageFilter.h"
+#include "JacobianDeterminantImageFilter.h"
+
 #include <vnl/algo/vnl_powell.h>
 #include <vnl/algo/vnl_svd.h>
 #include <vnl/algo/vnl_symmetric_eigensystem.h>
@@ -2285,7 +2287,8 @@ int GreedyApproach<VDim, TReal>
     throw GreedyException("A reference image (-rf) option is required for reslice commands");
 
   if(r_param.images.size() + r_param.meshes.size() == 0
-     && !r_param.out_composed_warp.size())
+     && !r_param.out_composed_warp.size()
+     && !r_param.out_jacobian_image.size())
     throw GreedyException("No operation specified for reslice mode. "
                           "Use one of -rm, -rs or -rc commands.");
 
@@ -2304,6 +2307,29 @@ int GreedyApproach<VDim, TReal>
     LDDMMType::vimg_write(warp.GetPointer(), r_param.out_composed_warp.c_str(),
                           itk::ImageIOBase::FLOAT);
     }
+
+  // Compute the Jacobian of the warp if requested
+  if(r_param.out_jacobian_image.size())
+    {
+    /*
+    typedef JacobianDeterminantImageFilter<VectorImageType, ImageType> JacFilter;
+    typename JacFilter::Pointer jacFilter = JacFilter::New();
+    jacFilter->SetInput(warp);
+    jacFilter->Update();
+
+    LDDMMType::img_write(jacFilter->GetOutput(), r_param.out_jacobian_image.c_str(),
+                         itk::ImageIOBase::FLOAT);
+                         */
+
+
+    ImagePointer iTemp = ImageType::New();
+    LDDMMType::alloc_img(iTemp, warp);
+    LDDMMType::field_jacobian_det(warp, iTemp);
+
+    LDDMMType::img_write(iTemp, r_param.out_jacobian_image.c_str(),
+                         itk::ImageIOBase::FLOAT);
+    }
+
 
   // Process image pairs
   for(int i = 0; i < r_param.images.size(); i++)
