@@ -164,31 +164,29 @@ GreedyApproach<VDim, TReal>::PureAffineCostFunction
   m_Level = level;
   m_Parent = parent;
 
-  // Allocate the working images
+  // Allocate the working images, but do not allocate. We will allocate on demand because
+  // these affine cost functions may be created without needing to do any computation
+  m_Allocated = false;
+
   m_Phi = VectorImageType::New();
   m_Phi->CopyInformation(helper->GetReferenceSpace(level));
   m_Phi->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-  m_Phi->Allocate();
 
   m_GradMetric = VectorImageType::New();
   m_GradMetric->CopyInformation(helper->GetReferenceSpace(level));
   m_GradMetric->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-  m_GradMetric->Allocate();
 
   m_GradMask = VectorImageType::New();
   m_GradMask->CopyInformation(helper->GetReferenceSpace(level));
   m_GradMask->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-  m_GradMask->Allocate();
 
   m_Metric = ImageType::New();
   m_Metric->CopyInformation(helper->GetReferenceSpace(level));
   m_Metric->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-  m_Metric->Allocate();
 
   m_Mask = ImageType::New();
   m_Mask->CopyInformation(helper->GetReferenceSpace(level));
   m_Mask->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-  m_Mask->Allocate();
 }
 
 
@@ -202,6 +200,17 @@ GreedyApproach<VDim, TReal>::PureAffineCostFunction
 
   // Set the components of the transform
   unflatten_affine_transform(x.data_block(), tran.GetPointer());
+
+  // Allocate the memory if needed
+  if(!m_Allocated)
+    {
+    m_Phi->Allocate();
+    m_GradMetric->Allocate();
+    m_GradMask->Allocate();
+    m_Metric->Allocate();
+    m_Mask->Allocate();
+    m_Allocated = true;
+    }
 
   // Compute the gradient
   double val = 0.0;

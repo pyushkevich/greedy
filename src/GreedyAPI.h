@@ -212,6 +212,7 @@ protected:
     GreedyParameters *m_Param;
     OFHelperType *m_OFHelper;
     GreedyApproach<VDim, TReal> *m_Parent;
+    bool m_Allocated;
     int m_Level;
 
     // Storage for the gradient of the similarity map
