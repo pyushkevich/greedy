@@ -1651,9 +1651,12 @@ int GreedyApproach<VDim, TReal>
 
     // Allocate the intermediate data
     LDDMMType::alloc_vimg(uk, refspace);
-    LDDMMType::alloc_img(iTemp, refspace);
-    LDDMMType::alloc_vimg(viTemp, refspace);
-    LDDMMType::alloc_vimg(uk1, refspace);
+    if(param.iter_per_level[level] > 0)
+      {
+      LDDMMType::alloc_img(iTemp, refspace);
+      LDDMMType::alloc_vimg(viTemp, refspace);
+      LDDMMType::alloc_vimg(uk1, refspace);
+      }
 
     // Initialize the deformation field from last iteration
     if(uLevel.IsNotNull())
@@ -1884,18 +1887,21 @@ int GreedyApproach<VDim, TReal>
     // Store the end result
     uLevel = uk;
 
-    // Compute the jacobian of the deformation field
-    LDDMMType::field_jacobian_det(uk, iTemp);
-    TReal jac_min, jac_max;
-    LDDMMType::img_min_max(iTemp, jac_min, jac_max);
-    printf("END OF LEVEL %5d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
+    // Compute the jacobian of the deformation field - but only if we iterated at this level
+    if(param.iter_per_level[level] > 0)
+      {
+      LDDMMType::field_jacobian_det(uk, iTemp);
+      TReal jac_min, jac_max;
+      LDDMMType::img_min_max(iTemp, jac_min, jac_max);
+      printf("END OF LEVEL %5d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
 
-    // Print timing information
-    printf("  Avg. Gradient Time  : %6.4fs  %5.2f%% \n", tm_Gradient.GetMean(), tm_Gradient.GetMean() * 100.0 / tm_Iteration.GetMean());
-    printf("  Avg. Gaussian Time  : %6.4fs  %5.2f%% \n", tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean(),
-           (tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean()) * 100.0 / tm_Iteration.GetMean());
-    printf("  Avg. Iteration Time : %6.4fs \n", tm_Iteration.GetMean());
-
+      // Print timing information
+      printf("  Avg. Gradient Time  : %6.4fs  %5.2f%% \n", tm_Gradient.GetMean(), 
+             tm_Gradient.GetMean() * 100.0 / tm_Iteration.GetMean());
+      printf("  Avg. Gaussian Time  : %6.4fs  %5.2f%% \n", tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean(),
+             (tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean()) * 100.0 / tm_Iteration.GetMean());
+      printf("  Avg. Iteration Time : %6.4fs \n", tm_Iteration.GetMean());
+      }
     }
 
   // The transformation field is in voxel units. To work with ANTS, it must be mapped
