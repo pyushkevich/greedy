@@ -1,5 +1,29 @@
 PROJECT(GREEDY_TOOL)
 
+#--------------------------------------------------------------------------------
+# MACROS
+#--------------------------------------------------------------------------------
+# Get today's date (see http://cmake.3232098.n2.nabble.com/How-to-get-the-current-date-td5776870.html)
+MACRO (TODAY RESULT)
+    IF (WIN32)
+        EXECUTE_PROCESS(COMMAND "cmd" " /C date /T" OUTPUT_VARIABLE ${RESULT})
+        string(REGEX REPLACE "(..)/(..)/(....).*" "\\1/\\2/\\3" ${RESULT} ${${RESULT}})
+    ELSEIF(UNIX)
+        EXECUTE_PROCESS(COMMAND "date" "+%b %d, %Y" OUTPUT_VARIABLE ${RESULT})
+        string(REGEX REPLACE "(...) (..), (....).*" "\\1 \\2, \\3" ${RESULT} ${${RESULT}})
+    ELSE (WIN32)
+        MESSAGE(SEND_ERROR "date not implemented")
+        SET(${RESULT} 000000)
+    ENDIF (WIN32)
+	string(REPLACE "\n" "" ${RESULT} ${${RESULT}})
+	string(REPLACE " " "" ${RESULT} ${${RESULT}})
+ENDMACRO (TODAY)
+
+
+#--------------------------------------------------------------------------------
+# MAIN STUFF
+#--------------------------------------------------------------------------------
+
 # If we are building as a sub-project we skip the extra steps
 IF(NOT GREEDY_TOOL_BUILD_AS_SUBPROJECT)
 
@@ -19,6 +43,31 @@ IF(NOT GREEDY_TOOL_BUILD_AS_SUBPROJECT)
     INCLUDE(CMake/FindFFTW.cmake)
     ADD_DEFINITIONS(-D_LDDMM_FFT_)
   ENDIF(USE_FFTW)
+
+  # Get today's date (see http://cmake.3232098.n2.nabble.com/How-to-get-the-current-date-td5776870.html)
+  TODAY(GREEDY_VERSION_COMPILE_DATE)
+
+  # Get the current git hash
+  list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake/")
+  list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake/rpavlik/")
+  include(GetGitRevisionDescription)
+  get_git_head_revision(GIT_REFSPEC GREEDY_VERSION_GIT_SHA1)
+
+  # Get the current git branch
+  include(GitBranch)
+  get_git_branch(GREEDY_VERSION_GIT_BRANCH)
+  get_git_commit_date(${GREEDY_VERSION_GIT_SHA1} GREEDY_VERSION_GIT_TIMESTAMP)
+
+  # Print the Git information
+  MESSAGE(STATUS "GIT Info:")
+  MESSAGE(STATUS "  Branch : ${GREEDY_VERSION_GIT_BRANCH}")
+  MESSAGE(STATUS "  SHA    : ${GREEDY_VERSION_GIT_SHA1}")
+  MESSAGE(STATUS "  Date   : ${GREEDY_VERSION_GIT_TIMESTAMP}")
+
+  # One of the files needs to be configured (to insert version info)
+  CONFIGURE_FILE(
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/GreedyVersion.cxx.in
+    ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx @ONLY IMMEDIATE)
 
 ENDIF(NOT GREEDY_TOOL_BUILD_AS_SUBPROJECT)
 
@@ -63,6 +112,7 @@ SET(HEADERS
 
 # Define greedy library files
 SET(GREEDY_LIB_SRC
+  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
   src/lddmm_data.cxx
   src/GreedyAPI.cxx
   src/GreedyParameters.cxx

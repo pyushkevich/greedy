@@ -52,6 +52,7 @@
 #include <vnl/algo/vnl_svd.h>
 #include <vnl/vnl_trace.h>
 
+extern const char *GreedyVersionInfo;
 
 int usage()
 {
@@ -125,6 +126,7 @@ int usage()
   printf("  -dump-freq N           : dump frequency\n");
   printf("  -powell                : use Powell's method instead of LGBFS\n");
   printf("  -float                 : use single precision floating point (off by default)\n");
+  printf("  -version               : print version info\n");
 
   return -1;
 }
@@ -307,6 +309,11 @@ int main(int argc, char *argv[])
       else if(arg == "-threads")
         {
         param.threads = cl.read_integer();
+        }
+      else if(arg == "-version")
+        {
+        std::cout << GreedyVersionInfo << std::endl;
+        exit(0);
         }
       else if(arg == "-a")
         {
