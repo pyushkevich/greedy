@@ -24,9 +24,10 @@
   along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
-const char GreedyVersionInfo[] =
+const char *GreedyVersionInfo =
     "Greedy Version Info:\n"
     "  GIT branch:        @GREEDY_VERSION_GIT_BRANCH@\n"
     "  GIT commit:        @GREEDY_VERSION_GIT_SHA1@\n"
     "  GIT commit date:   @GREEDY_VERSION_GIT_TIMESTAMP@\n"
     "  Compile date:      @GREEDY_VERSION_COMPILE_DATE@\n";
+

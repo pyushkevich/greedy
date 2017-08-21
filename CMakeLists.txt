@@ -112,7 +112,6 @@ SET(HEADERS
 
 # Define greedy library files
 SET(GREEDY_LIB_SRC
-  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
   src/lddmm_data.cxx
   src/GreedyAPI.cxx
   src/GreedyParameters.cxx
@@ -120,7 +119,9 @@ SET(GREEDY_LIB_SRC
 )
 
 SET(LDDMM_SRC src/lddmm_main.cxx)
-SET(GREEDY_SRC src/greedy_main.cxx)
+SET(GREEDY_SRC 
+  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
+  src/greedy_main.cxx)
 
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
 

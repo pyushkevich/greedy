@@ -159,7 +159,7 @@ int main(int argc, char *argv[])
   // reslice mode parameters
   InterpSpec interp_current;
 
-  if(argc < 3)
+  if(argc < 2)
     return usage();
 
   try
