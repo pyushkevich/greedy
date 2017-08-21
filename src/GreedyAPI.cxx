@@ -40,10 +40,11 @@
 #include <itkAffineTransform.h>
 #include <itkTransformFactory.h>
 #include <itkTimeProbe.h>
+#include <itkImageFileWriter.h>
 
 #include "MultiImageRegistrationHelper.h"
 #include "FastWarpCompositeImageFilter.h"
-#include "JacobianDeterminantImageFilter.h"
+#include "MultiComponentImageMetricBase.h"
 
 #include <vnl/algo/vnl_powell.h>
 #include <vnl/algo/vnl_svd.h>
@@ -149,7 +150,25 @@ GetVoxelSpaceToNiftiSpaceTransform(itk::ImageBase<VDim> *image,
   b = m_lps_to_ras * v_origin;
 }
 
+// Helper function to get the RAS coordinate of the center of 
+// an image
+template <unsigned int VDim>
+vnl_vector<double>
+GetImageCenterinNiftiSpace(itk::ImageBase<VDim> *image)
+{
+  itk::ImageRegion<VDim> r = image->GetBufferedRegion();
+  itk::ContinuousIndex<double, VDim> idx;
+  itk::Point<double, VDim> ctr;
+  for(int d = 0; d < VDim; d++)
+    idx[d] = r.GetIndex()[d] + r.GetSize()[d] * 0.5;
+  image->TransformContinuousIndexToPhysicalPoint(idx, ctr);
 
+  // Map to RAS (flip first two coordinates)
+  for(int d = 0; d < 2 && d < VDim; d++)
+    ctr[d] = -ctr[d];
+
+  return ctr.GetVnlVector();
+}
 
 
 
@@ -738,10 +757,17 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
 ::GetRandomCoeff(const vnl_vector<double> &xInit, vnl_random &randy, double sigma_angle, double sigma_xyz,
                  const Vec3 &C_fixed, const Vec3 &C_moving)
 {
-  // Generate a random rotation using given angles
-  Vec3 q;
+  // Generate a random axis of rotation. A triple of Gaussian numbers, normalized to 
+  // unit length gives a uniform distribution over the sphere
+  Vec3 q_axis;
   for(int d = 0; d < 3; d++)
-    q[d] = randy.normal() * sigma_angle;
+    q_axis[d] = randy.normal();
+  q_axis.normalize();
+
+  // Generate an angle of rotation from the normal distribution (degrees->radians)
+  Vec3 q = q_axis * (randy.normal() * sigma_angle * 0.01745329252);
+
+  // Generate a random rotation using given angles
   Mat3 R = this->GetRotationMatrix(q);
 
   // Generate a rotation matrix for the initial parameters
@@ -887,9 +913,8 @@ GreedyApproach<VDim, TReal>
     {
     TransformType *cached = dynamic_cast<TransformType *>(itCache->second);
     if(!cached)
-      throw GreedyException("Cached transform %s is of the wrong type (%s, but should be %s)",
-                            ts.filename.c_str(), typeid(*itCache->second).name(),
-                            typeid(TransformType).name());
+      throw GreedyException("Cached transform %s cannot be cast to type %s",
+                            ts.filename.c_str(), typeid(TransformType).name());
 
     itk_tran = cached;
     }
@@ -994,9 +1019,8 @@ GreedyApproach<VDim, TReal>
     {
     TransformType *cached = dynamic_cast<TransformType *>(itCache->second);
     if(!cached)
-      throw GreedyException("Cached transform %s is of the wrong type (%s, but should be %s)",
-                            filename.c_str(), typeid(*itCache->second).name(),
-                            typeid(TransformType).name());
+      throw GreedyException("Cached transform %s cannot be cast to type %s",
+                            filename.c_str(), typeid(TransformType).name());
 
     // RAS - LPI nonsense
     vnl_matrix<double> Q = Qp;
@@ -1046,8 +1070,8 @@ GreedyApproach<VDim, TReal>
     {
     TImage *image = dynamic_cast<TImage *>(it->second);
     if(!image)
-      throw GreedyException("Cached image %s is of the wrong type (%s, but should be %s)",
-                            filename.c_str(), typeid(*it->second).name(), typeid(TImage).name());
+      throw GreedyException("Cached image %s cannot be cast to type %s",
+                            filename.c_str(), typeid(TImage).name());
     itk::SmartPointer<TImage> pointer = image;
 
     return pointer;
@@ -1381,6 +1405,24 @@ int GreedyApproach<VDim, TReal>
         // Map this to voxel space
         MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tLevel);
         }
+      else if(param.affine_init_mode == IMG_CENTERS)
+        {
+        // Find a translation that maps center voxel of fixed image to the center 
+        // voxel of the moving image
+        vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
+        vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(level));
+        vnl_vector<double> cmov = GetImageCenterinNiftiSpace(of_helper.GetMovingReferenceSpace(level));
+
+        // TODO: I think that setting the matrix above to affine will break the registration
+        // if fixed and moving are in different orientations? Or am I crazy?
+
+        // Compute the transform that takes fixed into moving
+        for(int d = 0; d < VDim; d++)
+          Qp(d, VDim) = cmov[d] - cfix[d];
+
+        // Map this to voxel space
+        MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tLevel);
+        }
 
       // Get the new coefficients
       vnl_vector<double> xInit = acf->GetCoefficients(tLevel);
@@ -1407,16 +1449,8 @@ int GreedyApproach<VDim, TReal>
         vnl_vector<double> xRigidInit = search_fun.GetCoefficients(tLevel);
 
         // Get center of fixed and moving images in physical space
-        itk::Point<double, VDim> ctr_Fixed, ctr_Moving;
-        itk::Index<VDim> idx_Fixed = of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetIndex();
-        for(int d = 0; d < 3; d++)
-          idx_Fixed[d] += of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()[d] / 2;
-        of_helper.GetReferenceSpace(level)->TransformIndexToPhysicalPoint(idx_Fixed, ctr_Fixed);
-
-        itk::Index<VDim> idx_Moving = of_helper.GetMovingReferenceSpace(level)->GetBufferedRegion().GetIndex();
-        for(int d = 0; d < 3; d++)
-          idx_Moving[d] += of_helper.GetMovingReferenceSpace(level)->GetBufferedRegion().GetSize()[d] / 2;
-        of_helper.GetMovingReferenceSpace(level)->TransformIndexToPhysicalPoint(idx_Moving, ctr_Moving);
+        vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(level));
+        vnl_vector<double> cmov = GetImageCenterinNiftiSpace(of_helper.GetMovingReferenceSpace(level));
 
         // At random, try a whole bunch of transforms, around 5 degrees
         vnl_random randy(12345);
@@ -1436,7 +1470,7 @@ int GreedyApproach<VDim, TReal>
           vnl_vector<double> xTry = search_fun.GetRandomCoeff(xRigidInit, randy,
                                                               param.rigid_search.sigma_angle,
                                                               param.rigid_search.sigma_xyz,
-                                                              ctr_Fixed.GetVnlVector(), ctr_Moving.GetVnlVector());
+                                                              cfix, cmov);
 
           // Evaluate this transform
           double f;
@@ -2327,17 +2361,6 @@ int GreedyApproach<VDim, TReal>
   // Compute the Jacobian of the warp if requested
   if(r_param.out_jacobian_image.size())
     {
-    /*
-    typedef JacobianDeterminantImageFilter<VectorImageType, ImageType> JacFilter;
-    typename JacFilter::Pointer jacFilter = JacFilter::New();
-    jacFilter->SetInput(warp);
-    jacFilter->Update();
-
-    LDDMMType::img_write(jacFilter->GetOutput(), r_param.out_jacobian_image.c_str(),
-                         itk::ImageIOBase::FLOAT);
-                         */
-
-
     ImagePointer iTemp = ImageType::New();
     LDDMMType::alloc_img(iTemp, warp);
     LDDMMType::field_jacobian_det(warp, iTemp);

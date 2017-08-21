@@ -28,6 +28,7 @@
 #define __MultiImageRegistrationHelper_h
 
 #include "itkImageBase.h"
+#include "itkImage.h"
 #include "itkVectorImage.h"
 #include "itkMatrixOffsetTransformBase.h"
 
@@ -229,10 +230,5 @@ protected:
   // Adjust NCC radius to be smaller than half image size
   SizeType AdjustNCCRadius(int level, const SizeType &radius, bool report_on_adjust);
 };
-
-
-#ifndef ITK_MANUAL_INSTANTIATION
-#include "MultiImageRegistrationHelper.txx"
-#endif
 
 #endif

@@ -302,8 +302,8 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
     }
 #endif
 
-  delete sum;
-  delete line;
+  delete[] sum;
+  delete[] line;
 }
 
 // ### PY, 05/18/2016: checked again, this SSE code is not causing any differences in float/double

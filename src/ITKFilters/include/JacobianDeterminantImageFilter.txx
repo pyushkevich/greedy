@@ -27,6 +27,8 @@
 #ifndef __JacobianDeterminantImageFilter_txx_
 #define __JacobianDeterminantImageFilter_txx_
 
+#include "itkImageRegionIterator.h"
+
 template <unsigned int VDim>
 class DeformedCubeVolumeFunctor
 {

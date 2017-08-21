@@ -24,8 +24,6 @@
   along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
-#ifndef __MultiImageRegistrationHelper_txx
-#define __MultiImageRegistrationHelper_txx
 #include "MultiImageRegistrationHelper.h"
 
 #include "itkImageRegionIterator.h"
@@ -41,9 +39,6 @@
 #include "itkVectorIndexSelectionCastImageFilter.h"
 #include "OneDimensionalInPlaceAccumulateFilter.h"
 #include "itkUnaryFunctorImageFilter.h"
-
-#include "LinearTransformToWarpFilter.h"
-
 #include "itkImageFileWriter.h"
 
 template <class TFloat, unsigned int VDim>
@@ -1206,5 +1201,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 }
 
-
-#endif
+// Explicitly instantiate this class
+template class MultiImageOpticalFlowHelper<float, 2>;
+template class MultiImageOpticalFlowHelper<float, 3>;
+template class MultiImageOpticalFlowHelper<float, 4>;
+template class MultiImageOpticalFlowHelper<double, 2>;
+template class MultiImageOpticalFlowHelper<double, 3>;
+template class MultiImageOpticalFlowHelper<double, 4>;

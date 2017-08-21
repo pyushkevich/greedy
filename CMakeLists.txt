@@ -23,41 +23,41 @@ IF(NOT GREEDY_TOOL_BUILD_AS_SUBPROJECT)
 ENDIF(NOT GREEDY_TOOL_BUILD_AS_SUBPROJECT)
 
 # Include the header directories
-INCLUDE_DIRECTORIES(${GREEDY_TOOL_SOURCE_DIR}/src)
+INCLUDE_DIRECTORIES(
+  ${GREEDY_TOOL_SOURCE_DIR}/src
+  ${GREEDY_TOOL_SOURCE_DIR}/src/ITKFilters/include
+)
 
 # Define header files
 SET(HEADERS
-  src/FastLinearInterpolator.h
-  src/FastWarpCompositeImageFilter.h
-  src/FastWarpCompositeImageFilter.txx
-  src/JacobianDeterminantImageFilter.h
-  src/JacobianDeterminantImageFilter.txx
-  src/LinearTransformToWarpFilter.h
-  src/LinearTransformToWarpFilter.txx
-  src/MultiImageAffineMSDMetricFilter.h
-  src/MultiImageAffineMSDMetricFilter.txx
-  src/MultiComponentImageMetricBase.h
-  src/MultiComponentImageMetricBase.txx
-  src/MultiImageOpticalFlowImageFilter.h
-  src/MultiImageOpticalFlowImageFilter.txx
-  src/MultiImageRegistrationHelper.h
-  src/MultiImageRegistrationHelper.txx
-  src/MultiComponentMutualInfoImageMetric.h
-  src/MultiComponentMutualInfoImageMetric.txx
-  src/MultiComponentNCCImageMetric.h
-  src/MultiComponentNCCImageMetric.txx
-  src/OneDimensionalInPlaceAccumulateFilter.h
-  src/OneDimensionalInPlaceAccumulateFilter.txx
-  src/SimpleWarpImageFilter.h
-  src/SimpleWarpImageFilter.txx
-  src/itkGaussianInterpolateImageFunction.h
-  src/itkOptVectorLinearInterpolateImageFunction.h
-  src/itkOptVectorLinearInterpolateImageFunction.txx
+  src/ITKFilters/include/FastLinearInterpolator.h
+  src/ITKFilters/include/FastWarpCompositeImageFilter.h
+  src/ITKFilters/include/FastWarpCompositeImageFilter.txx
+  src/ITKFilters/include/JacobianDeterminantImageFilter.h
+  src/ITKFilters/include/JacobianDeterminantImageFilter.txx
+  src/ITKFilters/include/MultiImageAffineMSDMetricFilter.h
+  src/ITKFilters/include/MultiImageAffineMSDMetricFilter.txx
+  src/ITKFilters/include/MultiComponentImageMetricBase.h
+  src/ITKFilters/include/MultiComponentImageMetricBase.txx
+  src/ITKFilters/include/MultiImageOpticalFlowImageFilter.h
+  src/ITKFilters/include/MultiImageOpticalFlowImageFilter.txx
+  src/ITKFilters/include/MultiComponentMutualInfoImageMetric.h
+  src/ITKFilters/include/MultiComponentMutualInfoImageMetric.txx
+  src/ITKFilters/include/MultiComponentNCCImageMetric.h
+  src/ITKFilters/include/MultiComponentNCCImageMetric.txx
+  src/ITKFilters/include/OneDimensionalInPlaceAccumulateFilter.h
+  src/ITKFilters/include/OneDimensionalInPlaceAccumulateFilter.txx
+  src/ITKFilters/include/SimpleWarpImageFilter.h
+  src/ITKFilters/include/SimpleWarpImageFilter.txx
+  src/ITKFilters/include/itkGaussianInterpolateImageFunction.h
+  src/ITKFilters/include/itkOptVectorLinearInterpolateImageFunction.h
+  src/ITKFilters/include/itkOptVectorLinearInterpolateImageFunction.txx
   src/lddmm_common.h
   src/lddmm_data.h
   src/GreedyAPI.h
   src/GreedyException.h
   src/GreedyParameters.h
+  src/MultiImageRegistrationHelper.h
   src/CommandLineHelper.h
 )
 
@@ -66,6 +66,7 @@ SET(GREEDY_LIB_SRC
   src/lddmm_data.cxx
   src/GreedyAPI.cxx
   src/GreedyParameters.cxx
+  src/MultiImageRegistrationHelper.cxx
 )
 
 SET(LDDMM_SRC src/lddmm_main.cxx)

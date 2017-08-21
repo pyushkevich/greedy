@@ -99,6 +99,9 @@ int usage()
   printf("Initial transform specification: \n");
   printf("  -ia filename           : initial affine matrix for optimization (not the same as -it) \n");
   printf("  -ia-identity           : initialize affine matrix based on NIFTI headers \n");
+  printf("  -ia-image-centers      : initialize affine matrix based on matching image centers \n");
+  printf("  -ia-image-side CODE    : initialize affine matrix based on matching center of one image side \n");
+  printf("  -ia-moments <1|2>      : initialize affine matrix based on matching moments of inertia\n");
   printf("Specific to affine mode (-a):\n");
   printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 12=affine\n");
   printf("  -jitter sigma          : Jitter (in voxel units) applied to sample points (def: 0.5)\n");
@@ -235,6 +238,10 @@ int main(int argc, char *argv[])
       else if(arg == "-ia-identity" || arg == "-iaid" || arg == "-ia-id")
         {
         param.affine_init_mode = RAS_IDENTITY;
+        }
+      else if(arg == "-ia-image-centers" || arg == "-iaic" || arg == "-ia-ic")
+        {
+        param.affine_init_mode = IMG_CENTERS;
         }
       else if(arg == "-dof")
         {

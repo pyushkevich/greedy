@@ -93,7 +93,10 @@ enum AffineInitMode
   VOX_IDENTITY = 0, // Identity mapping in voxel space
   RAS_IDENTITY,     // Identity mapping in physical space (i.e., use headers)
   RAS_FILENAME,     // User-specified matrix in physical space
-  IMG_CENTERS       // Match image centers, identity rotation in voxel space
+  IMG_CENTERS,      // Match image centers, identity rotation in voxel space
+  IMG_SIDE,         // Match image sides,
+  MOMENTS_1,        // Match centers of mass,
+  MOMENTS_2         // Match inertia tensors
 };
 
 struct GreedyResliceParameters

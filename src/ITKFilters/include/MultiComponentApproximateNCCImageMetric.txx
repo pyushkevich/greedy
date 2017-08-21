@@ -488,7 +488,7 @@ MultiComponentApproximateNCCImageMetric<TMetricTraits>
       }
     }
 
-  delete grad_fixed;
+  delete[] grad_fixed;
 }
 
 
