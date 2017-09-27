@@ -73,6 +73,12 @@ struct ResliceSpec
   InterpSpec interp;
 };
 
+struct ResliceMeshSpec
+{
+  std::string fixed;
+  std::string output;
+};
+
 struct TransformSpec
 {
   // Transform file
@@ -87,19 +93,29 @@ enum AffineInitMode
   VOX_IDENTITY = 0, // Identity mapping in voxel space
   RAS_IDENTITY,     // Identity mapping in physical space (i.e., use headers)
   RAS_FILENAME,     // User-specified matrix in physical space
-  IMG_CENTERS       // Match image centers, identity rotation in voxel space
+  IMG_CENTERS,      // Match image centers, identity rotation in voxel space
+  IMG_SIDE,         // Match image sides,
+  MOMENTS_1,        // Match centers of mass,
+  MOMENTS_2         // Match inertia tensors
 };
 
 struct GreedyResliceParameters
 {
   // For reslice mode
   std::vector<ResliceSpec> images;
+  std::vector<ResliceMeshSpec> meshes;
 
   // Reference image
   std::string ref_image;
 
   // Chain of transforms
   std::vector<TransformSpec> transforms;
+
+  // Output warp
+  std::string out_composed_warp;
+
+  // Output jacobian
+  std::string out_jacobian_image;
 };
 
 // Parameters for inverse warp command
@@ -109,11 +125,19 @@ struct GreedyInvertWarpParameters
 };
 
 
+// Parameters for inverse warp command
+struct GreedyWarpRootParameters
+{
+  std::string in_warp, out_warp;
+  int exponent;
+};
+
+
 struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, MI, NMI };
   enum TimeStepMode { CONSTANT=0, SCALE, SCALEDOWN };
-  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP };
+  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, MOMENTS };
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
 
   std::vector<ImagePairSpec> inputs;
@@ -130,6 +154,9 @@ struct GreedyParameters
 
   // Inversion parameters
   GreedyInvertWarpParameters invwarp_param;
+
+  // Root warp parameters
+  GreedyWarpRootParameters warproot_param;
 
   // Registration mode
   Mode mode;
@@ -163,8 +190,11 @@ struct GreedyParameters
   AffineDOF affine_dof;
   TransformSpec affine_init_transform;
 
-  // Mask for gradient
+  // Mask for gradient computation (fixed mask)
   std::string gradient_mask;
+
+  // Mask for the moving image
+  std::string moving_mask;
 
   // Inverse warp
   std::string inverse_warp;
@@ -181,6 +211,11 @@ struct GreedyParameters
 
   // Rigid search
   RigidSearchSpec rigid_search;
+
+  // Moments of inertia specification
+  int moments_flip_determinant;
+  int moments_order;
+  bool flag_moments_id_covariance;
 
   // Floating point precision?
   bool flag_float_math;

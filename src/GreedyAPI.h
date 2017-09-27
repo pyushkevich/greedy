@@ -63,6 +63,9 @@ public:
   typedef typename LDDMMType::CompositeImageType CompositeImageType;
   typedef typename LDDMMType::CompositeImagePointer CompositeImagePointer;
 
+  typedef vnl_vector_fixed<TReal, VDim> VecFx;
+  typedef vnl_matrix_fixed<TReal, VDim, VDim> MatFx;
+
   typedef std::vector<std::vector<double> > MetricLogType;
 
   typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
@@ -87,6 +90,10 @@ public:
   int RunReslice(GreedyParameters &param);
 
   int RunInvertWarp(GreedyParameters &param);
+
+  int RunRootWarp(GreedyParameters &param);
+
+  int RunAlignMoments(GreedyParameters &param);
 
   /**
    * Add an image that is already in memory to the internal cache, and
@@ -124,6 +131,7 @@ public:
   const MetricLogType &GetMetricLog() const;
 
 
+
 protected:
 
   typedef std::map<std::string, itk::Object *> ImageCache;
@@ -133,6 +141,9 @@ protected:
   // in the callbacks to RunAffine, etc.
   std::vector< std::vector<double> > m_MetricLog;
 
+  // This function reads the image from disk, or from a memory location mapped to a
+  // string. The first approach is used by the command-line interface, and the second
+  // approach is used by the API, allowing images to be passed from other software
   template <class TImage>
   itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename);
 
@@ -156,6 +167,9 @@ protected:
       LinearTransformType *tran);
 
   void RecordMetricValue(double val);
+
+  // Compute the moments of a composite image (mean and covariance matrix of coordinate weighted by intensity)
+  void ComputeImageMoments(CompositeImageType *image, const std::vector<double> &weights, VecFx &m1, MatFx &m2);
 
   class AbstractAffineCostFunction : public vnl_cost_function
   {
@@ -198,6 +212,7 @@ protected:
     GreedyParameters *m_Param;
     OFHelperType *m_OFHelper;
     GreedyApproach<VDim, TReal> *m_Parent;
+    bool m_Allocated;
     int m_Level;
 
     // Storage for the gradient of the similarity map

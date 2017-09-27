@@ -61,4 +61,9 @@ GreedyParameters
 
   param.iter_per_level.push_back(100);
   param.iter_per_level.push_back(100);
+
+  // Moments of inertia parameters
+  param.moments_flip_determinant = 0;
+  param.flag_moments_id_covariance = false;
+  param.moments_order = 1;
 }

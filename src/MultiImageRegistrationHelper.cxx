@@ -24,8 +24,6 @@
   along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
-#ifndef __MultiImageRegistrationHelper_txx
-#define __MultiImageRegistrationHelper_txx
 #include "MultiImageRegistrationHelper.h"
 
 #include "itkImageRegionIterator.h"
@@ -41,9 +39,6 @@
 #include "itkVectorIndexSelectionCastImageFilter.h"
 #include "OneDimensionalInPlaceAccumulateFilter.h"
 #include "itkUnaryFunctorImageFilter.h"
-
-#include "LinearTransformToWarpFilter.h"
-
 #include "itkImageFileWriter.h"
 
 template <class TFloat, unsigned int VDim>
@@ -308,6 +303,30 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       }
     }
 
+  // Set up the moving mask pyramid
+  m_MovingMaskComposite.resize(m_PyramidFactors.size(), NULL);
+  if(m_MovingMaskImage)
+    {
+    for(int i = 0; i < m_PyramidFactors.size(); i++)
+      {
+      // Downsample the image to the right pyramid level
+      if (m_PyramidFactors[i] == 1)
+        {
+        m_MovingMaskComposite[i] = m_MovingMaskImage;
+        }
+      else
+        {
+        m_MovingMaskComposite[i] = FloatImageType::New();
+
+        // Downsampling the mask involves smoothing, so the mask will no longer be binary
+        LDDMMType::img_downsample(m_MovingMaskImage, m_MovingMaskComposite[i], m_PyramidFactors[i]);
+
+        // We don't need the moving mask to be binary, we can leave it be floating point...
+        // LDDMMType::img_threshold_in_place(m_MovingMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
+        }
+      }
+    }
+
   // Set up the jitter images
   m_JitterComposite.resize(m_PyramidFactors.size(), NULL);
   if(m_JitterSigma > 0)
@@ -474,6 +493,29 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
 
 template <class TFloat, unsigned int VDim>
+typename MultiImageOpticalFlowHelper<TFloat, VDim>::SizeType
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::AdjustNCCRadius(int level, const SizeType &radius, bool report_on_adjust)
+{
+  SizeType radius_fix = radius;
+  for(int d = 0; d < VDim; d++)
+    {
+    int sz_d = (int) m_FixedComposite[level]->GetBufferedRegion().GetSize()[d];
+    if(radius_fix[d] * 2 + 1 >= sz_d)
+      radius_fix[d] = (sz_d - 1) / 2;
+    }
+
+  if(report_on_adjust && radius != radius_fix)
+    {
+    std::cout << "  *** NCC radius adjusted to " << radius_fix
+              << " because image too small at level " << level
+              << " (" << m_FixedComposite[level]->GetBufferedRegion().GetSize() << ")" << std::endl;
+    }
+
+  return radius_fix;
+}
+
+template <class TFloat, unsigned int VDim>
 double
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeNCCMetricImage(int level,
@@ -502,6 +544,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   bool first_run =
       m_NCCWorkingImage->GetBufferedRegion() != m_FixedComposite[level]->GetBufferedRegion();
 
+  // Check the radius against the size of the image
+  SizeType radius_fix = AdjustNCCRadius(level, radius, first_run);
+
   // Run the filter
   filter->SetFixedImage(m_FixedComposite[level]);
   filter->SetMovingImage(m_MovingComposite[level]);
@@ -510,10 +555,13 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetComputeGradient(true);
   filter->GetMetricOutput()->Graft(out_metric);
   filter->GetDeformationGradientOutput()->Graft(out_gradient);
-  filter->SetRadius(radius);
+  filter->SetRadius(radius_fix);
   filter->SetWorkingImage(m_NCCWorkingImage);
   filter->SetReuseWorkingImageFixedComponents(!first_run);
   filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
+
+  // TODO: support moving masks...
+  // filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
   filter->Update();
 
   // Get the vector of the normalized metrics
@@ -654,6 +702,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 }
 
 
+
 // TODO: there is a lot of code duplication here!
 template <class TFloat, unsigned int VDim>
 double
@@ -686,6 +735,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   bool first_run =
       m_NCCWorkingImage->GetBufferedRegion() != m_FixedComposite[level]->GetBufferedRegion();
 
+  // Check the radius against the size of the image
+  SizeType radius_fix = AdjustNCCRadius(level, radius, first_run);
+
   metric->SetFixedImage(m_FixedComposite[level]);
   metric->SetMovingImage(m_MovingComposite[level]);
   metric->SetWeights(wscaled);
@@ -693,7 +745,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetComputeMovingDomainMask(false);
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad != NULL);
-  metric->SetRadius(radius);
+  metric->SetRadius(radius_fix);
   metric->SetWorkingImage(m_NCCWorkingImage);
   metric->SetReuseWorkingImageFixedComponents(!first_run);
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
@@ -1149,5 +1201,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 }
 
-
-#endif
+// Explicitly instantiate this class
+template class MultiImageOpticalFlowHelper<float, 2>;
+template class MultiImageOpticalFlowHelper<float, 3>;
+template class MultiImageOpticalFlowHelper<float, 4>;
+template class MultiImageOpticalFlowHelper<double, 2>;
+template class MultiImageOpticalFlowHelper<double, 3>;
+template class MultiImageOpticalFlowHelper<double, 4>;

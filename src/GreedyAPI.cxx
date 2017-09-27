@@ -40,12 +40,17 @@
 #include <itkAffineTransform.h>
 #include <itkTransformFactory.h>
 #include <itkTimeProbe.h>
+#include <itkImageFileWriter.h>
 
 #include "MultiImageRegistrationHelper.h"
 #include "FastWarpCompositeImageFilter.h"
+#include "MultiComponentImageMetricBase.h"
+
 #include <vnl/algo/vnl_powell.h>
 #include <vnl/algo/vnl_svd.h>
+#include <vnl/algo/vnl_symmetric_eigensystem.h>
 #include <vnl/vnl_trace.h>
+#include <vnl/vnl_numeric_traits.h>
 
 // Little helper functions
 template <unsigned int VDim> class array_caster
@@ -145,7 +150,25 @@ GetVoxelSpaceToNiftiSpaceTransform(itk::ImageBase<VDim> *image,
   b = m_lps_to_ras * v_origin;
 }
 
+// Helper function to get the RAS coordinate of the center of 
+// an image
+template <unsigned int VDim>
+vnl_vector<double>
+GetImageCenterinNiftiSpace(itk::ImageBase<VDim> *image)
+{
+  itk::ImageRegion<VDim> r = image->GetBufferedRegion();
+  itk::ContinuousIndex<double, VDim> idx;
+  itk::Point<double, VDim> ctr;
+  for(int d = 0; d < VDim; d++)
+    idx[d] = r.GetIndex()[d] + r.GetSize()[d] * 0.5;
+  image->TransformContinuousIndexToPhysicalPoint(idx, ctr);
 
+  // Map to RAS (flip first two coordinates)
+  for(int d = 0; d < 2 && d < VDim; d++)
+    ctr[d] = -ctr[d];
+
+  return ctr.GetVnlVector();
+}
 
 
 
@@ -160,31 +183,29 @@ GreedyApproach<VDim, TReal>::PureAffineCostFunction
   m_Level = level;
   m_Parent = parent;
 
-  // Allocate the working images
+  // Allocate the working images, but do not allocate. We will allocate on demand because
+  // these affine cost functions may be created without needing to do any computation
+  m_Allocated = false;
+
   m_Phi = VectorImageType::New();
   m_Phi->CopyInformation(helper->GetReferenceSpace(level));
   m_Phi->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-  m_Phi->Allocate();
 
   m_GradMetric = VectorImageType::New();
   m_GradMetric->CopyInformation(helper->GetReferenceSpace(level));
   m_GradMetric->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-  m_GradMetric->Allocate();
 
   m_GradMask = VectorImageType::New();
   m_GradMask->CopyInformation(helper->GetReferenceSpace(level));
   m_GradMask->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-  m_GradMask->Allocate();
 
   m_Metric = ImageType::New();
   m_Metric->CopyInformation(helper->GetReferenceSpace(level));
   m_Metric->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-  m_Metric->Allocate();
 
   m_Mask = ImageType::New();
   m_Mask->CopyInformation(helper->GetReferenceSpace(level));
   m_Mask->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-  m_Mask->Allocate();
 }
 
 
@@ -198,6 +219,17 @@ GreedyApproach<VDim, TReal>::PureAffineCostFunction
 
   // Set the components of the transform
   unflatten_affine_transform(x.data_block(), tran.GetPointer());
+
+  // Allocate the memory if needed
+  if(!m_Allocated)
+    {
+    m_Phi->Allocate();
+    m_GradMetric->Allocate();
+    m_GradMask->Allocate();
+    m_Metric->Allocate();
+    m_Mask->Allocate();
+    m_Allocated = true;
+    }
 
   // Compute the gradient
   double val = 0.0;
@@ -725,10 +757,17 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
 ::GetRandomCoeff(const vnl_vector<double> &xInit, vnl_random &randy, double sigma_angle, double sigma_xyz,
                  const Vec3 &C_fixed, const Vec3 &C_moving)
 {
-  // Generate a random rotation using given angles
-  Vec3 q;
+  // Generate a random axis of rotation. A triple of Gaussian numbers, normalized to 
+  // unit length gives a uniform distribution over the sphere
+  Vec3 q_axis;
   for(int d = 0; d < 3; d++)
-    q[d] = randy.normal() * sigma_angle;
+    q_axis[d] = randy.normal();
+  q_axis.normalize();
+
+  // Generate an angle of rotation from the normal distribution (degrees->radians)
+  Vec3 q = q_axis * (randy.normal() * sigma_angle * 0.01745329252);
+
+  // Generate a random rotation using given angles
   Mat3 R = this->GetRotationMatrix(q);
 
   // Generate a rotation matrix for the initial parameters
@@ -874,9 +913,8 @@ GreedyApproach<VDim, TReal>
     {
     TransformType *cached = dynamic_cast<TransformType *>(itCache->second);
     if(!cached)
-      throw GreedyException("Cached transform %s is of the wrong type (%s, but should be %s)",
-                            ts.filename.c_str(), typeid(*itCache->second).name(),
-                            typeid(TransformType).name());
+      throw GreedyException("Cached transform %s cannot be cast to type %s",
+                            ts.filename.c_str(), typeid(TransformType).name());
 
     itk_tran = cached;
     }
@@ -981,9 +1019,8 @@ GreedyApproach<VDim, TReal>
     {
     TransformType *cached = dynamic_cast<TransformType *>(itCache->second);
     if(!cached)
-      throw GreedyException("Cached transform %s is of the wrong type (%s, but should be %s)",
-                            filename.c_str(), typeid(*itCache->second).name(),
-                            typeid(TransformType).name());
+      throw GreedyException("Cached transform %s cannot be cast to type %s",
+                            filename.c_str(), typeid(TransformType).name());
 
     // RAS - LPI nonsense
     vnl_matrix<double> Q = Qp;
@@ -1033,8 +1070,8 @@ GreedyApproach<VDim, TReal>
     {
     TImage *image = dynamic_cast<TImage *>(it->second);
     if(!image)
-      throw GreedyException("Cached image %s is of the wrong type (%s, but should be %s)",
-                            filename.c_str(), typeid(*it->second).name(), typeid(TImage).name());
+      throw GreedyException("Cached image %s cannot be cast to type %s",
+                            filename.c_str(), typeid(TImage).name());
     itk::SmartPointer<TImage> pointer = image;
 
     return pointer;
@@ -1061,22 +1098,9 @@ void GreedyApproach<VDim, TReal>
   // Read the input images and stick them into an image array
   for(int i = 0; i < param.inputs.size(); i++)
     {
-    // Read fixed
+    // Read fixed and moving images
     CompositeImagePointer imgFix = ReadImageViaCache<CompositeImageType>(param.inputs[i].fixed);
     CompositeImagePointer imgMov = ReadImageViaCache<CompositeImageType>(param.inputs[i].moving);
-
-    /*
-    typedef itk::ImageFileReader<CompositeImageType> ReaderType;
-    typename ReaderType::Pointer readfix = ReaderType::New();
-    readfix->SetFileName(param.inputs[i].fixed);
-    readfix->Update();
-
-    // Read moving
-    typedef itk::ImageFileReader<CompositeImageType> ReaderType;
-    typename ReaderType::Pointer readmov = ReaderType::New();
-    readmov->SetFileName(param.inputs[i].moving);
-    readmov->Update();
-    */
 
     // Read the pre-warps (only once)
     if(param.moving_pre_transforms.size() && moving_pre_warp.IsNull())
@@ -1104,21 +1128,40 @@ void GreedyApproach<VDim, TReal>
       }
     }
 
-  // Read the masks
+  // Read the fixed-space mask
   if(param.gradient_mask.size())
     {
     typedef typename OFHelperType::FloatImageType MaskType;
     typename MaskType::Pointer imgMask =
         ReadImageViaCache<MaskType>(param.gradient_mask);
 
-/*
-    // Read gradient mask
-    typedef itk::ImageFileReader<> ReaderType;
-    typename ReaderType::Pointer readmask = ReaderType::New();
-    readmask->SetFileName(param.gradient_mask);
-    readmask->Update(); */
-
     ofhelper.SetGradientMask(imgMask);
+    }
+
+  // Read the moving-space mask
+  if(param.moving_mask.size())
+    {
+    typedef typename OFHelperType::FloatImageType MaskType;
+    typename MaskType::Pointer imgMovMask =
+        ReadImageViaCache<MaskType>(param.moving_mask);
+
+    if(moving_pre_warp.IsNotNull())
+      {
+      // Create an image to store the warp
+      typename MaskType::Pointer warped_moving_mask;
+      LDDMMType::alloc_img(warped_moving_mask, moving_pre_warp);
+
+      // Interpolate the moving image using the transform chain
+      LDDMMType::interp_img(imgMovMask, moving_pre_warp, warped_moving_mask, false, true);
+
+      // Add the warped mask to the helper
+      ofhelper.SetMovingMask(warped_moving_mask);
+      }
+    else
+      {
+      // Add the mask to the helper object
+      ofhelper.SetMovingMask(imgMovMask);
+      }
     }
 
   // Generate the optimized composite images. For the NCC metric, we add random noise to
@@ -1362,6 +1405,24 @@ int GreedyApproach<VDim, TReal>
         // Map this to voxel space
         MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tLevel);
         }
+      else if(param.affine_init_mode == IMG_CENTERS)
+        {
+        // Find a translation that maps center voxel of fixed image to the center 
+        // voxel of the moving image
+        vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
+        vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(level));
+        vnl_vector<double> cmov = GetImageCenterinNiftiSpace(of_helper.GetMovingReferenceSpace(level));
+
+        // TODO: I think that setting the matrix above to affine will break the registration
+        // if fixed and moving are in different orientations? Or am I crazy?
+
+        // Compute the transform that takes fixed into moving
+        for(int d = 0; d < VDim; d++)
+          Qp(d, VDim) = cmov[d] - cfix[d];
+
+        // Map this to voxel space
+        MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tLevel);
+        }
 
       // Get the new coefficients
       vnl_vector<double> xInit = acf->GetCoefficients(tLevel);
@@ -1388,16 +1449,8 @@ int GreedyApproach<VDim, TReal>
         vnl_vector<double> xRigidInit = search_fun.GetCoefficients(tLevel);
 
         // Get center of fixed and moving images in physical space
-        itk::Point<double, VDim> ctr_Fixed, ctr_Moving;
-        itk::Index<VDim> idx_Fixed = of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetIndex();
-        for(int d = 0; d < 3; d++)
-          idx_Fixed[d] += of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()[d] / 2;
-        of_helper.GetReferenceSpace(level)->TransformIndexToPhysicalPoint(idx_Fixed, ctr_Fixed);
-
-        itk::Index<VDim> idx_Moving = of_helper.GetMovingReferenceSpace(level)->GetBufferedRegion().GetIndex();
-        for(int d = 0; d < 3; d++)
-          idx_Moving[d] += of_helper.GetMovingReferenceSpace(level)->GetBufferedRegion().GetSize()[d] / 2;
-        of_helper.GetMovingReferenceSpace(level)->TransformIndexToPhysicalPoint(idx_Moving, ctr_Moving);
+        vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(level));
+        vnl_vector<double> cmov = GetImageCenterinNiftiSpace(of_helper.GetMovingReferenceSpace(level));
 
         // At random, try a whole bunch of transforms, around 5 degrees
         vnl_random randy(12345);
@@ -1417,7 +1470,7 @@ int GreedyApproach<VDim, TReal>
           vnl_vector<double> xTry = search_fun.GetRandomCoeff(xRigidInit, randy,
                                                               param.rigid_search.sigma_angle,
                                                               param.rigid_search.sigma_xyz,
-                                                              ctr_Fixed.GetVnlVector(), ctr_Moving.GetVnlVector());
+                                                              cfix, cmov);
 
           // Evaluate this transform
           double f;
@@ -1632,9 +1685,12 @@ int GreedyApproach<VDim, TReal>
 
     // Allocate the intermediate data
     LDDMMType::alloc_vimg(uk, refspace);
-    LDDMMType::alloc_img(iTemp, refspace);
-    LDDMMType::alloc_vimg(viTemp, refspace);
-    LDDMMType::alloc_vimg(uk1, refspace);
+    if(param.iter_per_level[level] > 0)
+      {
+      LDDMMType::alloc_img(iTemp, refspace);
+      LDDMMType::alloc_vimg(viTemp, refspace);
+      LDDMMType::alloc_vimg(uk1, refspace);
+      }
 
     // Initialize the deformation field from last iteration
     if(uLevel.IsNotNull())
@@ -1865,18 +1921,21 @@ int GreedyApproach<VDim, TReal>
     // Store the end result
     uLevel = uk;
 
-    // Compute the jacobian of the deformation field
-    LDDMMType::field_jacobian_det(uk, iTemp);
-    TReal jac_min, jac_max;
-    LDDMMType::img_min_max(iTemp, jac_min, jac_max);
-    printf("END OF LEVEL %5d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
+    // Compute the jacobian of the deformation field - but only if we iterated at this level
+    if(param.iter_per_level[level] > 0)
+      {
+      LDDMMType::field_jacobian_det(uk, iTemp);
+      TReal jac_min, jac_max;
+      LDDMMType::img_min_max(iTemp, jac_min, jac_max);
+      printf("END OF LEVEL %5d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
 
-    // Print timing information
-    printf("  Avg. Gradient Time  : %6.4fs  %5.2f%% \n", tm_Gradient.GetMean(), tm_Gradient.GetMean() * 100.0 / tm_Iteration.GetMean());
-    printf("  Avg. Gaussian Time  : %6.4fs  %5.2f%% \n", tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean(),
-           (tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean()) * 100.0 / tm_Iteration.GetMean());
-    printf("  Avg. Iteration Time : %6.4fs \n", tm_Iteration.GetMean());
-
+      // Print timing information
+      printf("  Avg. Gradient Time  : %6.4fs  %5.2f%% \n", tm_Gradient.GetMean(), 
+             tm_Gradient.GetMean() * 100.0 / tm_Iteration.GetMean());
+      printf("  Avg. Gaussian Time  : %6.4fs  %5.2f%% \n", tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean(),
+             (tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean()) * 100.0 / tm_Iteration.GetMean());
+      printf("  Avg. Iteration Time : %6.4fs \n", tm_Iteration.GetMean());
+      }
     }
 
   // The transformation field is in voxel units. To work with ANTS, it must be mapped
@@ -2122,6 +2181,148 @@ protected:
   int m_Size;
 };
 
+#include "itkMeshFileReader.h"
+#include "itkMeshFileWriter.h"
+#include "itkMesh.h"
+#include "itkTransformMeshFilter.h"
+
+template <unsigned int VDim, typename TArray>
+class PhysicalCoordinateTransform
+{
+  static void ras_to_lps(const TArray &src, TArray &trg) {}
+  static void lps_to_ras(const TArray &src, TArray &trg) {}
+};
+
+template <typename TArray>
+class PhysicalCoordinateTransform<2, TArray>
+{
+public:
+  static void ras_to_lps(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+  }
+
+  static void lps_to_ras(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+  }
+};
+
+template <typename TArray>
+class PhysicalCoordinateTransform<3, TArray>
+{
+public:
+  static void ras_to_lps(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+    trg[2] = src[2];
+  }
+
+  static void lps_to_ras(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+    trg[2] = src[2];
+  }
+};
+
+template <typename TArray>
+class PhysicalCoordinateTransform<4, TArray>
+{
+public:
+  static void ras_to_lps(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+    trg[2] = src[2];
+    trg[3] = src[3];
+  }
+
+  static void lps_to_ras(const TArray &src, TArray &trg)
+  {
+    trg[0] = -src[0];
+    trg[1] = -src[1];
+    trg[2] = src[2];
+    trg[3] = src[3];
+  }
+};
+
+
+
+template <unsigned int VDim, typename TReal>
+class WarpMeshTransformFunctor : public itk::DataObject
+{
+public:
+  typedef WarpMeshTransformFunctor<VDim, TReal>       Self;
+  typedef itk::DataObject                             Superclass;
+  typedef itk::SmartPointer<Self>                     Pointer;
+  typedef itk::SmartPointer<const Self>               ConstPointer;
+
+  itkTypeMacro(WarpMeshTransformFunctor, itk::DataObject)
+  itkNewMacro(Self)
+
+  typedef GreedyApproach<VDim, TReal> GreedyAPI;
+  typedef typename GreedyAPI::VectorImageType VectorImageType;
+  typedef typename GreedyAPI::ImageBaseType ImageBaseType;
+  typedef FastLinearInterpolator<VectorImageType, TReal, VDim> FastInterpolator;
+  typedef itk::ContinuousIndex<TReal, VDim> CIndexType;
+  typedef itk::Point<TReal, VDim> PointType;
+
+  void SetWarp(VectorImageType *warp)
+  {
+    if(m_Interpolator) delete m_Interpolator;
+    m_Interpolator = new FastInterpolator(warp);
+  }
+
+  void SetReferenceSpace(ImageBaseType *ref)
+  {
+    m_ReferenceSpace = ref;
+  }
+
+  PointType TransformPoint(const PointType &x)
+  {
+    // Our convention is to use NIFTI/RAS coordinates for meshes, whereas ITK
+    // uses the DICOM/LPS convention. We transform point to LPS first
+    PointType x_lps, phi_x;
+
+    PhysicalCoordinateTransform<VDim, PointType>::ras_to_lps(x, x_lps);
+
+    CIndexType cix;
+    typename VectorImageType::PixelType vec;
+    vec.Fill(0.0);
+    m_ReferenceSpace->TransformPhysicalPointToContinuousIndex(x_lps, cix);
+    m_Interpolator->Interpolate(cix.GetDataPointer(), &vec);
+
+    for(int d = 0; d < VDim; d++)
+      {
+      phi_x[d] = vec[d] + x_lps[d];
+      }
+
+
+    PhysicalCoordinateTransform<VDim, PointType>::lps_to_ras(phi_x, phi_x);
+
+    return phi_x;
+  }
+
+protected:
+
+  WarpMeshTransformFunctor() { m_Interpolator = NULL; }
+  ~WarpMeshTransformFunctor()
+  {
+    if(m_Interpolator)
+      delete m_Interpolator;
+  }
+
+private:
+
+  typename ImageBaseType::Pointer m_ReferenceSpace;
+  FastInterpolator *m_Interpolator;
+
+};
+
 /**
  * Run the reslice code - simply apply a warp or set of warps to images
  */
@@ -2135,8 +2336,11 @@ int GreedyApproach<VDim, TReal>
   if(!r_param.ref_image.size())
     throw GreedyException("A reference image (-rf) option is required for reslice commands");
 
-  if(!r_param.images.size())
-    throw GreedyException("At least one pair of moving/output images (-rm) is required for reslice commands");
+  if(r_param.images.size() + r_param.meshes.size() == 0
+     && !r_param.out_composed_warp.size()
+     && !r_param.out_jacobian_image.size())
+    throw GreedyException("No operation specified for reslice mode. "
+                          "Use one of -rm, -rs or -rc commands.");
 
   // Read the fixed as a plain image (we don't care if it's composite)
   ImagePointer ref = ImageType::New();
@@ -2146,6 +2350,25 @@ int GreedyApproach<VDim, TReal>
   // Read the transform chain
   VectorImagePointer warp;
   ReadTransformChain(param.reslice_param.transforms, ref_space, warp);
+
+  // Write the composite warp if requested
+  if(r_param.out_composed_warp.size())
+    {
+    LDDMMType::vimg_write(warp.GetPointer(), r_param.out_composed_warp.c_str(),
+                          itk::ImageIOBase::FLOAT);
+    }
+
+  // Compute the Jacobian of the warp if requested
+  if(r_param.out_jacobian_image.size())
+    {
+    ImagePointer iTemp = ImageType::New();
+    LDDMMType::alloc_img(iTemp, warp);
+    LDDMMType::field_jacobian_det(warp, iTemp);
+
+    LDDMMType::img_write(iTemp, r_param.out_jacobian_image.c_str(),
+                         itk::ImageIOBase::FLOAT);
+    }
+
 
   // Process image pairs
   for(int i = 0; i < r_param.images.size(); i++)
@@ -2271,6 +2494,179 @@ int GreedyApproach<VDim, TReal>
       }
     }
 
+  // Process meshes
+  for(int i = 0; i < r_param.meshes.size(); i++)
+    {
+    typedef itk::Mesh<TReal, VDim> MeshType;
+    typedef itk::MeshFileReader<MeshType> MeshReader;
+    typename MeshReader::Pointer reader = MeshReader::New();
+    reader->SetFileName(r_param.meshes[i].fixed.c_str());
+
+    typedef WarpMeshTransformFunctor<VDim, TReal> TransformType;
+    typename TransformType::Pointer transform = TransformType::New();
+    transform->SetWarp(warp);
+    transform->SetReferenceSpace(ref);
+
+    typedef itk::TransformMeshFilter<MeshType, MeshType, TransformType> FilterType;
+    typename FilterType::Pointer filter = FilterType::New();
+    filter->SetTransform(transform);
+    filter->SetInput(reader->GetOutput());
+
+    typedef itk::MeshFileWriter<MeshType> MeshWriter;
+    typename MeshWriter::Pointer writer = MeshWriter::New();
+    writer->SetInput(filter->GetOutput());
+    writer->SetFileName(r_param.meshes[i].output.c_str());
+    writer->Update();
+    }
+
+
+
+  return 0;
+}
+
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
+::ComputeImageMoments(CompositeImageType *image,
+                      const std::vector<double> &weights,
+                      VecFx &m1, MatFx &m2)
+{
+  int n = image->GetNumberOfComponentsPerPixel();
+  TReal sum_I = 0.0;
+  m1.fill(0.0); m2.fill(0.0);
+
+  typedef itk::ImageRegionConstIteratorWithIndex<CompositeImageType> Iterator;
+  for(Iterator it(image, image->GetBufferedRegion()); !it.IsAtEnd(); ++it)
+    {
+    typedef itk::Point<TReal, VDim> PointType;
+    PointType p_lps, p_ras;
+    image->TransformIndexToPhysicalPoint(it.GetIndex(), p_lps);
+    PhysicalCoordinateTransform<VDim, PointType>::lps_to_ras(p_lps, p_ras);
+    VecFx X(p_ras.GetDataPointer());
+    MatFx X2 = outer_product(X, X);
+
+    typename CompositeImageType::PixelType pix = it.Get();
+
+    // Just weight the components of intensity by weight vector - this sort of makes sense?
+    TReal val = 0.0;
+    for(int k = 0; k < n; k++)
+      val += weights[k] * pix[k];
+
+    sum_I += val;
+    m1 += X * val;
+    m2 += X2 * val;
+    }
+
+  // Compute the mean and covariance from the sum of squares
+  m1 = m1 / sum_I;
+  m2 = (m2 - sum_I *  outer_product(m1, m1)) / sum_I;
+}
+
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::RunAlignMoments(GreedyParameters &param)
+{
+  // Create an optical flow helper object
+  OFHelperType of_helper;
+
+  // No multi-resolution
+  of_helper.SetDefaultPyramidFactors(1);
+
+  // Read the image pairs to register
+  ReadImages(param, of_helper);
+
+  // Compute the moments of intertia for the fixed and moving images. For now
+  // this is done in an iterator loop, out of laziness. Should be converted to
+  // a filter if this whole moments business proves useful
+  VecFx m1f, m1m;
+  MatFx m2f, m2m;
+
+
+  std::cout << "--- MATCHING BY MOMENTS OF ORDER " << param.moments_order << " ---" << std::endl;
+
+  ComputeImageMoments(of_helper.GetFixedComposite(0), of_helper.GetWeights(), m1f, m2f);
+
+  std::cout << "Fixed Mean        : " << m1f << std::endl;
+  std::cout << "Fixed Covariance  : " << std::endl << m2f << std::endl;
+
+  ComputeImageMoments(of_helper.GetMovingComposite(0), of_helper.GetWeights(), m1m, m2m);
+
+  std::cout << "Moving Mean       : " << m1m << std::endl;
+  std::cout << "Moving Covariance : " << std::endl << m2m << std::endl;
+
+  // This flag forces no rotation, only flip
+  if(param.moments_order == 1 || param.flag_moments_id_covariance)
+    {
+    m2f.set_identity();
+    m2m.set_identity();
+    }
+
+  // Decompose covariance matrices into eigenvectors and eigenvalues
+  vnl_vector<TReal> Df, Dm;
+  vnl_matrix<TReal> Vf, Vm;
+  vnl_symmetric_eigensystem_compute<TReal>(m2f, Vf, Df);
+  vnl_symmetric_eigensystem_compute<TReal>(m2m, Vm, Dm);
+
+  // Create a rigid registration problem
+  PhysicalSpaceAffineCostFunction cost_fn(&param, this, 0, &of_helper);
+
+  // The best set of coefficients and the associated match value
+  vnl_vector<double> xBest;
+  TReal xBestMatch = vnl_numeric_traits<TReal>::maxval;
+
+  // Generate all possible flip matrices
+  int n_flip = 1 << VDim;
+  for(int k_flip = 0; k_flip < n_flip; k_flip++)
+    {
+    // If using first moments, ignore all flips, only allow identity
+    if(param.moments_order == 1 && k_flip != n_flip - 1)
+      continue;
+
+    // Generate the flip matrix
+    MatFx F(0.0);
+    for(int d = 0; d < VDim; d++)
+      F(d,d) = (k_flip & (1 << d)) ? 1 : -1;;
+
+    // Compute the rotation matrix - takes fixed coordinates into moving space
+    MatFx R = Vm * F * Vf.transpose();
+    VecFx b = m1m - R * m1f;
+
+    vnl_matrix<TReal> A(VDim+1, VDim+1, 0.0);
+    A.set_identity();
+    A.update(R, 0, 0);
+    for(int d= 0 ;d< VDim;d++)
+      A(d,VDim) = b[d];
+
+    // Ignore flips with the wrong determinant
+    double det_R = vnl_determinant(R);
+    if((param.moments_order == 2 && param.moments_flip_determinant == 1 && det_R < 0) ||
+       (param.moments_order == 2 && param.moments_flip_determinant == -1 && det_R > 0))
+      {
+      continue;
+      }
+
+    // Generate affine coefficients from the rotation and shift
+    vnl_vector<double> x(cost_fn.get_number_of_unknowns());
+    flatten_affine_transform(R, b, x.data_block());
+
+    // Compute similarity
+    double f = 0.0;
+    cost_fn.compute(x, &f, NULL);
+
+    std::cout << "Metric for flip " << F.get_diagonal() << " : " << f << std::endl;
+
+    // Compare
+    if(xBestMatch > f || xBest.size() == 0)
+      {
+      xBestMatch = f;
+      xBest = x;
+      }
+    }
+
+  // Save the best transform
+  typename LinearTransformType::Pointer tran = LinearTransformType::New();
+  cost_fn.GetTransform(xBest, tran);
+  vnl_matrix<double> Q_physical = MapAffineToPhysicalRASSpace(of_helper, 0, tran);
+  this->WriteAffineMatrixViaCache(param.output, Q_physical);
 
   return 0;
 }
@@ -2303,6 +2699,65 @@ int GreedyApproach<VDim, TReal>
   return 0;
 }
 
+/**
+ * Post-hoc warp root
+ */
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::RunRootWarp(GreedyParameters &param)
+{
+  // Read the warp as a transform chain
+  VectorImagePointer warp;
+
+  // Read the warp file
+  LDDMMType::vimg_read(param.warproot_param.in_warp.c_str(), warp);
+
+  // Convert the warp file into voxel units from physical units
+  OFHelperType::PhysicalWarpToVoxelWarp(warp, warp, warp);
+
+  // Compute the inverse of the warp
+  VectorImagePointer uInverse = VectorImageType::New();
+  LDDMMType::alloc_vimg(uInverse, warp);
+
+  // Do the root computation
+
+  // Create a copy of the forward warp
+  VectorImagePointer uForward = VectorImageType::New();
+  LDDMMType::alloc_vimg(uForward, warp);
+  LDDMMType::vimg_copy(warp, uForward);
+
+  // Create a working image for the square root computation
+  VectorImagePointer uWork = VectorImageType::New();
+  LDDMMType::alloc_vimg(uWork, warp);
+
+  // Compute the square root
+  for(int k = 0; k < param.warproot_param.exponent; k++)
+    {
+    for(int i = 0; i < 20; i++)
+      {
+      LDDMMType::interp_vimg(uInverse, uInverse, 1.0, uWork);
+      LDDMMType::vimg_scale_in_place(uWork, -1.0);
+      LDDMMType::vimg_add_scaled_in_place(uWork, uInverse, -1.0);
+      LDDMMType::vimg_add_in_place(uWork, uForward);
+
+      // Check the maximum delta
+      std::cout << "." << std::flush;
+
+      LDDMMType::vimg_add_scaled_in_place(uInverse, uWork, 0.5);
+      }
+
+    std::cout << "." << std::endl;
+    LDDMMType::vimg_copy(uInverse, uForward);
+    uInverse->FillBuffer(itk::NumericTraits<typename VectorImageType::PixelType>::Zero);
+    }
+
+  // Write the warp using compressed format
+  OFHelperType::WriteCompressedWarpInPhysicalSpace(uForward, warp, param.warproot_param.out_warp.c_str(), param.warp_precision);
+
+  return 0;
+}
+
+
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
 ::AddCachedInputObject(std::string &string, itk::Object *object)
@@ -2330,10 +2785,14 @@ int GreedyApproach<VDim, TReal>
       return Self::RunAffine(param);
     case GreedyParameters::BRUTE:
       return Self::RunBrute(param);
+    case GreedyParameters::MOMENTS:
+      return Self::RunAlignMoments(param);
     case GreedyParameters::RESLICE:
       return Self::RunReslice(param);
     case GreedyParameters::INVERT_WARP:
       return Self::RunInvertWarp(param);
+    case GreedyParameters::ROOT_WARP:
+      return Self::RunRootWarp(param);
     }
 
   return -1;

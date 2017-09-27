@@ -302,8 +302,8 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
     }
 #endif
 
-  delete sum;
-  delete line;
+  delete[] sum;
+  delete[] line;
 }
 
 // ### PY, 05/18/2016: checked again, this SSE code is not causing any differences in float/double
@@ -473,7 +473,6 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
     // Compute the initial sum
     for(i = 0; i < radius; i++)
       {
-      #pragma unroll
       for(p_sum = sum_align; p_sum < p_sum_end; p_sum+=4, p_line+=4)
         {
         m_line = _mm_load_ps(p_line);
@@ -486,7 +485,6 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
     // For the next Radius + 1 values, add to the sum and write
     for(; i < kernel_width; i++)
       {
-      #pragma unroll
       for(p_sum = sum_align; p_sum < p_sum_end; p_sum+=4, p_line+=4, p_write_pixel+=4)
         {
         m_line = _mm_load_ps(p_line);
@@ -500,7 +498,6 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
     // Continue until we hit the end of the scanline
     for(; i < line_length; i++)
       {
-      #pragma unroll
       for(p_sum = sum_align; p_sum < p_sum_end; p_sum+=4, p_line+=4, p_tail+=4, p_write_pixel+=4)
         {
         m_line = _mm_load_ps(p_line);
@@ -515,7 +512,6 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
     // Fill out the last bit
     for(; i < line_length + radius; i++)
       {
-      #pragma unroll
       for(p_sum = sum_align; p_sum < p_sum_end; p_sum+=4, p_tail+=4, p_write_pixel+=4)
         {
         m_tail = _mm_load_ps(p_tail);

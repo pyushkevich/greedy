@@ -52,6 +52,7 @@
 #include <vnl/algo/vnl_svd.h>
 #include <vnl/vnl_trace.h>
 
+extern const char *GreedyVersionInfo;
 
 int usage()
 {
@@ -61,13 +62,17 @@ int usage()
   printf("Required options: \n");
   printf("  -d DIM                 : Number of image dimensions\n");
   printf("  -i fix.nii mov.nii     : Image pair (may be repeated)\n");
-  printf("  -o output.nii               : Output file\n");  
+  printf("  -o output.nii          : Output file\n");
   printf("Mode specification: \n");
   printf("  -a                     : Perform affine registration and save to output (-o)\n");
   printf("  -brute radius          : Perform a brute force search around each voxel \n");
+  printf("  -moments <1|2>         : Perform moments of inertia rigid alignment of given order.\n");
+  printf("                             order 1 matches center of mass only\n");
+  printf("                             order 2 matches second-order moments of inertia tensors\n");
   printf("  -r [tran_spec]         : Reslice images instead of doing registration \n");
   printf("                               tran_spec is a series of warps, affine matrices\n");
-  printf("  -iw in_warp outwarp    : Invert previously computed warp\n");
+  printf("  -iw inwarp outwarp     : Invert previously computed warp\n");
+  printf("  -root inwarp outwarp N : Convert 2^N-th root of a warp \n");
   printf("Options in deformable / affine mode: \n");
   printf("  -w weight              : weight of the next -i pair\n");
   printf("  -m metric              : metric for the entire registration\n");
@@ -80,6 +85,7 @@ int usage()
   printf("  -n NxNxN               : number of iterations per level of multi-res (100x100) \n");
   printf("  -threads N             : set the number of allowed concurrent threads\n");
   printf("  -gm mask.nii           : mask for gradient computation\n");
+  printf("  -mm mask.nii           : mask for the moving image\n");
   printf("  -it filenames          : sequence of transforms to apply to the moving image first \n");
   printf("Specific to deformable mode: \n");
   printf("  -tscale MODE           : time step behavior mode: CONST, SCALE [def], SCALEDOWN\n");
@@ -94,15 +100,24 @@ int usage()
   printf("Initial transform specification: \n");
   printf("  -ia filename           : initial affine matrix for optimization (not the same as -it) \n");
   printf("  -ia-identity           : initialize affine matrix based on NIFTI headers \n");
-  printf("Specific to affine mode:\n");
+  printf("  -ia-image-centers      : initialize affine matrix based on matching image centers \n");
+  printf("  -ia-image-side CODE    : initialize affine matrix based on matching center of one image side \n");
+  printf("  -ia-moments <1|2>      : initialize affine matrix based on matching moments of inertia\n");
+  printf("Specific to affine mode (-a):\n");
   printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 12=affine\n");
   printf("  -jitter sigma          : Jitter (in voxel units) applied to sample points (def: 0.5)\n");
   printf("  -search N s_ang s_xyz  : Random search over rigid transforms (N iter) before starting optimization\n");
   printf("                           s_ang, s_xyz: sigmas for rot-n angle (degrees) and offset between image centers\n");
-  printf("Specific to reslice mode: \n");
-  printf("  -rf fixed.nii         : fixed image for reslicing\n");
-  printf("  -rm mov.nii out.nii   : moving/output image pair (may be repeated)\n");
-  printf("  -ri interp_mode       : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
+  printf("Specific to moments of inertia mode (-moments 2): \n");
+  printf("  -det <-1|1>            : Force the determinant of transform to be either 1 (no flip) or -1 (flip)\n");
+  printf("  -cov-id                : Assume identity covariance (match centers and do flips only, no rotation)\n");
+  printf("Specific to reslice mode (-r): \n");
+  printf("  -rf fixed.nii          : fixed image for reslicing\n");
+  printf("  -rm mov.nii out.nii    : moving/output image pair (may be repeated)\n");
+  printf("  -rs mov.vtk out.vtk    : moving/output surface pair (vertices are warped from fixed space to moving)\n");
+  printf("  -ri interp_mode        : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
+  printf("  -rc outwarp            : write composed transforms to outwarp \n");
+  printf("  -rj outjacobian        : write Jacobian determinant image to outjacobian \n");
   printf("For developers: \n");
   printf("  -debug-deriv           : enable periodic checks of derivatives (debug) \n");
   printf("  -debug-deriv-eps       : epsilon for derivative debugging \n");
@@ -111,6 +126,7 @@ int usage()
   printf("  -dump-freq N           : dump frequency\n");
   printf("  -powell                : use Powell's method instead of LGBFS\n");
   printf("  -float                 : use single precision floating point (off by default)\n");
+  printf("  -version               : print version info\n");
 
   return -1;
 }
@@ -143,7 +159,7 @@ int main(int argc, char *argv[])
   // reslice mode parameters
   InterpSpec interp_current;
 
-  if(argc < 3)
+  if(argc < 2)
     return usage();
 
   try
@@ -225,6 +241,10 @@ int main(int argc, char *argv[])
         {
         param.affine_init_mode = RAS_IDENTITY;
         }
+      else if(arg == "-ia-image-centers" || arg == "-iaic" || arg == "-ia-ic")
+        {
+        param.affine_init_mode = IMG_CENTERS;
+        }
       else if(arg == "-dof")
         {
         int dof = cl.read_integer();
@@ -253,6 +273,10 @@ int main(int argc, char *argv[])
       else if(arg == "-gm")
         {
         param.gradient_mask = cl.read_existing_filename();
+        }
+      else if(arg == "-mm")
+        {
+        param.moving_mask = cl.read_existing_filename();
         }
       else if(arg == "-o")
         {
@@ -286,9 +310,23 @@ int main(int argc, char *argv[])
         {
         param.threads = cl.read_integer();
         }
+      else if(arg == "-version")
+        {
+        std::cout << GreedyVersionInfo << std::endl;
+        exit(0);
+        }
       else if(arg == "-a")
         {
         param.mode = GreedyParameters::AFFINE;
+        }
+      else if(arg == "-moments")
+        {
+        param.mode = GreedyParameters::MOMENTS;
+
+        // For backward compatibility allow no parameter, which defaults to order 1
+        param.moments_order = cl.command_arg_count() > 0 ? cl.read_integer() : 2;
+        if(param.moments_order != 1 && param.moments_order != 2)
+          throw GreedyException("Parameter to -moments must be 1 or 2");
         }
       else if(arg == "-brute")
         {
@@ -308,6 +346,14 @@ int main(int argc, char *argv[])
         param.invwarp_param.in_warp = cl.read_existing_filename();
         param.invwarp_param.out_warp = cl.read_output_filename();
         }
+      else if(arg == "-root")
+        {
+        param.mode = GreedyParameters::ROOT_WARP;
+        param.warproot_param.in_warp = cl.read_existing_filename();
+        param.warproot_param.out_warp = cl.read_output_filename();
+        param.warproot_param.exponent = cl.read_integer();
+        }
+
       else if(arg == "-rm")
         {
         ResliceSpec rp;
@@ -316,9 +362,24 @@ int main(int argc, char *argv[])
         rp.output = cl.read_output_filename();
         param.reslice_param.images.push_back(rp);
         }
+      else if(arg == "-rs")
+        {
+        ResliceMeshSpec rp;
+        rp.fixed = cl.read_existing_filename();
+        rp.output = cl.read_output_filename();
+        param.reslice_param.meshes.push_back(rp);
+        }
       else if(arg == "-rf")
         {
         param.reslice_param.ref_image = cl.read_existing_filename();
+        }
+      else if(arg == "-rc")
+        {
+        param.reslice_param.out_composed_warp = cl.read_output_filename();
+        }
+      else if(arg == "-rj")
+        {
+        param.reslice_param.out_jacobian_image = cl.read_output_filename();
         }
       else if(arg == "-oinv")
         {
@@ -352,6 +413,20 @@ int main(int argc, char *argv[])
       else if(arg == "-wp")
         {
         param.warp_precision = cl.read_double();
+        }
+      else if(arg == "-det")
+        {
+        int det_value = cl.read_integer();
+        if(det_value != -1 && det_value != 1)
+          {
+          std::cerr << "Incorrect -det parameter value " << det_value << std::endl;
+          return -1;
+          }
+        param.moments_flip_determinant = det_value;
+        }
+      else if(arg == "-cov-id")
+        {
+        param.flag_moments_id_covariance = true;
         }
       else
         {

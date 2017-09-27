@@ -28,6 +28,7 @@
 #define __MultiImageRegistrationHelper_h
 
 #include "itkImageBase.h"
+#include "itkImage.h"
 #include "itkVectorImage.h"
 #include "itkMatrixOffsetTransformBase.h"
 
@@ -71,6 +72,9 @@ public:
   /** Set the gradient image mask */
   void SetGradientMask(FloatImageType *maskImage) { m_GradientMaskImage = maskImage; }
 
+  /** Set the moving image mask */
+  void SetMovingMask(FloatImageType *maskImage) { m_MovingMaskImage = maskImage; }
+
   /** Set jitter sigma - for jittering image samples in affine mode */
   void SetJitterSigma(double sigma);
 
@@ -98,6 +102,9 @@ public:
   /** Get the gradient mask at a pyramid level */
   FloatImageType *GetGradientMask(int level) { return m_GradientMaskComposite[level]; }
 
+  /** Get the moving mask at a pyramid level */
+  FloatImageType *GetMovingMask(int level) { return m_MovingMaskComposite[level]; }
+
   /** Get the fixed image at a pyramid level */
   MultiComponentImageType *GetFixedComposite(int level) { return m_FixedComposite[level]; }
 
@@ -106,6 +113,9 @@ public:
 
   /** Get the smoothing factor for given level based on parameters */
   Vec GetSmoothingSigmasInPhysicalUnits(int level, double sigma, bool in_physical_units);
+
+  /** Get the component weights in the composite */
+  const std::vector<double> &GetWeights() const { return m_Weights; }
 
   /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
   vnl_vector<double> ComputeOpticalFlowField(
@@ -202,8 +212,11 @@ protected:
   // Gradient mask image - used to multiply the gradient
   typename FloatImageType::Pointer m_GradientMaskImage;
 
-  // Gradient mask composite
-  FloatImageSet m_GradientMaskComposite;
+  // Moving mask image - used to reduce region where metric is computed
+  typename FloatImageType::Pointer m_MovingMaskImage;
+
+  // Mask composites
+  FloatImageSet m_GradientMaskComposite, m_MovingMaskComposite;
 
   // Amount of jitter - for affine only
   double m_JitterSigma;
@@ -213,11 +226,9 @@ protected:
 
   void PlaceIntoComposite(FloatImageType *src, MultiComponentImageType *target, int offset);
   void PlaceIntoComposite(VectorImageType *src, MultiComponentImageType *target, int offset);
+
+  // Adjust NCC radius to be smaller than half image size
+  SizeType AdjustNCCRadius(int level, const SizeType &radius, bool report_on_adjust);
 };
-
-
-#ifndef ITK_MANUAL_INSTANTIATION
-#include "MultiImageRegistrationHelper.txx"
-#endif
 
 #endif

@@ -24,37 +24,10 @@
   along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
-#ifndef __GreedyException_h_
-#define __GreedyException_h_
+const char *GreedyVersionInfo =
+    "Greedy Version Info:\n"
+    "  GIT branch:        @GREEDY_VERSION_GIT_BRANCH@\n"
+    "  GIT commit:        @GREEDY_VERSION_GIT_SHA1@\n"
+    "  GIT commit date:   @GREEDY_VERSION_GIT_TIMESTAMP@\n"
+    "  Compile date:      @GREEDY_VERSION_COMPILE_DATE@\n";
 
-#include <cstdio>
-#include <cstdarg>
-
-/**
- * A simple exception class with string formatting
- */
-class GreedyException : public std::exception
-{
-public:
-
-  GreedyException(const char *format, ...)
-    {
-    buffer = new char[4096];
-    va_list args;
-    va_start (args, format);
-    vsprintf (buffer,format, args);
-    va_end (args);
-    }
-
-  virtual const char* what() const throw() { return buffer; }
-
-  virtual ~GreedyException() throw() { delete buffer; }
-
-private:
-
-  char *buffer;
-
-};
-
-
-#endif
