@@ -115,7 +115,7 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
       else
         {
         for(int k = 0; k < ncomp; k++)
-          *out++ = itk::NumericTraits<OutputComponentType>::Zero;
+          *out++ = itk::NumericTraits<OutputComponentType>::ZeroValue();
         }
       }
     }

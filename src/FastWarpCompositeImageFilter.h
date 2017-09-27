@@ -59,7 +59,7 @@ public:
   typedef TInputImage                                 InputImageType;
   typedef TOutputImage                                OutputImageType;
   typedef TDeformationField                           DeformationFieldType;
-  typedef typename InputImageType::RegionType         OutputImageRegionType;
+  typedef typename Superclass::OutputImageRegionType  OutputImageRegionType;
   typedef typename InputImageType::PixelType          InputPixelType;
   typedef typename InputImageType::InternalPixelType  InputComponentType;
   typedef typename InputImageType::IndexType          IndexType;
@@ -118,13 +118,13 @@ protected:
   ~FastWarpCompositeImageFilter() {}
 
   void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                            itk::ThreadIdType threadId );
+                            itk::ThreadIdType threadId ) ITK_OVERRIDE;
 
-  virtual void VerifyInputInformation() {}
+  virtual void VerifyInputInformation() ITK_OVERRIDE {}
 
-  virtual void GenerateInputRequestedRegion();
+  virtual void GenerateInputRequestedRegion() ITK_OVERRIDE;
 
-  virtual void GenerateOutputInformation();
+  virtual void GenerateOutputInformation() ITK_OVERRIDE;
 
   bool m_UsePhysicalSpace, m_UseNearestNeighbor, m_ExtrapolateBorders;
   DeforamtionScalarType m_DeformationScaling;
