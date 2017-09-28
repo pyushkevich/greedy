@@ -903,7 +903,7 @@ protected:
   ~UnaryPositionBasedFunctorImageFilter() {}
 
   virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                                    itk::ThreadIdType threadId)
+                                    itk::ThreadIdType threadId) ITK_OVERRIDE 
   {
     typedef itk::ImageRegionConstIteratorWithIndex<TInputImage> InputIter;
     InputIter it_in(this->GetInput(), outputRegionForThread);
@@ -1163,7 +1163,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       }
 
     LDDMMType::vimg_copy(uInverse, uForward);
-    uInverse->FillBuffer(itk::NumericTraits<typename VectorImageType::PixelType>::Zero);
+    uInverse->FillBuffer(
+      itk::NumericTraits<typename VectorImageType::PixelType>::ZeroValue());
     }
 
   // At this point, uForward holds the small deformation

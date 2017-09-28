@@ -110,14 +110,14 @@ public:
    * this is the opposite of the gradient direction. For metrics that are meant to be maximized,
    * it is the gradient direction.
    */
-  virtual double GetGradientScalingFactor() const { return -2.0; }
+  virtual double GetGradientScalingFactor() const ITK_OVERRIDE { return -2.0; }
 
 protected:
   MultiImageOpticalFlowImageFilter() {}
   ~MultiImageOpticalFlowImageFilter() {}
 
   void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                            itk::ThreadIdType threadId );
+                            itk::ThreadIdType threadId ) ITK_OVERRIDE;
 
 private:
   MultiImageOpticalFlowImageFilter(const Self&); //purposely not implemented
