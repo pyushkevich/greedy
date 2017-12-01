@@ -217,7 +217,7 @@ protected:
   MultiComponentImageMetricBase();
   ~MultiComponentImageMetricBase() {}
 
-  virtual void VerifyInputInformation() {}
+  virtual void VerifyInputInformation() ITK_OVERRIDE {}
 
   /** It is difficult to compute in advance the input image region
    * required to compute the requested output region. Thus the safest
@@ -225,15 +225,15 @@ protected:
    *
    * For the deformation field, the input requested region
    * set to be the same as that of the output requested region. */
-  virtual void GenerateInputRequestedRegion();
+  virtual void GenerateInputRequestedRegion() ITK_OVERRIDE;
 
-  virtual typename itk::DataObject::Pointer MakeOutput(const DataObjectIdentifierType &);
+  virtual typename itk::DataObject::Pointer MakeOutput(const DataObjectIdentifierType &) ITK_OVERRIDE;
 
   void UpdateOutputs();
   void ToggleOutput(bool flag, const DataObjectIdentifierType &key);
 
-  virtual void BeforeThreadedGenerateData();
-  virtual void AfterThreadedGenerateData();
+  virtual void BeforeThreadedGenerateData() ITK_OVERRIDE;
+  virtual void AfterThreadedGenerateData() ITK_OVERRIDE;
 
 
 

@@ -88,9 +88,9 @@ protected:
 
   virtual void ThreadedGenerateData(
       const OutputImageRegionType & outputRegionForThread,
-      itk::ThreadIdType threadId);
+      itk::ThreadIdType threadId) ITK_OVERRIDE;
 
-  virtual const itk::ImageRegionSplitterBase *GetImageRegionSplitter(void) const;
+  virtual const itk::ImageRegionSplitterBase *GetImageRegionSplitter(void) const ITK_OVERRIDE;
 
   // Dimension of accumulation
   int m_Dimension;

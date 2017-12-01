@@ -555,8 +555,8 @@ MultiComponentNCCImageMetric<TMetricTraits>
         for(int i = 0; i < line_len; ++i)
           {
           // Clear the metric and the gradient
-          *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
-          *p_grad_metric = itk::NumericTraits<GradientPixelType>::Zero;
+          *p_metric = itk::NumericTraits<MetricPixelType>::ZeroValue();
+          *p_grad_metric = itk::NumericTraits<GradientPixelType>::ZeroValue();
 
           if(!fixed_mask_line || fixed_mask_line[i] > 0.5)
             {

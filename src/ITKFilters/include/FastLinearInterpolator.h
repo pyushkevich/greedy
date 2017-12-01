@@ -29,6 +29,7 @@
 
 #include "itkVectorImage.h"
 #include "itkNumericTraits.h"
+#include "itkNumericTraitsCovariantVectorPixel.h"
 
 template <class TFloat, class TInputComponentType>
 struct FastLinearInterpolatorOutputTraits
@@ -98,7 +99,7 @@ public:
     nComp = FastWarpCompositeImageFilterInputImageTraits<TImage>::GetPointerIncrementSize(image);
     def_value_store = new InputComponentType[nComp];
     for(int i = 0; i < nComp; i++)
-      def_value_store[i] = itk::NumericTraits<InputComponentType>::Zero;
+      def_value_store[i] = itk::NumericTraits<InputComponentType>::ZeroValue();
     def_value = def_value_store;
   }
 

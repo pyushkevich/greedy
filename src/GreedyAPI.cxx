@@ -2748,7 +2748,7 @@ int GreedyApproach<VDim, TReal>
 
     std::cout << "." << std::endl;
     LDDMMType::vimg_copy(uInverse, uForward);
-    uInverse->FillBuffer(itk::NumericTraits<typename VectorImageType::PixelType>::Zero);
+    uInverse->FillBuffer(itk::NumericTraits<typename VectorImageType::PixelType>::ZeroValue());
     }
 
   // Write the warp using compressed format
