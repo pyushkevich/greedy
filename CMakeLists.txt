@@ -40,6 +40,7 @@ IF(NOT GREEDY_TOOL_BUILD_AS_SUBPROJECT)
   # Deal with FFTW - only used by experimental LDDMM code
   IF(USE_FFTW)
     SET(ITK_USE_FFTWF ON)
+    SET(ITK_USE_FFTWD ON)
     INCLUDE(CMake/FindFFTW.cmake)
     ADD_DEFINITIONS(-D_LDDMM_FFT_)
   ENDIF(USE_FFTW)
@@ -134,7 +135,7 @@ IF(NOT GREEDY_TOOL_BUILD_AS_SUBPROJECT)
     ${FFTWF_THREADS_LIB})
 
   ADD_EXECUTABLE(greedy ${GREEDY_SRC})
-  TARGET_LINK_LIBRARIES(greedy greedyapi ${ITK_LIBRARIES})
+  TARGET_LINK_LIBRARIES(greedy greedyapi ${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB})
 
   ADD_EXECUTABLE(test_accum testing/src/TestOneDimensionalInPlaceAccumulateFilter.cxx)
   TARGET_LINK_LIBRARIES(test_accum ${ITK_LIBRARIES})
