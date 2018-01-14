@@ -11,7 +11,7 @@ function(get_git_branch RESULTNAME)
     # Call git to get branch id
     execute_process(
       COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
-      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
       OUTPUT_VARIABLE SNAP_VERSION_GIT_BRANCH
       OUTPUT_STRIP_TRAILING_WHITESPACE)
 
@@ -33,7 +33,7 @@ function(get_git_commit_date GITSHA RESULTNAME)
     # Call git to get branch id
     execute_process(
       COMMAND ${GIT_EXECUTABLE} show -s --format=%ci ${GITSHA}
-      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
       OUTPUT_VARIABLE SNAP_VERSION_GIT_DATE
       OUTPUT_STRIP_TRAILING_WHITESPACE)
 
