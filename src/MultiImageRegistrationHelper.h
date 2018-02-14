@@ -183,7 +183,28 @@ public:
    * Invert a deformation field by first dividing it into small transformations using the
    * square root command, and then inverting the small transformations
    */
-  static void ComputeDeformationFieldInverse(VectorImageType *warp, VectorImageType *result, int n_sqrt, bool verbose = false);
+  static void ComputeDeformationFieldInverse(
+    VectorImageType *warp, VectorImageType *result, int n_sqrt, bool verbose = false);
+
+  /**
+   * Compute the (2^k)-th root of a warp using an iterative scheme. For each
+   * square root computation, the following iteration is used, where f = x + u
+   * is the input warp, and g is the square root.
+   */
+  static void ComputeWarpRoot(
+    VectorImageType *warp, VectorImageType *root, int exponent, TFloat tol = 0, int max_iter = 20);
+
+  /**
+   * Compute the square root of an input warp f = x + u(x) using an iterative scheme
+   *
+   *    g[0] = Id
+   *    g[t+1] = g[t] + (f - g[t] o g[t]) / 2
+   *
+   * A working image of the same size as the input and output must be provided
+   */
+  static void ComputeWarpSquareRoot(
+    VectorImageType *warp, VectorImageType *out, VectorImageType *work, 
+    FloatImageType *error_norm = NULL, double tol = 0.0, int max_iter = 20);
 
   MultiImageOpticalFlowHelper() : m_JitterSigma(0.0) {}
 

@@ -48,6 +48,11 @@
 #include "itkNearestNeighborInterpolateImageFunction.h"
 #include "itkVectorNearestNeighborInterpolateImageFunction.h"
 #include "itkBinaryThresholdImageFilter.h"
+#include "itkVectorIndexSelectionCastImageFilter.h"
+#include "itkComposeImageFilter.h"
+#include "itkMinimumMaximumImageFilter.h"
+#include "itkTernaryFunctorImageFilter.h"
+
 #include "FastWarpCompositeImageFilter.h"
 
 template <class TFloat, uint VDim>
@@ -70,6 +75,18 @@ LDDMMData<TFloat, VDim>
   img->CopyInformation(ref);
   img->Allocate();
   img->FillBuffer(Vec(0.0));
+}
+
+template <class TFloat, uint VDim>
+void 
+LDDMMData<TFloat, VDim>
+::alloc_mimg(MatrixImagePointer &img, ImageBaseType *ref)
+{
+  img = MatrixImageType::New();
+  img->SetRegions(ref->GetBufferedRegion());
+  img->CopyInformation(ref);
+  img->Allocate();
+  img->FillBuffer(Mat());
 }
 
 template <class TFloat, uint VDim>
@@ -172,42 +189,6 @@ LDDMMData<TFloat, VDim>
 ::interp_vimg(VectorImageType *data, VectorImageType *field,
   TFloat def_scale, VectorImageType *out, bool use_nn, bool phys_space)
 {
-  /*
-   * THIS IS OLD CODE for VECTOR INTERPOLATION
-   * TODO: there is a small discrepancy between this and the new code
-   * that I never figured out
-   */
-
-  /*
-  // Create a warp filter
-  typedef itk::SimpleWarpImageFilter<
-    VectorImageType, VectorImageType, VectorImageType, TFloat> WarpFilterType;
-  typename WarpFilterType::Pointer flt = WarpFilterType::New();
-
-  // Create an interpolation function
-  typedef itk::OptVectorLinearInterpolateImageFunction<VectorImageType, TFloat> InterpType;
-  typedef itk::VectorNearestNeighborInterpolateImageFunction<VectorImageType, TFloat> NNInterpType;
-
-  typename InterpType::Pointer func = InterpType::New();
-  typename NNInterpType::Pointer funcNN = NNInterpType::New();
-
-  // Graft output of the warp filter
-  flt->GraftOutput(out);
-
-  // Set inputs
-  flt->SetInput(data);
-  if(use_nn)
-    {
-
-    flt->SetInterpolator(funcNN);
-    }
-  else
-    flt->SetInterpolator(func);
-  flt->SetDeformationField(field);
-  flt->SetDeformationScaling(def_scale);
-  flt->Update();
-  */
-
   typedef FastWarpCompositeImageFilter<VectorImageType, VectorImageType, VectorImageType> WF;
   typename WF::Pointer wf = WF::New();
   wf->SetDeformationField(field);
@@ -217,6 +198,34 @@ LDDMMData<TFloat, VDim>
   wf->SetUseNearestNeighbor(use_nn);
   wf->SetUsePhysicalSpace(phys_space);
   wf->Update();
+}
+
+template <class TFloat, uint VDim>
+void 
+LDDMMData<TFloat, VDim>
+::interp_mimg(MatrixImageType *data, VectorImageType *field,
+  MatrixImageType *out, bool use_nn, bool phys_space)
+{
+  // Decorate the matrix images as multi-component images
+  CompositeImagePointer wrap_data = CompositeImageType::New();
+  wrap_data->SetRegions(data->GetBufferedRegion());
+  wrap_data->CopyInformation(data);
+  wrap_data->SetNumberOfComponentsPerPixel(VDim * VDim);
+  wrap_data->GetPixelContainer()->SetImportPointer(
+    (TFloat *)(data->GetPixelContainer()->GetImportPointer()),
+    VDim * VDim * data->GetPixelContainer()->Size(), false);
+
+  // Decorate the output image in the same way
+  CompositeImagePointer wrap_out = CompositeImageType::New();
+  wrap_out->SetRegions(out->GetBufferedRegion());
+  wrap_out->CopyInformation(out);
+  wrap_out->SetNumberOfComponentsPerPixel(VDim * VDim);
+  wrap_out->GetPixelContainer()->SetImportPointer(
+    (TFloat *)(out->GetPixelContainer()->GetImportPointer()),
+    VDim * VDim * out->GetPixelContainer()->Size(), false);
+
+  // Perform the interpolation
+  LDDMMData<TFloat, VDim>::interp_cimg(wrap_data, field, wrap_out, use_nn, phys_space);
 }
 
 template <class TFloat, uint VDim>
@@ -311,6 +320,20 @@ LDDMMData<TFloat, VDim>
 {
   typedef itk::MultiplyImageFilter<
     VectorImageType, ImageType, VectorImageType> MultiplyFilter;
+  typename MultiplyFilter::Pointer flt = MultiplyFilter::New();
+  flt->SetInput1(trg);
+  flt->SetInput2(s);
+  flt->GraftOutput(trg);
+  flt->Update();
+}
+
+template <class TFloat, uint VDim>
+void 
+LDDMMData<TFloat, VDim>
+::mimg_multiply_in_place(MatrixImageType *trg, MatrixImageType *s)
+{
+  typedef itk::MultiplyImageFilter<
+    MatrixImageType, MatrixImageType, MatrixImageType> MultiplyFilter;
   typename MultiplyFilter::Pointer flt = MultiplyFilter::New();
   flt->SetInput1(trg);
   flt->SetInput2(s);
@@ -606,6 +629,242 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
+class SetMatrixRowBinaryOperator
+{
+public:
+  typedef SetMatrixRowBinaryOperator<TFloat, VDim> Self;
+  typedef LDDMMData<TFloat, VDim> LDDMM;
+  typedef typename LDDMM::Vec Vec;
+  typedef typename LDDMM::Mat Mat;
+
+  SetMatrixRowBinaryOperator() { m_Row = 0; }
+  void SetRow(unsigned int row) { m_Row = row; }
+  bool operator != (const Self &other) const { return m_Row != other.m_Row; }
+
+  Mat operator() (const Mat &M, const Vec &V)
+    {
+    Mat Q;
+    for(int r = 0; r < VDim; r++)
+      for(int c = 0; c < VDim; c++)
+        Q(r, c) = (r == m_Row) ? V[c] : M(r,c);
+    return Q;
+    }
+
+protected:
+  unsigned int m_Row;
+};
+
+template <class TFloat, uint VDim>
+void 
+LDDMMData<TFloat, VDim>
+::field_jacobian(VectorImageType *vec, MatrixImageType *out)
+{
+  for(int a = 0; a < VDim; a++)
+    {
+    // Extract the a'th component of the displacement field
+    typedef itk::VectorIndexSelectionCastImageFilter<VectorImageType, ImageType> CompFilterType;
+    typename CompFilterType::Pointer comp = CompFilterType::New();
+    comp->SetIndex(a);
+    comp->SetInput(vec);
+
+    // Compute the gradient of this component
+    typedef itk::GradientImageFilter<ImageType, TFloat, TFloat> GradientFilter;
+    typename GradientFilter::Pointer grad = GradientFilter::New();
+    grad->SetInput(comp->GetOutput());
+    grad->SetUseImageSpacingOff();
+    grad->SetUseImageDirection(false);
+
+    // Apply to the Jacobian matrix
+    typedef SetMatrixRowBinaryOperator<TFloat, VDim> RowOperatorType;
+    RowOperatorType rop;
+    rop.SetRow(a);
+    typedef itk::BinaryFunctorImageFilter<
+      MatrixImageType, VectorImageType, MatrixImageType, RowOperatorType> RowFilterType;
+    typename RowFilterType::Pointer rof = RowFilterType::New();
+    rof->SetInput1(out);
+    rof->SetInput2(grad->GetOutput());
+    rof->SetFunctor(rop);
+    rof->GraftOutput(out);
+    rof->Update();
+    }
+}
+
+template <class TFloat, uint VDim>
+class JacobianCompisitionFunctor
+{
+public:
+  typedef typename LDDMMData<TFloat, VDim>::Mat Mat;
+
+  Mat operator() (const Mat &Du_wrp, const Mat &Dv)
+    {
+    Mat Dw = Dv + Du_wrp * Dv + Du_wrp;
+    return Dw;
+    }
+
+  bool operator != (const JacobianCompisitionFunctor<TFloat, VDim> &other) {return false; }
+};
+
+
+template <class TFloat, uint VDim>
+void 
+LDDMMData<TFloat, VDim>
+::jacobian_of_composition(
+    MatrixImageType *Du, MatrixImageType *Dv, VectorImageType *v, MatrixImageType *out_Dw)
+{
+  // Interpolate jac_phi by psi and place it into out
+  interp_mimg(Du, v, out_Dw);
+
+  // Perform the matrix multiplication and addition
+  typedef JacobianCompisitionFunctor<TFloat, VDim> Functor;
+  typedef itk::BinaryFunctorImageFilter<MatrixImageType,MatrixImageType,MatrixImageType,Functor> BinaryFilter;
+  typename BinaryFilter::Pointer flt = BinaryFilter::New();
+  flt->SetInput1(out_Dw);
+  flt->SetInput2(Dv);
+  flt->GraftOutput(out_Dw);
+  flt->Update();
+}
+
+
+
+template <class TFloat, uint VDim>
+class MatrixPlusConstDeterminantFunctor
+{
+public:
+  typedef typename LDDMMData<TFloat, VDim>::Mat Mat;
+
+  TFloat operator() (const Mat &M)
+    {
+    Mat X = m_LambdaEye;
+    X += M;
+    return vnl_determinant(X.GetVnlMatrix());
+    }
+
+  void SetLambda(TFloat lambda)
+    {
+    m_LambdaEye.SetIdentity();
+    m_LambdaEye *= lambda;
+    }
+
+  bool operator != (const MatrixPlusConstDeterminantFunctor<TFloat, VDim> &other) 
+    { return m_LambdaEye(0,0) != other.m_LambdaEye(0,0); }
+
+protected:
+  Mat m_LambdaEye;
+
+};
+
+
+template <class TFloat, uint VDim>
+void 
+LDDMMData<TFloat, VDim>
+::mimg_det(MatrixImageType *M, double lambda, ImageType *out_det)
+{
+  typedef MatrixPlusConstDeterminantFunctor<TFloat, VDim> FunctorType;
+  FunctorType functor;
+  functor.SetLambda(lambda);
+  typedef itk::UnaryFunctorImageFilter<MatrixImageType, ImageType, FunctorType> FilterType;
+  typename FilterType::Pointer filter = FilterType::New();
+  filter->SetInput(M);
+  filter->SetFunctor(functor);
+  filter->GraftOutput(out_det);
+  filter->Update();
+}
+
+/**
+ * Functor to compute Ax+b
+ */
+template <class TFloat, uint VDim>
+class MatrixVectorMultiplyAndAddVectorFunctor
+{
+public:
+  typedef MatrixVectorMultiplyAndAddVectorFunctor<TFloat, VDim> Self;
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+  typedef typename LDDMMType::Mat Mat;
+  typedef typename LDDMMType::Vec Vec;
+
+  Vec operator() (const Mat &A, const Vec &x, const Vec &b)
+    {
+    Vec y = m_Lambda * (A * x) + m_Mu * b;
+    return y;
+    }
+
+  void SetLambda(TFloat lambda) { m_Lambda = lambda; }
+  void SetMu(TFloat mu) { m_Mu = mu; }
+
+  bool operator != (const Self &other) const
+    { return m_Lambda != other.m_Lambda || m_Mu != other.m_Mu; }
+
+  bool operator == (const Self &other) const
+    { return ! (*this != other); }
+
+protected:
+  TFloat m_Lambda, m_Mu;
+};
+
+template <class TFloat, uint VDim>
+void 
+LDDMMData<TFloat, VDim>
+::mimg_vimg_product_plus_vimg(
+    MatrixImageType *A, VectorImageType *x, VectorImageType *b, 
+    TFloat lambda, TFloat mu, VectorImageType *out)
+{
+  typedef MatrixVectorMultiplyAndAddVectorFunctor<TFloat, VDim> Functor;
+  Functor functor;
+  functor.SetLambda(lambda);
+  functor.SetMu(mu);
+
+  typedef itk::TernaryFunctorImageFilter<
+    MatrixImageType, VectorImageType, VectorImageType, VectorImageType, 
+    Functor> FilterType;
+
+  typename FilterType::Pointer filter = FilterType::New();
+  filter->SetInput1(A);
+  filter->SetInput2(x);
+  filter->SetInput3(b);
+  filter->SetFunctor(functor);
+  filter->GraftOutput(out);
+  filter->Update();
+}
+
+#include "LieBracketFilter.h"
+
+template <class TFloat, uint VDim>
+void 
+LDDMMData<TFloat, VDim>
+::lie_bracket(VectorImageType *v, VectorImageType *u, MatrixImageType *work, VectorImageType *out)
+{
+  // Compute Du, place it in work
+  field_jacobian(v, work);
+
+  // Multiply by v
+  mimg_vimg_product_plus_vimg(work, u, out, 1.0, 0.0, out);
+
+  // Compute Dv, place it in work
+  field_jacobian(u, work);
+
+  // Multiply by u and subtract from existing
+  mimg_vimg_product_plus_vimg(work, v, out, -1.0, 1.0, out);
+
+  // Alternative approach
+  VectorImagePointer alt = VectorImageType::New();
+  alloc_vimg(alt, out);
+  
+  typedef LieBracketFilter<VectorImageType, VectorImageType> LieBracketFilterType;
+  typename LieBracketFilterType::Pointer fltLieBracket = LieBracketFilterType::New();
+  fltLieBracket->SetFieldU(v);
+  fltLieBracket->SetFieldV(u);
+  fltLieBracket->GraftOutput(alt);
+  fltLieBracket->Update();
+
+  itk::Index<VDim> idx_probe; for(int a = 0; a < VDim; a++) idx_probe[a] = out->GetBufferedRegion().GetSize()[a] / 2;
+  Vec test1 = out->GetPixel(idx_probe);
+  Vec test2 = alt->GetPixel(idx_probe);
+  std::cout << "test1 = " << test1 << "   and   test2 = " << test2 << std::endl;
+  return;
+}
+
+
+template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
 ::field_jacobian_det(VectorImageType *vec, ImageType *out)
@@ -648,10 +907,6 @@ LDDMMData<TFloat, VDim>
   flt->GraftOutput(trg);
   flt->Update();
 }
-
-#include "itkVectorIndexSelectionCastImageFilter.h"
-#include "itkComposeImageFilter.h"
-#include "itkMinimumMaximumImageFilter.h"
 
 template <class TFloat, uint VDim>
 void
@@ -721,7 +976,7 @@ struct VectorSquareNormFunctor
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::vimg_norm_min_max(VectorImageType *image, ImagePointer &normsqr,
+::vimg_norm_min_max(VectorImageType *image, ImageType *normsqr,
                     TFloat &min_norm, TFloat &max_norm)
 {
   // Compute the squared norm of the displacement
@@ -742,7 +997,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::vimg_normalize_to_fixed_max_length(VectorImageType *trg, ImagePointer &normsqr,
+::vimg_normalize_to_fixed_max_length(VectorImageType *trg, ImageType *normsqr,
                                      double max_displacement, bool scale_down_only)
 {
   // Compute the squared norm of the displacement

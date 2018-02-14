@@ -48,13 +48,15 @@ GreedyParameters
   param.time_step_mode = GreedyParameters::SCALE;
   param.deriv_epsilon = 1e-4;
   param.flag_powell = false;
-  param.inverse_exponent = 2;
+  param.warp_exponent = 6;
   param.warp_precision = 0.1;
   param.ncc_noise_factor = 0.001;
   param.affine_init_mode = VOX_IDENTITY;
   param.affine_dof = GreedyParameters::DOF_AFFINE;
   param.affine_jitter = 0.5;
   param.flag_float_math = false;
+  param.flag_stationary_velocity_mode = false;
+  param.flag_stationary_velocity_mode_use_lie_bracket = false;
 
   // reslice mode parameters
   InterpSpec interp_current;

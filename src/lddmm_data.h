@@ -33,6 +33,7 @@
 #include <itkVectorImage.h>
 #include <itkImageRegionIteratorWithIndex.h>
 #include <itkCovariantVector.h>
+#include <itkMatrix.h>
 #include <vnl/vnl_math.h>
 #include <vector>
 
@@ -57,6 +58,11 @@ public:
   typedef itk::Image<Vec, VDim> VectorImageType;
   typedef typename VectorImageType::Pointer VectorImagePointer;
   typedef std::vector<VectorImagePointer> VelocityField;
+
+  // Jacobians
+  typedef itk::Matrix<TFloat, VDim, VDim> Mat;
+  typedef itk::Image<Mat, VDim> MatrixImageType;
+  typedef typename MatrixImageType::Pointer MatrixImagePointer;
 
   // Composite images (variable number of components)
   typedef itk::VectorImage<TFloat, VDim> CompositeImageType;
@@ -91,6 +97,7 @@ public:
   static void alloc_img(ImagePointer &img, ImageBaseType *ref);
   static void alloc_vimg(VectorImagePointer &vimg, ImageBaseType *ref);
   static void alloc_cimg(CompositeImagePointer &img, ImageBaseType *ref, int n_comp);
+  static void alloc_mimg(MatrixImagePointer &img, ImageBaseType *ref);
 
   // Initialize LDDMM data 
   static void init(LDDMMData<TFloat, VDim> &, 
@@ -111,8 +118,40 @@ public:
   static void interp_cimg(CompositeImageType *data, VectorImageType *field, CompositeImageType *out,
                           bool use_nn = false, bool phys_space = false);
 
+  // Apply deformation to matrix data
+  static void interp_mimg(MatrixImageType *data, VectorImageType *field, MatrixImageType *out,
+                          bool use_nn = false, bool phys_space = false);
+
+  // Compute the Jacobian of the field, to be placed into an array of vector images
+  // The output Jacobians are stored 
+  static void field_jacobian(VectorImageType *vec, MatrixImageType *out);
+
+  // Jacobian of warp composition. Let f(x) = x + u(x) and g(x) = x + v(x) and let h = x + w(x)
+  // Suppose h(x) = f(g(x)), then w(x) = v(x) + u(x + v(x))
+  // This code computes the Jacobian of w, Dw, given the Jacobians of u and v, as well as v itself.
+  // Here jac_phi and jac_psi may be the same image, but they should both be different from
+  // the output image. 
+  //
+  // Keep in mind that Dw is not the same as Dh (there is a difference of identity matrix). However
+  // when composing warp jacobians it is better to work with Du and Dv than with Df and Dg because 
+  // interpolation at the boundary fills unknown values with zeros
+  static void jacobian_of_composition(
+    MatrixImageType *Du, MatrixImageType *Dv, VectorImageType *v, MatrixImageType *out_Dw);
+
+  // Compute a determinant of M + \lambda I
+  static void mimg_det(MatrixImageType *M, double lambda, ImageType *out_det);
+
+  // Compute (lambda) Ax + (mu) b and store in (out). Out may point to x or b for an in-place operation
+  static void mimg_vimg_product_plus_vimg(
+    MatrixImageType *A, VectorImageType *x, VectorImageType *b, 
+    TFloat lambda, TFloat mu, VectorImageType *out);
+
   // Take Jacobian of deformation field
   static void field_jacobian_det(VectorImageType *vec, ImageType *out);
+
+  // Compute the Lie bracket by computing two Jacobians and multiplying. This should be made faster
+  // by making a custom ITK filter
+  static void lie_bracket(VectorImageType *v, VectorImageType *u, MatrixImageType *work, VectorImageType *out);
 
   // Smooth an image in-place
   static void img_smooth(ImageType *src, ImageType *out, double sigma);
@@ -138,14 +177,17 @@ public:
   static void vimg_euclidean_inner_product(ImagePointer &trg, VectorImageType *a, VectorImageType *b);
   static TFloat vimg_euclidean_norm_sq(VectorImageType *trg);
 
+  // Matrix - matrix multiplication
+  static void mimg_multiply_in_place(MatrixImageType *trg, MatrixImageType *s);
+
   // Compute the range of the norm of a vector field
-  static void vimg_norm_min_max(VectorImageType *image, ImagePointer &normsqr,
-                      TFloat &min_norm, TFloat &max_norm);
+  static void vimg_norm_min_max(VectorImageType *image, ImageType *normsqr,
+    TFloat &min_norm, TFloat &max_norm);
 
   // Update a vector image to make its maxumum length equal to given value. The
   // second parameter is a working image that will return unnormalized lengths squared
   static void vimg_normalize_to_fixed_max_length(VectorImageType *trg,
-                                                 ImagePointer &normsqr,
+                                                 ImageType *normsqr,
                                                  double max_displacement,
                                                  bool scale_down_only);
 

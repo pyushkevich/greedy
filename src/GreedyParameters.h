@@ -124,12 +124,16 @@ struct GreedyInvertWarpParameters
   std::string in_warp, out_warp;
 };
 
+struct GreedyJacobianParameters
+{
+  std::string in_warp, out_det_jac;
+};
+
 
 // Parameters for inverse warp command
 struct GreedyWarpRootParameters
 {
   std::string in_warp, out_warp;
-  int exponent;
 };
 
 
@@ -137,7 +141,7 @@ struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, MI, NMI };
   enum TimeStepMode { CONSTANT=0, SCALE, SCALEDOWN };
-  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, MOMENTS };
+  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, JACOBIAN_WARP, MOMENTS };
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
 
   std::vector<ImagePairSpec> inputs;
@@ -154,6 +158,9 @@ struct GreedyParameters
 
   // Inversion parameters
   GreedyInvertWarpParameters invwarp_param;
+
+  // Jacobian parameters
+  GreedyJacobianParameters jacobian_param;
 
   // Root warp parameters
   GreedyWarpRootParameters warproot_param;
@@ -198,7 +205,7 @@ struct GreedyParameters
 
   // Inverse warp
   std::string inverse_warp;
-  int inverse_exponent;
+  int warp_exponent;
 
   // Precision for output warps
   double warp_precision;
@@ -216,6 +223,12 @@ struct GreedyParameters
   int moments_flip_determinant;
   int moments_order;
   bool flag_moments_id_covariance;
+
+  // Stationary velocity (diffeomophic demons) mode
+  bool flag_stationary_velocity_mode;
+
+  // Whether the lie bracket is used in the y velocity update
+  bool flag_stationary_velocity_mode_use_lie_bracket;
 
   // Floating point precision?
   bool flag_float_math;

@@ -1129,6 +1129,99 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 }
 
 template <class TFloat, unsigned int VDim>
+void 
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeWarpSquareRoot(
+  VectorImageType *warp, VectorImageType *out, VectorImageType *work, 
+  FloatImageType *error_norm, double tol, int max_iter)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  // Use more convenient variables
+  VectorImageType *u = warp, *v = out;
+
+  // Initialize the iterate to zero
+  v->FillBuffer(typename LDDMMType::Vec(0.0));
+
+  // Perform iteration
+  for(int i = 0; i < max_iter; i++)
+    {
+    // Min and max norm of the error at this iteration
+    TFloat norm_max = tol, norm_min = 0.0; 
+
+    // Perform a single iteration
+    LDDMMType::interp_vimg(v, v, 1.0, work);   // work = v(v(x))
+    LDDMMType::vimg_scale_in_place(work, -1.0); // work = -v(v(x))
+    LDDMMType::vimg_add_scaled_in_place(work, v, -1.0); // work = -v(v) - v(v(x))
+    LDDMMType::vimg_add_in_place(work, u); // work = u - v - v(v(x)) = f - g o g
+
+    // At this point, 'work' stores the difference between actual warp and square of the
+    // square root estimate, i.e., the estimation error
+    if(error_norm)
+      {
+      LDDMMType::vimg_norm_min_max(work, error_norm, norm_min, norm_max);
+      std::cout << " " << norm_max << " " << std::endl;
+      }
+
+    // Update v - which is being put into the output anyway
+    LDDMMType::vimg_add_scaled_in_place(v, work, 0.5);
+
+    // Check the maximum delta
+    std::cout << "." << std::flush;
+
+    // Break if the tolerance bound reached
+    if(norm_max < tol)
+      break;
+    }
+}
+
+
+template <class TFloat, unsigned int VDim>
+void 
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeWarpRoot(VectorImageType *warp, VectorImageType *root, int exponent, TFloat tol, int max_iter)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  // If the exponent is zero, return the image itself
+  if(exponent == 0)
+    {
+    LDDMMType::vimg_copy(warp, root);
+    return;
+    }
+
+  // Create the current root and the next root
+  VectorImagePointer u = VectorImageType::New();
+  LDDMMType::alloc_vimg(u, warp);
+  LDDMMType::vimg_copy(warp, u);
+
+  // Create a working image
+  VectorImagePointer work = VectorImageType::New();
+  LDDMMType::alloc_vimg(work, warp);
+
+  // If there is tolerance, create an error norm image
+  FloatImagePointer error_norm;
+  if(tol > 0.0)
+    {
+    error_norm = FloatImageType::New();
+    LDDMMType::alloc_img(error_norm, warp);
+    }
+    
+  // Compute the square root 'exponent' times
+  for(int k = 0; k < exponent; k++)
+    {
+    // Square root of u goes into root
+    ComputeWarpSquareRoot(u, root, work, error_norm, tol, max_iter);
+    std::cout << std::endl;
+
+    // Copy root into u
+    LDDMMType::vimg_copy(root, u);
+    }
+}
+
+
+
+template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeDeformationFieldInverse(
@@ -1141,31 +1234,15 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   LDDMMType::alloc_vimg(uForward, warp);
   LDDMMType::vimg_copy(warp, uForward);
 
-  // Create a working image for the square root computation
+  // Create a working image 
   VectorImagePointer uWork = VectorImageType::New();
   LDDMMType::alloc_vimg(uWork, warp);
 
-  // Compute the square root
-  for(int k = 0; k < n_sqrt; k++)
-    {
-    for(int i = 0; i < 20; i++)
-      {
-      LDDMMType::interp_vimg(uInverse, uInverse, 1.0, uWork);
-      LDDMMType::vimg_scale_in_place(uWork, -1.0);
-      LDDMMType::vimg_add_scaled_in_place(uWork, uInverse, -1.0);
-      LDDMMType::vimg_add_in_place(uWork, uForward);
+  // Take the desired square root of the input warp and place into uForward
+  ComputeWarpRoot(warp, uForward, n_sqrt);
 
-      // Check the maximum delta
-      // LDDMMType::vimg_norm_min_max(uDelta, iTemp, norm_min, norm_max);
-      // std::cout << "sqrt iter " << i << " max_delta " << norm_max << std::endl;
-
-      LDDMMType::vimg_add_scaled_in_place(uInverse, uWork, 0.5);
-      }
-
-    LDDMMType::vimg_copy(uInverse, uForward);
-    uInverse->FillBuffer(
-      itk::NumericTraits<typename VectorImageType::PixelType>::ZeroValue());
-    }
+  // Clear uInverse
+  uInverse->FillBuffer(itk::NumericTraits<typename LDDMMType::Vec>::ZeroValue());
 
   // At this point, uForward holds the small deformation
   // Try to compute the inverse of the current forward transformation

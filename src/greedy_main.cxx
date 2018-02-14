@@ -67,12 +67,13 @@ int usage()
   printf("  -a                     : Perform affine registration and save to output (-o)\n");
   printf("  -brute radius          : Perform a brute force search around each voxel \n");
   printf("  -moments <1|2>         : Perform moments of inertia rigid alignment of given order.\n");
-  printf("                             order 1 matches center of mass only\n");
-  printf("                             order 2 matches second-order moments of inertia tensors\n");
+  printf("                               order 1 matches center of mass only\n");
+  printf("                               order 2 matches second-order moments of inertia tensors\n");
   printf("  -r [tran_spec]         : Reslice images instead of doing registration \n");
   printf("                               tran_spec is a series of warps, affine matrices\n");
   printf("  -iw inwarp outwarp     : Invert previously computed warp\n");
   printf("  -root inwarp outwarp N : Convert 2^N-th root of a warp \n");
+  printf("  -jac inwarp outjac     : Compute the Jacobian determinant of the warp \n");
   printf("Options in deformable / affine mode: \n");
   printf("  -w weight              : weight of the next -i pair\n");
   printf("  -m metric              : metric for the entire registration\n");
@@ -92,11 +93,22 @@ int usage()
   printf("  -s sigma1 sigma2       : smoothing for the greedy update step. Must specify units,\n");
   printf("                           either `vox` or `mm`. Default: 1.732vox, 0.7071vox\n");
   printf("  -oinv image.nii        : compute and write the inverse of the warp field into image.nii\n");
-  printf("  -invexp VALUE          : how many times to take the square root of the forward\n");
-  printf("                                transform when computing inverse (default=2)\n");
+  printf("  -oroot image.nii       : compute and write the (2^N-th) root of the warp field into image.nii, where\n");
+  printf("                           N is the value of the -exp option. In stational velocity mode, it is advised\n");
+  printf("                           to output the root warp, since it is used internally to represent the deformation\n");
   printf("  -wp VALUE              : Saved warp precision (in voxels; def=0.1; 0 for no compression).\n");
   printf("  -noise VALUE           : Standard deviation of white noise added to moving/fixed images when \n");
   printf("                           using NCC metric. Relative to intensity range. Def=0.001\n");
+  printf("  -exp N                 : The exponent used for warp inversion, root computation, and in stationary \n");
+  printf("                           velocity field (Diff Demons) mode. N is a positive integer (default = 6) \n");
+  printf("  -sv                    : Performs registration using the stationary velocity model, similar to diffeomoprhic \n");
+  printf("                           Demons (Vercauteren 2008 MICCAI). Internally, the deformation field is \n");
+  printf("                           represented as 2^N self-compositions of a small deformation and \n");
+  printf("                           greedy updates are applied to this deformation. N is specified with the -exp \n");
+  printf("                           option (6 is a good number). This mode results in better behaved\n");
+  printf("                           deformation fields and Jacobians than the pure greedy approach.\n");
+  printf("  -svlb                  : Same as -sv but uses the more accurate but also more expensive \n");
+  printf("                           update of v, v <- v + u + [v,u]. Experimental feature \n");
   printf("Initial transform specification: \n");
   printf("  -ia filename           : initial affine matrix for optimization (not the same as -it) \n");
   printf("  -ia-identity           : initialize affine matrix based on NIFTI headers \n");
@@ -346,12 +358,17 @@ int main(int argc, char *argv[])
         param.invwarp_param.in_warp = cl.read_existing_filename();
         param.invwarp_param.out_warp = cl.read_output_filename();
         }
+      else if(arg == "-jac")
+        {
+        param.mode = GreedyParameters::JACOBIAN_WARP;
+        param.jacobian_param.in_warp = cl.read_existing_filename();
+        param.jacobian_param.out_det_jac = cl.read_output_filename();
+        }
       else if(arg == "-root")
         {
         param.mode = GreedyParameters::ROOT_WARP;
         param.warproot_param.in_warp = cl.read_existing_filename();
         param.warproot_param.out_warp = cl.read_output_filename();
-        param.warproot_param.exponent = cl.read_integer();
         }
 
       else if(arg == "-rm")
@@ -385,9 +402,19 @@ int main(int argc, char *argv[])
         {
         param.inverse_warp = cl.read_output_filename();
         }
-      else if(arg == "-invexp")
+      else if(arg == "-exp")
         {
-        param.inverse_exponent = cl.read_integer();
+        param.warp_exponent = cl.read_integer();
+        }
+      else if(arg == "-sv")
+        {
+        param.flag_stationary_velocity_mode = true;
+        param.flag_stationary_velocity_mode_use_lie_bracket = false;
+        }
+      else if(arg == "-svlb")
+        {
+        param.flag_stationary_velocity_mode = true;
+        param.flag_stationary_velocity_mode_use_lie_bracket = true;
         }
       else if(arg == "-ri")
         {
