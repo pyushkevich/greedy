@@ -128,6 +128,7 @@ int usage()
   printf("  -rm mov.nii out.nii    : moving/output image pair (may be repeated)\n");
   printf("  -rs mov.vtk out.vtk    : moving/output surface pair (vertices are warped from fixed space to moving)\n");
   printf("  -ri interp_mode        : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
+  printf("  -rb value              : background (i.e. outside) intensity for the next pair (default 0)\n");
   printf("  -rc outwarp            : write composed transforms to outwarp \n");
   printf("  -rj outjacobian        : write Jacobian determinant image to outjacobian \n");
   printf("For developers: \n");
@@ -436,6 +437,10 @@ int main(int argc, char *argv[])
           {
           std::cerr << "Unknown interpolation mode" << std::endl;
           }
+        }
+      else if(arg == "-rb")
+        {
+        interp_current.outside_value = cl.read_double();
         }
       else if(arg == "-wp")
         {

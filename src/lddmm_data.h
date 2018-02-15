@@ -112,11 +112,11 @@ public:
 
   // Apply deformation to data
   static void interp_img(ImageType *data, VectorImageType *field, ImageType *out,
-                         bool use_nn = false, bool phys_space = false);
+                         bool use_nn = false, bool phys_space = false, TFloat outside_value = 0.0);
 
   // Apply deformation to data
   static void interp_cimg(CompositeImageType *data, VectorImageType *field, CompositeImageType *out,
-                          bool use_nn = false, bool phys_space = false);
+                          bool use_nn = false, bool phys_space = false, TFloat outside_value = 0.0);
 
   // Apply deformation to matrix data
   static void interp_mimg(MatrixImageType *data, VectorImageType *field, MatrixImageType *out,

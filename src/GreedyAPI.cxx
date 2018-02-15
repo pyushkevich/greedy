@@ -2202,6 +2202,33 @@ void GreedyApproach<VDim, TReal>
       VectorImagePointer warp_i = VectorImageType::New();
       LDDMMType::vimg_read(tran.c_str(), warp_i);
 
+      // If there is an exponent on the transform spec, handle it
+      if(tran_chain[i].exponent != 1)
+        {
+        if(tran_chain[i].exponent < 1)
+          throw GreedyException("Currently only power of two exponents are supported for warps");
+
+        double n_real = log(tran_chain[i].exponent) / log(2.0);
+        int n = (int) (n_real + 0.5);
+        if(fabs(n - n_real) > 1.0e-4) 
+          throw GreedyException("Currently only power of two exponents are supported for warps");
+
+        // Bring the transform into voxel space
+        VectorImagePointer warp_phys = VectorImageType::New();
+        LDDMMType::alloc_vimg(warp_phys, warp_i);
+        OFHelperType::PhysicalWarpToVoxelWarp(warp_i, warp_i, warp_phys);
+
+        // Square the transform N times (in its own space)
+        for(int i = 0; i < n; i++)
+          {
+          LDDMMType::interp_vimg(warp_phys, warp_phys, 1.0, warp_tmp);
+          LDDMMType::vimg_add_in_place(warp_phys, warp_tmp);
+          }
+
+        // Bring the transform back into physical space
+        OFHelperType::VoxelWarpToPhysicalWarp(warp_phys, warp_i, warp_i);
+        }
+
       // Now we need to compose the current transform and the overall warp.
       LDDMMType::interp_vimg(warp_i, out_warp, 1.0, warp_tmp, false, true);
       LDDMMType::vimg_add_in_place(out_warp, warp_tmp);
@@ -2649,8 +2676,7 @@ int GreedyApproach<VDim, TReal>
       {
       // Read the input image
       CompositeImagePointer moving, warped;
-      itk::ImageIOBase::IOComponentType comp =
-          LDDMMType::cimg_read(filename, moving);
+      itk::ImageIOBase::IOComponentType comp = LDDMMType::cimg_read(filename, moving);
 
       // Allocate the warped image
       LDDMMType::alloc_cimg(warped, ref_space, moving->GetNumberOfComponentsPerPixel());
@@ -2658,7 +2684,7 @@ int GreedyApproach<VDim, TReal>
       // Perform the warp
       LDDMMType::interp_cimg(moving, warp, warped,
                              r_param.images[i].interp.mode == InterpSpec::NEAREST,
-                             true);
+                             true, r_param.images[i].interp.outside_value);
 
       // Write, casting to the input component type
       LDDMMType::cimg_write(warped, r_param.images[i].output.c_str(), comp);

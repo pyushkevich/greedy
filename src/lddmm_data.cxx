@@ -231,7 +231,8 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::interp_img(ImageType *data, VectorImageType *field, ImageType *out, bool use_nn, bool phys_space)
+::interp_img(ImageType *data, VectorImageType *field, ImageType *out, 
+  bool use_nn, bool phys_space, TFloat outside_value)
 {
   typedef FastWarpCompositeImageFilter<ImageType, ImageType, VectorImageType> WF;
   typename WF::Pointer wf = WF::New();
@@ -240,6 +241,7 @@ LDDMMData<TFloat, VDim>
   wf->GraftOutput(out);
   wf->SetUseNearestNeighbor(use_nn);
   wf->SetUsePhysicalSpace(phys_space);
+  wf->SetOutsideValue(outside_value);
   wf->Update();
 
 /*
@@ -274,7 +276,7 @@ template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
 ::interp_cimg(CompositeImageType *data, VectorImageType *field, CompositeImageType *out,
-              bool use_nn, bool phys_space)
+              bool use_nn, bool phys_space, TFloat outside_value)
 {
   typedef FastWarpCompositeImageFilter<CompositeImageType, CompositeImageType, VectorImageType> WF;
   typename WF::Pointer wf = WF::New();
@@ -283,6 +285,7 @@ LDDMMData<TFloat, VDim>
   wf->GraftOutput(out);
   wf->SetUseNearestNeighbor(use_nn);
   wf->SetUsePhysicalSpace(phys_space);
+  wf->SetOutsideValue(outside_value);
   wf->Update();
 }
 

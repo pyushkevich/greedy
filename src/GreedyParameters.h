@@ -62,8 +62,9 @@ struct InterpSpec
 
   InterpMode mode;
   SmoothingParameters sigma;
+  double outside_value;
 
-  InterpSpec() : mode(LINEAR), sigma(0.5, false) {}
+  InterpSpec() : mode(LINEAR), sigma(0.5, false), outside_value(0.0) {}
 };
 
 struct ResliceSpec
@@ -173,6 +174,8 @@ struct GreedyParameters
   double deriv_epsilon;
 
   double affine_jitter;
+
+  double background;
 
   // Smoothing parameters
   SmoothingParameters sigma_pre, sigma_post;

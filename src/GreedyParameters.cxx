@@ -57,6 +57,7 @@ GreedyParameters
   param.flag_float_math = false;
   param.flag_stationary_velocity_mode = false;
   param.flag_stationary_velocity_mode_use_lie_bracket = false;
+  param.background = 0.0;
 
   // reslice mode parameters
   InterpSpec interp_current;

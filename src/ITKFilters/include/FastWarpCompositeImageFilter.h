@@ -109,11 +109,18 @@ public:
   itkSetMacro(ExtrapolateBorders, bool)
   itkGetMacro(ExtrapolateBorders, bool)
 
+  /**
+   * The outside value is used to fill in parts of the image that lie outside of
+   * the domain.
+   */
+  itkSetMacro(OutsideValue, OutputComponentType);
+  itkGetMacro(OutsideValue, OutputComponentType);
+
 protected:
 
   FastWarpCompositeImageFilter()
   : m_UsePhysicalSpace(false), m_DeformationScaling(1.0),
-    m_UseNearestNeighbor(false), m_ExtrapolateBorders(true) { }
+    m_UseNearestNeighbor(false), m_ExtrapolateBorders(true), m_OutsideValue(0.0) { }
 
   ~FastWarpCompositeImageFilter() {}
 
@@ -128,6 +135,8 @@ protected:
 
   bool m_UsePhysicalSpace, m_UseNearestNeighbor, m_ExtrapolateBorders;
   DeforamtionScalarType m_DeformationScaling;
+
+  OutputComponentType m_OutsideValue;
 
 
 private:
