@@ -139,7 +139,7 @@ struct GreedyWarpRootParameters
 
 struct GreedyParameters
 {
-  enum MetricType { SSD = 0, NCC, MI, NMI };
+  enum MetricType { SSD = 0, NCC, MI, NMI, MAHALANOBIS };
   enum TimeStepMode { CONSTANT=0, SCALE, SCALEDOWN };
   enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, JACOBIAN_WARP, MOMENTS };
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };

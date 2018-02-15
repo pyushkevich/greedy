@@ -1830,7 +1830,7 @@ int GreedyApproach<VDim, TReal>
         printf("]  Tot: %8.6f\n", total_energy);
         }
 
-      else
+      else if(param.metric == GreedyParameters::NCC)
         {
         itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
 
@@ -1906,6 +1906,14 @@ int GreedyApproach<VDim, TReal>
         // End gradient computation
         tm_Gradient.Stop();
 
+        printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
+        fflush(stdout);
+        }
+      else if(param.metric == GreedyParameters::MAHALANOBIS)
+        {
+        tm_Gradient.Start();
+        double total_energy = of_helper.ComputeMahalanobisMetricImage(level, uFull, iTemp, uk1);
+        tm_Gradient.Stop();
         printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
         fflush(stdout);
         }

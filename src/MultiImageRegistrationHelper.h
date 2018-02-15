@@ -133,7 +133,10 @@ public:
                               FloatImageType *out_metric, VectorImageType *out_gradient = NULL,
                                double result_scaling = 1.0);
 
-
+  /** Compute the Mahalanobis metric with gradient */
+  double ComputeMahalanobisMetricImage(int level, VectorImageType *def, 
+                                       FloatImageType *out_metric, 
+                                       VectorImageType *out_gradient = NULL);
 
   /** Compute affine similarity and gradient */
   double ComputeAffineMSDMatchAndGradient(int level, LinearTransformType *tran,

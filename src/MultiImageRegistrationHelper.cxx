@@ -36,6 +36,7 @@
 #include "MultiComponentNCCImageMetric.h"
 #include "MultiComponentApproximateNCCImageMetric.h"
 #include "MultiComponentMutualInfoImageMetric.h"
+#include "MahalanobisDistanceToTargetWarpMetric.h"
 #include "itkVectorIndexSelectionCastImageFilter.h"
 #include "OneDimensionalInPlaceAccumulateFilter.h"
 #include "itkUnaryFunctorImageFilter.h"
@@ -568,6 +569,29 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   return filter->GetMetricValue();
 }
 
+template <class TFloat, unsigned int VDim>
+double
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeMahalanobisMetricImage(int level, VectorImageType *def, 
+  FloatImageType *out_metric, 
+  VectorImageType *out_gradient)
+{
+  typedef DefaultMahalanobisDistanceToTargetMetricTraits<TFloat, VDim> TraitsType;
+  typedef MahalanobisDistanceToTargetWarpMetric<TraitsType> FilterType;
+  typename FilterType::Pointer filter = FilterType::New();
+
+  filter->SetFixedImage(m_FixedComposite[level]);
+  filter->SetMovingImage(m_MovingComposite[level]);
+  filter->SetDeformationField(def);
+  filter->SetComputeGradient(true);
+  filter->GetMetricOutput()->Graft(out_metric);
+  filter->GetDeformationGradientOutput()->Graft(out_gradient);
+  filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
+
+  filter->Update();
+
+  return filter->GetMetricValue();
+}
 
 
 template <class TFloat, unsigned int VDim>
