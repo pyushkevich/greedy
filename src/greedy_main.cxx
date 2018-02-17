@@ -81,6 +81,7 @@ int usage()
   printf("                               MI:           mutual information\n");
   printf("                               NMI:          normalized mutual information\n");
   printf("                               NCC <radius>: normalized cross-correlation\n");
+  printf("                               MAHAL:        Mahalanobis distance to target warp\n");
   printf("  -e epsilon             : step size (default = 1.0), \n");
   printf("                               may also be specified per level (e.g. 0.3x0.1)\n");
   printf("  -n NxNxN               : number of iterations per level of multi-res (100x100) \n");
@@ -218,6 +219,10 @@ int main(int argc, char *argv[])
         else if(metric_name == "NMI" || metric_name == "nmi")
           {
           param.metric = GreedyParameters::NMI;
+          }
+        else if(metric_name == "MAHAL" || metric_name == "mahal")
+          {
+          param.metric = GreedyParameters::MAHALANOBIS;
           }
         }
       else if(arg == "-tscale")

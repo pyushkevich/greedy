@@ -52,8 +52,8 @@ public:
     // Compute gradient
     if(grad)
       {
-      grad[0] = d_x * s_xx + d_y * s_xy;
-      grad[1] = d_x * s_xy + d_y * s_yy;
+      grad[0] = - (d_x * s_xx + d_y * s_xy);
+      grad[1] = - (d_x * s_xy + d_y * s_yy);
       }
 
     // Done!
@@ -85,9 +85,9 @@ public:
     // Compute gradient
     if(grad)
       {
-      grad[0] = d_x * s_xx + d_y * s_xy + d_z * s_xz;
-      grad[1] = d_x * s_xy + d_y * s_yy + d_z * s_yz;
-      grad[2] = d_x * s_xz + d_y * s_yz + d_z * s_zz;
+      grad[0] = -(d_x * s_xx + d_y * s_xy + d_z * s_xz);
+      grad[1] = -(d_x * s_xy + d_y * s_yy + d_z * s_yz);
+      grad[2] = -(d_x * s_xz + d_y * s_yz + d_z * s_zz);
       }
 
     // Done!
@@ -126,10 +126,10 @@ public:
     // Compute gradient
     if(grad)
       {
-      grad[0] = d_x * s_xx + d_y * s_xy + d_z * s_xz + d_w * s_xw;
-      grad[1] = d_x * s_xy + d_y * s_yy + d_z * s_yz + d_w * s_yw;
-      grad[2] = d_x * s_xz + d_y * s_yz + d_z * s_zz + d_w * s_zw;
-      grad[3] = d_x * s_xw + d_y * s_yw + d_z * s_zw + d_w * s_ww;
+      grad[0] = -(d_x * s_xx + d_y * s_xy + d_z * s_xz + d_w * s_xw);
+      grad[1] = -(d_x * s_xy + d_y * s_yy + d_z * s_yz + d_w * s_yw);
+      grad[2] = -(d_x * s_xz + d_y * s_yz + d_z * s_zz + d_w * s_zw);
+      grad[3] = -(d_x * s_xw + d_y * s_yw + d_z * s_zw + d_w * s_ww);
       }
 
     // Done!
@@ -202,8 +202,10 @@ MahalanobisDistanceToTargetWarpMetric<TMetricTraits>
           {
           if(iter.CheckFixedMask())
             {
-            RealType m = Functor::compute(iter.GetFixedLine(), iter.GetSamplePos().data_block(), 
-              grad_line->GetVnlVector().data_block());
+            RealType m = Functor::compute(
+              iter.GetFixedLine(), 
+              iter.GetDisplacement()->GetDataPointer(), 
+              grad_line->GetDataPointer());
             *iter.GetOutputLine() = m;
             td.metric += m;
             td.mask += 1.0;
@@ -217,7 +219,8 @@ MahalanobisDistanceToTargetWarpMetric<TMetricTraits>
         {
         if(iter.CheckFixedMask())
           {
-          RealType m = Functor::compute(iter.GetFixedLine(), iter.GetSamplePos().data_block(), NULL);
+          RealType m = Functor::compute(
+            iter.GetFixedLine(), iter.GetDisplacement()->GetDataPointer(), NULL);
           *iter.GetOutputLine() = m;
           td.metric += m;
           td.mask += 1.0;

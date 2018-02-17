@@ -233,6 +233,8 @@ public:
   typedef typename InputImageType::InternalPixelType InputComponentType;
   typedef typename OutputImageType::InternalPixelType OutputComponentType;
 
+  typedef typename DeformationFieldType::PixelType DeformationVectorType;
+
   MultiComponentMetricWorker(MetricType *metric, TOutputImage * image, const RegionType &region)
     : m_WrappedIter(image, region),
       m_Interpolator(metric->GetMovingImage()),
@@ -479,6 +481,8 @@ public:
 
   const vnl_vector<RealType> &GetSamplePos() { return m_SamplePos; }
 
+  const DeformationVectorType *GetDisplacement() const { return m_PhiLine; }
+
 protected:
 
   MetricType *m_Metric;
@@ -488,8 +492,8 @@ protected:
 
   InputComponentType *m_FixedLine;
   typename MaskImageType::PixelType *m_FixedMaskLine;
-  typename TMetricTraits::DeformationFieldType::PixelType *m_PhiLine;
-  typename TMetricTraits::DeformationFieldType::PixelType *m_JitterLine;
+  DeformationVectorType *m_PhiLine;
+  DeformationVectorType *m_JitterLine;
   typename TOutputImage::InternalPixelType *m_OutputLine;
 
   int m_LineLength;

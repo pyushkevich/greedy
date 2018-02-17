@@ -114,7 +114,7 @@ public:
    * this is the opposite of the gradient direction. For metrics that are meant to be maximized,
    * it is the gradient direction.
    */
-  virtual double GetGradientScalingFactor() const ITK_OVERRIDE { return -2.0; }
+  virtual double GetGradientScalingFactor() const ITK_OVERRIDE { return 2.0; }
 
 protected:
 
