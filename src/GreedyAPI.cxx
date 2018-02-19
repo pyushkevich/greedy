@@ -1646,6 +1646,10 @@ int GreedyApproach<VDim, TReal>
   // Set the scaling factors for multi-resolution
   of_helper.SetDefaultPyramidFactors(param.iter_per_level.size());
 
+  // Set the scaling mode depending on the metric
+  if(param.metric == GreedyParameters::MAHALANOBIS)
+    of_helper.SetScaleFixedImageWithVoxelSize(true);
+
   // Read the image pairs to register
   ReadImages(param, of_helper);
 

@@ -195,6 +195,7 @@ public:
   static void img_add_in_place(ImagePointer &trg, ImageType *a);
   static void img_subtract_in_place(ImagePointer &trg, ImageType *a);
   static void img_multiply_in_place(ImagePointer &trg, ImageType *a);
+  static void img_scale_in_place(ImageType *trg, TFloat scale);
   static TFloat img_euclidean_norm_sq(ImageType *trg);
   static TFloat img_voxel_sum(ImageType *trg);
   static void img_min_max(ImageType *src, TFloat &out_min, TFloat &out_max);

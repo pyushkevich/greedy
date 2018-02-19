@@ -238,6 +238,11 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
           lMoving = FloatImageType::New();
           LDDMMType::img_downsample(fltExtractFixed->GetOutput(), lFixed, m_PyramidFactors[i]);
           LDDMMType::img_downsample(fltExtractMoving->GetOutput(), lMoving, m_PyramidFactors[i]);
+
+          // For the Mahalanobis metric, the fixed image needs to be scaled by the factor of the 
+          // pyramid level because it describes voxel coordinates
+          if(m_ScaleFixedImageWithVoxelSize)
+            LDDMMType::img_scale_in_place(lFixed, 1.0 / m_PyramidFactors[i]);
           }
 
         // Add some noise to the images
@@ -1071,6 +1076,10 @@ public:
       {
       for(int i = 0; i < TInputWarp::ImageDimension; i++)
         w[i] = std::floor(v[i] * m_ScaleFactor + 0.5) * m_Precision;
+      }
+    else
+      {
+      w = v;
       }
 
     // Map to physical space

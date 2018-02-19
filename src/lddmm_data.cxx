@@ -52,6 +52,7 @@
 #include "itkComposeImageFilter.h"
 #include "itkMinimumMaximumImageFilter.h"
 #include "itkTernaryFunctorImageFilter.h"
+#include "itkShiftScaleImageFilter.h"
 
 #include "FastWarpCompositeImageFilter.h"
 
@@ -329,6 +330,20 @@ LDDMMData<TFloat, VDim>
   flt->GraftOutput(trg);
   flt->Update();
 }
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::img_scale_in_place(ImageType *img, TFloat scale)
+{
+  typedef itk::ShiftScaleImageFilter<ImageType, ImageType> FilterType;
+  typename FilterType::Pointer filter = FilterType::New();
+  filter->SetScale(scale);
+  filter->SetInput(img);
+  filter->GraftOutput(img);
+  filter->Update();
+}
+
 
 template <class TFloat, uint VDim>
 void 

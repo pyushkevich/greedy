@@ -66,6 +66,13 @@ public:
   /** Set the pyramid factors - for multi-resolution (e.g., 8,4,2) */
   void SetPyramidFactors(const PyramidFactorsType &factors);
 
+  /** 
+   * Set whether the fixed images should be scaled down by the pyramid factors
+   * when subsampling. This is needed for the Mahalanobis distance metric, but not for
+   * any of the metrics that use image intensities 
+   */
+  void SetScaleFixedImageWithVoxelSize(bool onoff) { m_ScaleFixedImageWithVoxelSize = onoff; }
+
   /** Add a pair of multi-component images to the class - same weight for each component */
   void AddImagePair(MultiComponentImageType *fixed, MultiComponentImageType *moving, double weight);
 
@@ -209,7 +216,8 @@ public:
     VectorImageType *warp, VectorImageType *out, VectorImageType *work, 
     FloatImageType *error_norm = NULL, double tol = 0.0, int max_iter = 20);
 
-  MultiImageOpticalFlowHelper() : m_JitterSigma(0.0) {}
+  MultiImageOpticalFlowHelper() : 
+    m_JitterSigma(0.0), m_ScaleFixedImageWithVoxelSize(false) {}
 
 protected:
 
@@ -253,6 +261,11 @@ protected:
 
   // Adjust NCC radius to be smaller than half image size
   SizeType AdjustNCCRadius(int level, const SizeType &radius, bool report_on_adjust);
+
+  // Whether the fixed images should be scaled down by the pyramid factors
+  // when subsampling. This is needed for the Mahalanobis distance metric, but not for
+  // any of the metrics that use image intensities
+  bool m_ScaleFixedImageWithVoxelSize;
 };
 
 #endif
