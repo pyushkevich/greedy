@@ -206,8 +206,8 @@ struct GreedyParameters
   // Mask for the moving image
   std::string moving_mask;
 
-  // Inverse warp
-  std::string inverse_warp;
+  // Inverse warp and root warp, for writing in deformable mode
+  std::string inverse_warp, root_warp;
   int warp_exponent;
 
   // Precision for output warps

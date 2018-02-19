@@ -2041,32 +2041,44 @@ int GreedyApproach<VDim, TReal>
 
     // Write the resulting transformation field
     of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevelExp, param.output.c_str(), param.warp_precision);
+
+    if(param.root_warp.size())
+      {
+      // If asked to write root warp, do so
+      of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevel, param.root_warp.c_str(), 0);
+      }
+    if(param.inverse_warp.size())
+      {
+      // Compute the inverse (this is probably unnecessary for small warps)
+      of_helper.ComputeDeformationFieldInverse(uLevel, uLevelWork, 0);
+      of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevelWork, param.inverse_warp.c_str(), param.warp_precision);
+      }
     }
   else
     {
     // Write the resulting transformation field
     of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevel, param.output.c_str(), param.warp_precision);
-    }
 
-  // If an inverse is requested, compute the inverse using the Chen 2008 fixed method.
-  // A modification of this method is that if convergence is slow, we take the square
-  // root of the forward transform.
-  //
-  // TODO: it would be more efficient to check the Lipschitz condition rather than
-  // the brute force approach below
-  //
-  // TODO: the maximum checks should only be done over the region where the warp is
-  // not going outside of the image. Right now, they are meaningless and we are doing
-  // extra work when computing the inverse.
-  if(param.inverse_warp.size())
-    {
-    // Compute the inverse
-    VectorImagePointer uInverse = VectorImageType::New();
-    LDDMMType::alloc_vimg(uInverse, uLevel);
-    of_helper.ComputeDeformationFieldInverse(uLevel, uInverse, param.warp_exponent);
+    // If an inverse is requested, compute the inverse using the Chen 2008 fixed method.
+    // A modification of this method is that if convergence is slow, we take the square
+    // root of the forward transform.
+    //
+    // TODO: it would be more efficient to check the Lipschitz condition rather than
+    // the brute force approach below
+    //
+    // TODO: the maximum checks should only be done over the region where the warp is
+    // not going outside of the image. Right now, they are meaningless and we are doing
+    // extra work when computing the inverse.
+    if(param.inverse_warp.size())
+      {
+      // Compute the inverse
+      VectorImagePointer uInverse = VectorImageType::New();
+      LDDMMType::alloc_vimg(uInverse, uLevel);
+      of_helper.ComputeDeformationFieldInverse(uLevel, uInverse, param.warp_exponent);
 
-    // Write the warp using compressed format
-    of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uInverse, param.inverse_warp.c_str(), param.warp_precision);
+      // Write the warp using compressed format
+      of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uInverse, param.inverse_warp.c_str(), param.warp_precision);
+      }
     }
   return 0;
 }

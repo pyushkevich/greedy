@@ -408,6 +408,10 @@ int main(int argc, char *argv[])
         {
         param.inverse_warp = cl.read_output_filename();
         }
+      else if(arg == "-oroot")
+        {
+        param.root_warp = cl.read_output_filename();
+        }
       else if(arg == "-exp")
         {
         param.warp_exponent = cl.read_integer();
