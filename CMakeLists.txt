@@ -24,6 +24,8 @@ CMAKE_DEPENDENT_OPTION(GREEDY_USE_FFTW
   "Use features provided by the FFTW library, only for experimental LDDMM code" OFF
   "GREEDY_BUILD_LDDMM" OFF)
 
+# Do we want to build MACF tools?
+OPTION(GREEDY_BUILD_MACF "Build experimental multi-atlas correspondence fusion code" OFF)
 
 #--------------------------------------------------------------------------------
 # Dependent packages
@@ -102,6 +104,8 @@ SET(GREEDY_SRC
   ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
   src/greedy_main.cxx)
 
+SET(MACF_SRC src/macf_optimization.cxx)
+
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
 
 # The executables are only compiled when the software is built as its own project
@@ -110,6 +114,11 @@ IF(GREEDY_BUILD_LDDMM)
   TARGET_LINK_LIBRARIES(lddmm greedyapi
     ${ITK_LIBRARIES} ${FFTWF_LIB}
     ${FFTWF_THREADS_LIB})
+ENDIF()
+
+IF(GREEDY_BUILD_MACF)
+  ADD_EXECUTABLE(macf ${MACF_SRC})
+  TARGET_LINK_LIBRARIES(macf greedyapi ${ITK_LIBRARIES})
 ENDIF()
 
 ADD_EXECUTABLE(greedy ${GREEDY_SRC})
