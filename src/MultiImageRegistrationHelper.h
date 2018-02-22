@@ -175,6 +175,8 @@ public:
 
   static void AffineToField(LinearTransformType *tran, VectorImageType *def);
 
+  void DownsampleWarp(VectorImageType *srcWarp, VectorImageType *trgWarp, int srcLevel, int trgLevel);
+
   /** Convert a warp to physical space */
   static void VoxelWarpToPhysicalWarp(VectorImageType *warp, ImageBaseType *moving_space, VectorImageType *result);
   static void PhysicalWarpToVoxelWarp(VectorImageType *warp, ImageBaseType *moving_space, VectorImageType *result);

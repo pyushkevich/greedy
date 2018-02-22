@@ -1721,6 +1721,26 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::vimg_scale_in_place(uk, 2.0);
       uLevel = uk;
       }
+    else if(param.initial_warp.size())
+      {
+      // The user supplied an initial warp or initial root warp. In this case, we
+      // do not start iteration from zero, but use the initial warp to start from
+      VectorImagePointer uInit = VectorImageType::New();
+
+      // Read the warp file
+      LDDMMType::vimg_read(param.initial_warp.c_str(), uInit );
+
+      // Convert the warp file into voxel units from physical units
+      OFHelperType::PhysicalWarpToVoxelWarp(uInit, uInit, uInit);
+
+      // Scale the initial warp by the pyramid level
+      LDDMMType::vimg_resample_identity(uInit, refspace, uk);
+      LDDMMType::vimg_scale_in_place(uk, 1.0 / (1 << level));
+      uLevel = uk;
+      itk::Index<VDim> test; test.Fill(24);
+      std::cout << "Index 24x24x24 maps to " << uInit->GetPixel(test) << std::endl;
+      std::cout << "Index 24x24x24 maps to " << uk->GetPixel(test) << std::endl;
+      }
     else if(param.affine_init_mode != VOX_IDENTITY)
       {
       typename LinearTransformType::Pointer tran = LinearTransformType::New();

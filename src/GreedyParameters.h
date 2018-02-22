@@ -200,6 +200,9 @@ struct GreedyParameters
   AffineDOF affine_dof;
   TransformSpec affine_init_transform;
 
+  // Filename of initial warp
+  std::string initial_warp;
+
   // Mask for gradient computation (fixed mask)
   std::string gradient_mask;
 

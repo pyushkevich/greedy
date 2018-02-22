@@ -110,6 +110,8 @@ int usage()
   printf("                           deformation fields and Jacobians than the pure greedy approach.\n");
   printf("  -svlb                  : Same as -sv but uses the more accurate but also more expensive \n");
   printf("                           update of v, v <- v + u + [v,u]. Experimental feature \n");
+  printf("  -id image.nii          : Specifies the initial warp to start iteration from. In stationary mode, this \n");
+  printf("                           is the initial stationary velocity field (output by -oroot option)\n");
   printf("Initial transform specification: \n");
   printf("  -ia filename           : initial affine matrix for optimization (not the same as -it) \n");
   printf("  -ia-identity           : initialize affine matrix based on NIFTI headers \n");
@@ -249,6 +251,10 @@ int main(int argc, char *argv[])
         ip.fixed = cl.read_existing_filename();
         ip.moving = cl.read_existing_filename();
         param.inputs.push_back(ip);
+        }
+      else if(arg == "-id")
+        {
+        param.initial_warp = cl.read_existing_filename();
         }
       else if(arg == "-ia")
         {

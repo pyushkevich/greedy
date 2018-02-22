@@ -41,6 +41,7 @@
 #include "OneDimensionalInPlaceAccumulateFilter.h"
 #include "itkUnaryFunctorImageFilter.h"
 #include "itkImageFileWriter.h"
+#include "GreedyException.h"
 
 template <class TFloat, unsigned int VDim>
 void
@@ -1130,6 +1131,34 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetInput(warp);
   filter->GraftOutput(result);
   filter->Update();
+}
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::DownsampleWarp(VectorImageType *srcWarp, VectorImageType *trgWarp, int srcLevel, int trgLevel)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  // Get the factor by which to downsample
+  int src_factor = m_PyramidFactors[srcLevel];
+  int trg_factor = m_PyramidFactors[trgLevel];
+  if(src_factor < trg_factor)
+    {
+    // Resample the warp - no smoothing
+    LDDMMType::vimg_resample_identity(srcWarp, this->GetReferenceSpace(trgLevel), trgWarp);
+
+    // Scale by the factor
+    LDDMMType::vimg_scale_in_place(trgWarp, src_factor / trg_factor);
+    }
+  else if(src_factor == trg_factor)
+    {
+    LDDMMType::vimg_copy(srcWarp, trgWarp);
+    }
+  else
+    {
+    throw GreedyException("DownsampleWarp called for upsampling");
+    }
 }
 
 template <class TFloat, unsigned int VDim>
