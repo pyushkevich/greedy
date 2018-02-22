@@ -99,6 +99,12 @@ public:
   static void alloc_cimg(CompositeImagePointer &img, ImageBaseType *ref, int n_comp);
   static void alloc_mimg(MatrixImagePointer &img, ImageBaseType *ref);
 
+  // These methods are shorthands for creating an image and allocating it
+  static ImagePointer alloc_img(ImageBaseType *ref);
+  static VectorImagePointer alloc_vimg(ImageBaseType *ref);
+  static MatrixImagePointer alloc_mimg(ImageBaseType *ref);
+  static CompositeImagePointer alloc_cimg(ImageBaseType *ref, int n_comp);
+
   // Initialize LDDMM data 
   static void init(LDDMMData<TFloat, VDim> &, 
     ImageType *fix, ImageType *mov, 
@@ -172,7 +178,7 @@ public:
   // compute trg = trg + s * a
   static void vimg_add_scaled_in_place(VectorImageType *trg, VectorImageType *a, TFloat s);
 
-  static void vimg_scale(VectorImageType *src, TFloat s, VectorImageType *trg);
+  static void vimg_scale(const VectorImageType *src, TFloat s, VectorImageType *trg);
   static void vimg_multiply_in_place(VectorImageType *trg, ImageType *s);
   static void vimg_euclidean_inner_product(ImagePointer &trg, VectorImageType *a, VectorImageType *b);
   static TFloat vimg_euclidean_norm_sq(VectorImageType *trg);
@@ -222,6 +228,10 @@ public:
   static IOComponentType vimg_read(const char *fn, VectorImagePointer &trg);
   static IOComponentType cimg_read(const char *fn, CompositeImagePointer &trg);
 
+  static ImagePointer img_read(const char *fn);
+  static VectorImagePointer vimg_read(const char *fn);
+  static CompositeImagePointer cimg_read(const char *fn);
+
   // Write scalar image, with optional output format specification
   static void img_write(ImageType *src, const char *fn,
                         IOComponentType comp = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE);
@@ -238,9 +248,22 @@ public:
 
   static void vimg_copy(const VectorImageType *src, VectorImageType *trg);
   static void img_copy(const ImageType *src, ImageType *trg);
+  static void mimg_copy(const MatrixImageType *src, MatrixImageType *trg);
 
   // Compute a array from v
   void compute_semi_lagrangean_a();
+
+  // Exponentiate a deformation field using scaling and recursive squaring. 
+  // The source image may not be the same as the target image!
+  static void vimg_exp(
+    const VectorImageType *src, VectorImageType *trg, VectorImageType *work,
+    int exponent, TFloat scale = 1.0);
+
+  // Exponentiate a deformation field and its Jacobian
+  static void vimg_exp_with_jacobian(
+    const VectorImageType *src, VectorImageType *trg, VectorImageType *work,
+    MatrixImageType *trg_jac, MatrixImageType *work_mat,
+    int exponent, TFloat scale);
 
   // Integrate forward tranform (phi_0_t)
   void integrate_phi_t0();

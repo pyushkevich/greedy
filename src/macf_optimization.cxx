@@ -9,24 +9,10 @@
 
 using namespace std;
 
-int usage()
-{
-  printf("macf_optimize: optimization routine for CVPR 2012 MACF paper\n");
-  printf("usage:\n");
-  printf("  macf_optimize [options]\n");
-  printf("options:\n");
-  printf("  -d <2|3>         : number of dimensions\n");
-  printf("  -ids <file>      : text file of ids\n");
-  printf("  -ref <image>     : refernce image\n");
-  printf("  -psi <pattern>   : pattern of root warps of psi\n");
-  printf("  -wgt <pattern>   : pattern of weight images\n");
-  printf("  -o <pattern>     : output phi pattern\n");
-  return -1;
-}
-
 struct MACFParameters
 {
   string fnReference, fnPsiPattern, fnWeightPattern, fnIds, fnOutPhiPattern;
+  string fnGrayPattern, fnOutIterTemplatePattern;
 
   int exponent;
   double sigma1, sigma2;
@@ -44,6 +30,34 @@ struct MACFParameters
     }
 };
 
+int usage()
+{
+  MACFParameters p;
+
+  printf("macf_optimize: optimization routine for CVPR 2012 MACF paper\n");
+  printf("usage:\n");
+  printf("  macf_optimize [options]\n");
+  printf("required options:\n");
+  printf("  -d <2|3>             : number of dimensions\n");
+  printf("  -ids <file>          : text file of ids\n");
+  printf("  -ref <image>         : reference image\n");
+  printf("  -psi <pattern_2s>    : pattern of root warps of psi\n");
+  printf("  -wgt <pattern_2s>    : pattern of weight images\n");
+  printf("  -o <pattern_1s>      : output phi pattern\n");
+  printf("additional options:\n");
+  printf("  -n <value>           : number of iterations (def = %d)\n",p.n_iter);
+  printf("  -eps <value>         : step size (def = %f)\n",p.epsilon);
+  printf("  -exp <value>         : exponent for scaling and squaring (def = %d)\n",p.exponent);
+  printf("  -s <sigma1> <sigma2> : smoothing in voxels (def = %f, %f)\n",p.sigma1,p.sigma2);
+  printf("  -img <pattern_1s>    : pattern of grayscale images (for visualizing registration)\n");
+  printf("  -otemp <pattern_1d>  : pattern for saving templates at each iteration\n");
+  printf("patterns:\n");
+  printf("  pattern_1s           : of form blah_%%s_blah.nii.gz\n");
+  printf("  pattern_2s           : of form blah_%%s_blah_%%s_blah.nii.gz (fixed, then moving)\n");
+  printf("  pattern_1d           : of form blah_%%03d_blah.nii.gz\n");
+  return -1;
+}
+
 template <typename TFloat, unsigned int VDim>
 class MACFWorker
 {
@@ -53,11 +67,16 @@ public:
   typedef MultiImageOpticalFlowHelper<TFloat, VDim> OFHelperType;
   typedef typename LDDMMType::VectorImageType VectorImageType;
   typedef typename LDDMMType::ImageType ImageType;
+  typedef typename LDDMMType::MatrixImageType MatrixImageType;
   typedef typename VectorImageType::Pointer VectorImagePointer;
   typedef typename ImageType::Pointer ImagePointer;
+  typedef typename MatrixImageType::Pointer MatrixImagePointer;
 
   void ReadImages()
     {
+    // Buffer for expanding printf-like patterns
+    char fn[1024];
+
     // Read the list of ids
     ifstream iff(m_Param.fnIds);
     string id;
@@ -65,34 +84,27 @@ public:
       m_Ids.push_back(id);
 
     // Allocate the main storage
-    int m_Size = m_Ids.size();
+    m_Size = m_Ids.size();
     m_Data.resize(m_Size);
 
     // Read the reference image
-    ImagePointer refimg = ImageType::New();
-    LDDMMType::img_read(m_Param.fnReference.c_str(), refimg);
+    m_Reference = LDDMMType::img_read(m_Param.fnReference.c_str());
 
     // Some working images
-    m_Work = VectorImageType::New();
-    LDDMMType::alloc_vimg(m_Work, refimg);
+    m_Work = LDDMMType::alloc_vimg(m_Reference);
+    m_ScalarWork = LDDMMType::alloc_img(m_Reference);
 
-    m_WorkNorm = ImageType::New();
-    LDDMMType::alloc_img(m_WorkNorm, refimg);
+    // Jacobian storage
+    MatrixImagePointer jac = LDDMMType::alloc_mimg(m_Reference);
+    MatrixImagePointer jac_work = LDDMMType::alloc_mimg(m_Reference);
 
     // Create all the pair data
     for(int i = 0; i < m_Size; i++)
       {
-      m_Data[i].u = VectorImageType::New();
-      LDDMMType::alloc_vimg(m_Data[i].u, refimg);
-
-      m_Data[i].u_root = VectorImageType::New();
-      LDDMMType::alloc_vimg(m_Data[i].u_root, refimg);
-
-      m_Data[i].grad_u = VectorImageType::New();
-      LDDMMType::alloc_vimg(m_Data[i].grad_u, refimg);
-
-      m_Data[i].delta = VectorImageType::New();
-      LDDMMType::alloc_vimg(m_Data[i].delta, refimg);
+      m_Data[i].u = LDDMMType::alloc_vimg(m_Reference);
+      m_Data[i].u_root = LDDMMType::alloc_vimg(m_Reference);
+      m_Data[i].grad_u = LDDMMType::alloc_vimg(m_Reference);
+      m_Data[i].delta = LDDMMType::alloc_vimg(m_Reference);
       
       m_Data[i].pair_data.resize(m_Size);
 
@@ -104,65 +116,43 @@ public:
           PairData &pd = m_Data[i].pair_data[j];
 
           // Read the psi root image
-          char fn[1024];
           sprintf(fn, m_Param.fnPsiPattern.c_str(), m_Ids[i].c_str(), m_Ids[j].c_str());
-          VectorImagePointer psi_root = VectorImageType::New();
-          LDDMMType::vimg_read(fn, psi_root);
+          VectorImagePointer psi_root = LDDMMType::vimg_read(fn);
           OFHelperType::PhysicalWarpToVoxelWarp(psi_root, psi_root, psi_root);
 
           // Integrate the psi image forward
-          VectorImagePointer psi_exp = VectorImageType::New();
-          LDDMMType::alloc_vimg(psi_exp, refimg);
-          LDDMMType::vimg_copy(psi_root, psi_exp);
-          for(int i = 0; i < m_Param.exponent; i++)
-            {
-            LDDMMType::interp_vimg(psi_exp, psi_exp, 1.0, m_Work);
-            LDDMMType::vimg_add_in_place(psi_exp, m_Work);
-            }
-          pd.psi_forward = psi_exp;
-
-          // Jacobian matrices
-          typedef typename LDDMMType::MatrixImageType JacobianImageType;
-          typename JacobianImageType::Pointer jac = JacobianImageType::New();
-          LDDMMType::alloc_mimg(jac, refimg);
-          typename JacobianImageType::Pointer jac_work = JacobianImageType::New();
-          LDDMMType::alloc_mimg(jac_work, refimg);
+          pd.psi_forward = LDDMMType::alloc_vimg(m_Reference);
+          LDDMMType::vimg_exp(psi_root, pd.psi_forward, m_Work, m_Param.exponent, 1.0);
 
           // Integrate the psi image backward with jacobian 
-          LDDMMType::vimg_copy(psi_root, psi_exp);
-          LDDMMType::vimg_scale_in_place(psi_exp, -1.0);
-          LDDMMType::field_jacobian(psi_exp, jac);
-          for(int i = 0; i < m_Param.exponent; i++)
-            {
-            // Compute the composition of the Jacobian with itself
-            LDDMMType::jacobian_of_composition(jac, jac, psi_exp, jac_work);
-
-            // Swap the pointers, so jac points to the actual composed jacobian
-            typename JacobianImageType::Pointer temp = jac_work.GetPointer();
-            jac_work = jac.GetPointer();
-            jac = temp.GetPointer();
-
-            // Exponentiate the warp itself
-            LDDMMType::interp_vimg(psi_exp, psi_exp, 1.0, m_Work);
-            LDDMMType::vimg_add_in_place(psi_exp, m_Work);
-            }
-          pd.psi_inverse = psi_exp;
+          pd.psi_inverse = LDDMMType::alloc_vimg(m_Reference);
+          LDDMMType::vimg_exp_with_jacobian(
+            psi_root, pd.psi_inverse, m_Work, jac, jac_work, m_Param.exponent, -1.0);
 
           // Compute Jacobian determinant
-          ImagePointer jac_det = ImageType::New();
-          LDDMMType::alloc_img(jac_det, refimg);
-          LDDMMType::mimg_det(jac, 1.0, jac_det);
+          LDDMMType::mimg_det(jac, 1.0, m_ScalarWork);
 
           // Load the weight image
           sprintf(fn, m_Param.fnWeightPattern.c_str(), m_Ids[i].c_str(), m_Ids[j].c_str());
-          pd.wgt_fixed = ImageType::New();
-          LDDMMType::img_read(fn, pd.wgt_fixed);
+          pd.wgt_fixed = LDDMMType::img_read(fn);
 
           // Warp the weight by the inverse psi and scale by the determinant
-          LDDMMType::interp_img( pd.wgt_fixed, psi_exp, pd.wgt_moving, false, false, 0);
-          LDDMMType::img_multiply_in_place(pd.wgt_moving, jac_det);
+          pd.wgt_moving = LDDMMType::alloc_img(m_Reference);
+          LDDMMType::interp_img( pd.wgt_fixed, pd.psi_inverse, pd.wgt_moving, false, false, 0);
+          LDDMMType::img_multiply_in_place(pd.wgt_moving, m_ScalarWork);
+
+          cout << "." << flush;
           }
         }
+
+      // Read the optional grayscale images
+      if(m_Param.fnGrayPattern.size())
+        {
+        sprintf(fn, m_Param.fnGrayPattern.c_str(), m_Ids[i].c_str());
+        m_Data[i].img_gray = LDDMMType::img_read(fn);
+        }
+
+      cout << "." << endl;
       }
     }
 
@@ -196,7 +186,38 @@ public:
       total_error += m_Data[i].norm_delta;
       }
 
+    // Extract the average error per pixel per image
+    total_error /= m_Size * m_Reference->GetBufferedRegion().GetNumberOfPixels();
+
     return total_error;
+    }
+
+  void BuildTemplate(int iter)
+    {
+    // We need a couple of images
+    ImagePointer templ = LDDMMType::alloc_img(m_Reference);
+    VectorImagePointer phi_exp = LDDMMType::alloc_vimg(m_Reference);
+
+    // Iterate over the images
+    for(int i = 0; i < m_Size; i++)
+      {
+      // Compute the deformation that warps i-th image into template space
+      LDDMMType::vimg_exp(m_Data[i].u_root, phi_exp, m_Work, m_Param.exponent, -1.0);
+
+      // Apply that warp to the gray image
+      LDDMMType::interp_img(m_Data[i].img_gray, phi_exp, m_ScalarWork, false, false, 0);
+
+      // Add the image to the template
+      LDDMMType::img_add_in_place(templ, m_ScalarWork);
+      }
+
+    // Scale the template by the number of images
+    LDDMMType::img_scale_in_place(templ, 1.0 / m_Size);
+
+    // Write the template
+    char fn[1024];
+    sprintf(fn, m_Param.fnOutIterTemplatePattern.c_str(), iter);
+    LDDMMType::img_write(templ, fn);
     }
 
   void ComputeGradientAndUpdate()
@@ -214,8 +235,7 @@ public:
         {
         if(m != j)
           {
-          PairData &pd = m_Data[m].pair_data[j];
-
+          PairData &pd = m_Data[j].pair_data[m];
           LDDMMType::interp_vimg(m_Data[j].delta, pd.psi_inverse, 1.0, m_Work);
           LDDMMType::vimg_multiply_in_place(m_Work, pd.wgt_moving);
           LDDMMType::vimg_subtract_in_place(m_Data[m].grad_u, m_Work);
@@ -227,7 +247,7 @@ public:
 
       // Compute the norm of the gradient
       TFloat norm_min, norm_max;
-      LDDMMType::vimg_norm_min_max(m_Data[m].grad_u, m_WorkNorm, norm_min, norm_max);
+      LDDMMType::vimg_norm_min_max(m_Data[m].grad_u, m_ScalarWork, norm_min, norm_max);
       if(norm_max > global_max_norm)
         global_max_norm = norm_max;
       }
@@ -246,12 +266,7 @@ public:
       LDDMMType::vimg_smooth_withborder(m_Work, m_Data[m].u_root, m_Param.sigma2, 1);
 
       // Exponentiate the root warps
-      LDDMMType::vimg_copy(m_Data[m].u_root, m_Data[m].u);
-      for(int j = 0; j < m_Param.exponent; j++)
-        {
-        LDDMMType::interp_vimg(m_Data[m].u, m_Data[m].u, 1.0, m_Work);
-        LDDMMType::vimg_add_in_place(m_Data[m].u, m_Work);
-        }
+      LDDMMType::vimg_exp(m_Data[m].u_root, m_Data[m].u, m_Work, m_Param.exponent, 1.0);
       }
     }
 
@@ -259,9 +274,11 @@ public:
     {
     for(int i = 0; i < m_Size; i++)
       {
+      // Map the warp back into physical units
+      OFHelperType::VoxelWarpToPhysicalWarp(m_Data[i].u_root, m_Reference, m_Work);
       char fn[1024];
       sprintf(fn, m_Param.fnOutPhiPattern.c_str(), m_Ids[i].c_str());
-      LDDMMType::vimg_write(m_Data[i].u_root, fn); 
+      LDDMMType::vimg_write(m_Work, fn); 
       }
     }
 
@@ -269,6 +286,7 @@ public:
     {
     // Read the images into the datastructure
     ReadImages();
+    printf("Read images for %d ids\n", m_Size);
 
     // Iterate
     for(int iter = 0; iter < m_Param.n_iter; iter++)
@@ -276,6 +294,10 @@ public:
       // Compute the objective and deltas
       double total_error = ComputeDeltasAndObjective();
       printf("Iter %04d:   Total Error: %12.4f\n", iter, total_error);
+
+      // Write the iteration template
+      if(m_Param.fnGrayPattern.size() && m_Param.fnOutIterTemplatePattern.size())
+        BuildTemplate(iter);
 
       // Compute the gradients 
       ComputeGradientAndUpdate();
@@ -301,12 +323,15 @@ protected:
     vector<PairData> pair_data;
     VectorImagePointer u, u_root, grad_u;
     VectorImagePointer delta;
+    ImagePointer img_gray;
     double norm_delta;
     };
 
   VectorImagePointer m_Work;
-  ImagePointer m_WorkNorm;
+  ImagePointer m_ScalarWork;
   MACFParameters m_Param;
+
+  ImagePointer m_Reference;
 
 
   vector<ImageData> m_Data;
@@ -352,6 +377,31 @@ int main(int argc, char *argv[])
     else if(arg == "-o")
       {
       param.fnOutPhiPattern = cl.read_string();
+      }
+    else if(arg == "-img")
+      {
+      param.fnGrayPattern = cl.read_string();
+      }
+    else if(arg == "-exp")
+      {
+      param.exponent = cl.read_integer();
+      }
+    else if(arg == "-eps")
+      {
+      param.epsilon = cl.read_double();
+      }
+    else if(arg == "-s")
+      {
+      param.sigma1 = cl.read_double();
+      param.sigma2 = cl.read_double();
+      }
+    else if(arg == "-n")
+      {
+      param.n_iter = cl.read_integer();
+      }
+    else if(arg == "-otemp")
+      {
+      param.fnOutIterTemplatePattern = cl.read_string();
       }
     else
       {

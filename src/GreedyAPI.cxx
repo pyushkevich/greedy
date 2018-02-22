@@ -1769,12 +1769,7 @@ int GreedyApproach<VDim, TReal>
 
         // This is the exponentiation of the stationary velocity field
         // Take current warp to 'exponent' power - this is the actual warp
-        LDDMMType::vimg_copy(uk, uk_exp);
-        for(int i = 0; i < param.warp_exponent; i++)
-          {
-          LDDMMType::interp_vimg(uk_exp, uk_exp, 1.0, viTemp);
-          LDDMMType::vimg_add_in_place(uk_exp, viTemp);
-          }
+        LDDMMType::vimg_exp(uk, uk_exp, viTemp, param.warp_exponent, 1.0);
         uFull = uk_exp;
 
         tm_Integration.Stop();
@@ -2032,16 +2027,9 @@ int GreedyApproach<VDim, TReal>
   if(param.flag_stationary_velocity_mode)
     {
     // Take current warp to 'exponent' power - this is the actual warp
-    VectorImagePointer uLevelExp = VectorImageType::New();
-    VectorImagePointer uLevelWork = VectorImageType::New();
-    LDDMMType::alloc_vimg(uLevelExp, uLevel);
-    LDDMMType::alloc_vimg(uLevelWork, uLevel);
-    LDDMMType::vimg_copy(uLevel, uLevelExp);
-    for(int i = 0; i < param.warp_exponent; i++)
-      {
-      LDDMMType::interp_vimg(uLevelExp, uLevelExp, 1.0, uLevelWork);
-      LDDMMType::vimg_add_in_place(uLevelExp, uLevelWork);
-      }
+    VectorImagePointer uLevelExp = LDDMMType::alloc_vimg(uLevel);
+    VectorImagePointer uLevelWork = LDDMMType::alloc_vimg(uLevel);
+    LDDMMType::vimg_exp(uLevel, uLevelExp, uLevelWork, param.warp_exponent, 1.0);
 
     // Write the resulting transformation field
     of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevelExp, param.output.c_str(), param.warp_precision);
@@ -2221,28 +2209,23 @@ void GreedyApproach<VDim, TReal>
       // If there is an exponent on the transform spec, handle it
       if(tran_chain[i].exponent != 1)
         {
-        if(tran_chain[i].exponent < 1)
-          throw GreedyException("Currently only power of two exponents are supported for warps");
-
-        double n_real = log(tran_chain[i].exponent) / log(2.0);
+        // The exponent may be specified as a negative number, in which case we take the negative
+        // input and exponentiate it
+        double absexp = fabs(tran_chain[i].exponent);
+        double n_real = log(absexp) / log(2.0);
         int n = (int) (n_real + 0.5);
         if(fabs(n - n_real) > 1.0e-4) 
           throw GreedyException("Currently only power of two exponents are supported for warps");
 
         // Bring the transform into voxel space
-        VectorImagePointer warp_phys = VectorImageType::New();
-        LDDMMType::alloc_vimg(warp_phys, warp_i);
-        OFHelperType::PhysicalWarpToVoxelWarp(warp_i, warp_i, warp_phys);
+        VectorImagePointer warp_exp = LDDMMType::alloc_vimg(warp_i);
+        OFHelperType::PhysicalWarpToVoxelWarp(warp_i, warp_i, warp_i);
 
         // Square the transform N times (in its own space)
-        for(int i = 0; i < n; i++)
-          {
-          LDDMMType::interp_vimg(warp_phys, warp_phys, 1.0, warp_tmp);
-          LDDMMType::vimg_add_in_place(warp_phys, warp_tmp);
-          }
+        LDDMMType::vimg_exp(warp_i, warp_exp, warp_tmp, n, tran_chain[i].exponent / absexp);
 
         // Bring the transform back into physical space
-        OFHelperType::VoxelWarpToPhysicalWarp(warp_phys, warp_i, warp_i);
+        OFHelperType::VoxelWarpToPhysicalWarp(warp_exp, warp_i, warp_i);
         }
 
       // Now we need to compose the current transform and the overall warp.
