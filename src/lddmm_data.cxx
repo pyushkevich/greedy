@@ -11,7 +11,7 @@
   ALFABIS development is funded by the NIH grant R01 EB017255.
 
   ALFABIS is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
+  it under the terms of the GNU General Public License as publishGed by
   the Free Software Foundation, either version 3 of the License, or
   (at your option) any later version.
 
@@ -79,6 +79,16 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::VectorImagePointer
+LDDMMData<TFloat, VDim>
+::alloc_vimg(ImageBaseType *ref)
+{
+  VectorImagePointer p = VectorImageType::New();
+  alloc_vimg(p, ref);
+  return p;
+}
+
+template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
 ::alloc_mimg(MatrixImagePointer &img, ImageBaseType *ref)
@@ -88,6 +98,16 @@ LDDMMData<TFloat, VDim>
   img->CopyInformation(ref);
   img->Allocate();
   img->FillBuffer(Mat());
+}
+
+template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::MatrixImagePointer
+LDDMMData<TFloat, VDim>
+::alloc_mimg(ImageBaseType *ref)
+{
+  MatrixImagePointer p = MatrixImageType::New();
+  alloc_mimg(p, ref);
+  return p;
 }
 
 template <class TFloat, uint VDim>
@@ -108,6 +128,16 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::CompositeImagePointer
+LDDMMData<TFloat, VDim>
+::alloc_cimg(ImageBaseType *ref, int n_comp)
+{
+  CompositeImagePointer p;
+  alloc_cimg(p, ref, n_comp);
+  return p;
+}
+
+template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
 ::alloc_img(ImagePointer &img, ImageBaseType *ref)
@@ -117,6 +147,16 @@ LDDMMData<TFloat, VDim>
   img->CopyInformation(ref);
   img->Allocate();
   img->FillBuffer(0.0);
+}
+
+template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::ImagePointer
+LDDMMData<TFloat, VDim>
+::alloc_img(ImageBaseType *ref)
+{
+  ImagePointer p;
+  alloc_img(p, ref);
+  return p;
 }
 
 template <class TFloat, uint VDim>
@@ -200,6 +240,59 @@ LDDMMData<TFloat, VDim>
   wf->SetUsePhysicalSpace(phys_space);
   wf->Update();
 }
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::vimg_exp(
+  const VectorImageType *src, VectorImageType *trg, VectorImageType *work,
+  int exponent, TFloat scale)
+{
+  // Scale the image if needed
+  if(scale != 1.0)
+    vimg_scale(src, scale, trg);
+  else
+    vimg_copy(src, trg);
+
+  for(int q = 0; q < exponent; q++)
+    {
+    interp_vimg(trg, trg, 1.0, work);
+    vimg_add_in_place(trg, work);
+    }
+}
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::vimg_exp_with_jacobian(
+  const VectorImageType *src, VectorImageType *trg, VectorImageType *work,
+  MatrixImageType *trg_jac, MatrixImageType *work_mat,
+  int exponent, TFloat scale)
+{
+  // Scale the image if needed
+  if(scale != 1.0)
+    vimg_scale(src, scale, trg);
+  else
+    vimg_copy(src, trg);
+
+  // Compute the initial Jacobian
+  field_jacobian(trg, trg_jac);
+
+  // Perform the exponentiation
+  for(int q = 0; q < exponent; q++)
+    {
+    // Compute the composition of the Jacobian with itself, place in jac_work
+    jacobian_of_composition(trg_jac, trg_jac, trg, work_mat);
+
+    // Copy the data (TODO: this is a little wasteful)
+    mimg_copy(work_mat, trg_jac);
+
+    // Update the velocity field
+    interp_vimg(trg, trg, 1.0, work);
+    vimg_add_in_place(trg, work);
+    }
+}
+
 
 template <class TFloat, uint VDim>
 void 
@@ -497,7 +590,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::vimg_scale(VectorImageType*src, TFloat s, VectorImageType *trg)
+::vimg_scale(const VectorImageType*src, TFloat s, VectorImageType *trg)
 {
   typedef VectorScaleFunctor<TFloat, VDim> Functor;
   typedef itk::UnaryFunctorImageFilter<
@@ -864,8 +957,7 @@ LDDMMData<TFloat, VDim>
   mimg_vimg_product_plus_vimg(work, v, out, -1.0, 1.0, out);
 
   // Alternative approach
-  VectorImagePointer alt = VectorImageType::New();
-  alloc_vimg(alt, out);
+  VectorImagePointer alt = alloc_vimg(out);
   
   typedef LieBracketFilter<VectorImageType, VectorImageType> LieBracketFilterType;
   typename LieBracketFilterType::Pointer fltLieBracket = LieBracketFilterType::New();
@@ -1147,6 +1239,16 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::ImagePointer
+LDDMMData<TFloat, VDim>
+::img_read(const char *fn)
+{
+  ImagePointer p;
+  img_read(fn, p);
+  return p;
+}
+
+template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
 ::img_write(ImageType *src, const char *fn, IOComponentType comp)
@@ -1176,6 +1278,18 @@ LDDMMData<TFloat, VDim>
 
   return reader->GetImageIO()->GetComponentType();
 }
+
+template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::VectorImagePointer
+LDDMMData<TFloat, VDim>
+::vimg_read(const char *fn)
+{
+  VectorImagePointer p;
+  vimg_read(fn, p);
+  return p;
+}
+
+
 
 template <class TFloat, uint VDim>
 void 
@@ -1210,6 +1324,17 @@ LDDMMData<TFloat, VDim>
   trg = reader->GetOutput();
 
   return reader->GetImageIO()->GetComponentType();
+}
+
+
+template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::CompositeImagePointer
+LDDMMData<TFloat, VDim>
+::cimg_read(const char *fn)
+{
+  CompositeImagePointer p;
+  cimg_read(fn, p);
+  return p;
 }
 
 template <class TFloat, uint VDim>
@@ -1252,6 +1377,17 @@ LDDMMData<TFloat, VDim>
   fltCast->Update();
 }
 
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::mimg_copy(const MatrixImageType *src, MatrixImageType *trg)
+{
+  typedef itk::CastImageFilter<MatrixImageType, MatrixImageType> CastFilter;
+  typename CastFilter::Pointer fltCast = CastFilter::New();
+  fltCast->SetInput(src);
+  fltCast->GraftOutput(trg);
+  fltCast->Update();
+}
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
