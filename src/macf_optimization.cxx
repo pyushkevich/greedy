@@ -15,10 +15,12 @@ struct MACFParameters
   string fnGrayPattern, fnOutIterTemplatePattern;
   string fnTransportedWeightsPattern, fnOutTransportedWeightsPattern;
   string fnGlobalMask, fnInitialRootPhiInvPattern;
+  string fnOutIterDeltaSq;
 
   int exponent;
   double sigma1, sigma2;
   double epsilon;
+  int dumpfreq;
 
   // Number of iterations per level
   vector<int> n_iter;
@@ -30,6 +32,7 @@ struct MACFParameters
     sigma1 = sqrt(3.0);
     sigma2 = sqrt(0.5);
     epsilon = 0.25;
+    dumpfreq = 10;
 
     n_iter.push_back(100);
     n_iter.push_back(100);
@@ -58,7 +61,9 @@ int usage()
   printf("  -gm <image>          : global mask image *** BROKEN ***\n");
   printf("  -phi <pattern_1s>    : initial root-phi-inv (starting point for optimization)\n");
   printf("  -img <pattern_1s>    : pattern of grayscale images (for visualizing registration)\n");
-  printf("  -otemp <pattern_1d>  : pattern for saving templates at each iteration\n");
+  printf("  -otemp <pattern_2d>  : pattern for saving templates at each iteration\n");
+  printf("  -odelta <pattern_2d> : pattern for saving delta^2 at each iteration\n");
+  printf("  -freq <value>        : frequency with which per-iteration images are saved (def = %d)\n", p.dumpfreq);
   printf("transported weights:\n");
   printf("  -owtm <pattern_2s>   : write the weights transported to moving space to files\n");
   printf("  -wtm <pattern_2s>    : read transported weights (saves a lot of time upfront)\n");
@@ -370,8 +375,46 @@ public:
 
     // Write the template
     char fn[1024];
-    sprintf(fn, m_Param.fnOutIterTemplatePattern.c_str(), iter);
+    sprintf(fn, m_Param.fnOutIterTemplatePattern.c_str(), level, iter);
     LDDMMType::img_write(templ, fn);
+    }
+
+  void BuildErrorMap(int level, int iter)
+    {
+    // Reference to the level data
+    LevelData &lev = m_Levels[level];
+
+    // We need a couple of images
+    ImagePointer delta_i = LDDMMType::alloc_img(lev.reference);
+    ImagePointer mean_delta = LDDMMType::alloc_img(lev.reference);
+    VectorImagePointer phi_exp = LDDMMType::alloc_vimg(lev.reference);
+
+    // Iterate over the images
+    for(int i = 0; i < m_Size; i++)
+      {
+      // Get a reference to the i-th image data
+      ImageData &id = lev.img_data[i];
+
+      // Get the squared norm of delta
+      LDDMMType::vimg_euclidean_inner_product(delta_i, id.delta, id.delta);
+
+      // Compute the deformation that warps i-th image into template space
+      LDDMMType::vimg_exp(id.u_root, phi_exp, lev.work, m_Param.exponent, -1.0);
+
+      // Apply that warp to the gray image
+      LDDMMType::interp_img(delta_i, phi_exp, lev.scalar_work, false, false, 0);
+
+      // Add the image to the template
+      LDDMMType::img_add_in_place(mean_delta, lev.scalar_work);
+      }
+
+    // Scale the template by the number of images
+    LDDMMType::img_scale_in_place(mean_delta, 1.0 / m_Size);
+
+    // Write the template
+    char fn[1024];
+    sprintf(fn, m_Param.fnOutIterDeltaSq.c_str(), level, iter);
+    LDDMMType::img_write(mean_delta, fn);
     }
 
   void ComputeGradientAndUpdate(int level)
@@ -469,6 +512,11 @@ public:
       }
     }
 
+  bool DumpThisIter(int level, int iter)
+    {
+    return (iter % m_Param.dumpfreq) == 0 || (iter == m_Param.n_iter.size() - 1);
+    }
+
   void Run()
     {
     // Read the images into the datastructure
@@ -490,8 +538,12 @@ public:
         printf("Level %d, Iter %04d:   Total Error: %12.4f\n", ilev, iter, total_error);
 
         // Write the iteration template
-        if(m_Param.fnGrayPattern.size() && m_Param.fnOutIterTemplatePattern.size())
+        if(m_Param.fnGrayPattern.size() && m_Param.fnOutIterTemplatePattern.size() && DumpThisIter(ilev, iter))
           BuildTemplate(ilev, iter);
+
+        // Write the iteration template
+        if(m_Param.fnOutIterDeltaSq.size() && DumpThisIter(ilev, iter))
+          BuildErrorMap(ilev, iter);
 
         // Compute the gradients 
         ComputeGradientAndUpdate(ilev);
@@ -603,6 +655,14 @@ int main(int argc, char *argv[])
     else if(arg == "-eps")
       {
       param.epsilon = cl.read_double();
+      }
+    else if(arg == "-odelta")
+      {
+      param.fnOutIterDeltaSq = cl.read_string();
+      }
+    else if(arg == "-freq")
+      {
+      param.dumpfreq = cl.read_integer();
       }
     else if(arg == "-s")
       {
