@@ -78,7 +78,7 @@ public:
     char fn[1024];
 
     // Read the list of ids
-    ifstream iff(m_Param.fnIds);
+    ifstream iff(m_Param.fnIds.c_str());
     string id;
     while(iff >> id)
       m_Ids.push_back(id);
