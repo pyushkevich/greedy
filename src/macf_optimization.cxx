@@ -18,7 +18,9 @@ struct MACFParameters
   int exponent;
   double sigma1, sigma2;
   double epsilon;
-  int n_iter;
+
+  // Number of iterations per level
+  vector<int> n_iter;
 
 
   MACFParameters()
@@ -27,7 +29,9 @@ struct MACFParameters
     sigma1 = sqrt(3.0);
     sigma2 = sqrt(0.5);
     epsilon = 0.25;
-    n_iter = 100;
+
+    n_iter.push_back(100);
+    n_iter.push_back(100);
     }
 };
 
@@ -46,7 +50,7 @@ int usage()
   printf("  -wgt <pattern_2s>    : pattern of weight images\n");
   printf("  -o <pattern_1s>      : output phi pattern\n");
   printf("additional options:\n");
-  printf("  -n <value>           : number of iterations (def = %d)\n",p.n_iter);
+  printf("  -n <value>           : number of iterations (def = 100x100)\n");
   printf("  -eps <value>         : step size (def = %f)\n",p.epsilon);
   printf("  -exp <value>         : exponent for scaling and squaring (def = %d)\n",p.exponent);
   printf("  -s <sigma1> <sigma2> : smoothing in voxels (def = %f, %f)\n",p.sigma1,p.sigma2);
@@ -100,9 +104,6 @@ public:
 
   void ReadImages()
     {
-    // Buffer for expanding printf-like patterns
-    char fn[1024];
-
     // Read the list of ids
     ifstream iff(m_Param.fnIds);
     string id;
@@ -111,48 +112,68 @@ public:
 
     // Allocate the main storage
     m_Size = m_Ids.size();
-    m_Data.resize(m_Size);
 
-    // Read the reference image
-    m_Reference = LDDMMType::img_read(m_Param.fnReference.c_str());
+    // Create the levels
+    m_Levels.resize(m_Param.n_iter.size());
 
-    // Some working images
-    m_Work = LDDMMType::alloc_vimg(m_Reference);
-    m_ScalarWork = LDDMMType::alloc_img(m_Reference);
+    // Initialize the images for each level
+    typename vector<LevelData>::reverse_iterator lev, uplev;
+    int factor = 1;
+    for(lev= m_Levels.rbegin(); lev!= m_Levels.rend(); uplev = lev, ++lev, factor *= 2)
+      {
+      // Read or downsample the reference image
+      if(lev == m_Levels.rbegin())
+        lev->reference = LDDMMType::img_read(m_Param.fnReference.c_str());
+      else
+        lev->reference = LDDMMType::img_downsample(uplev->reference, 2);
 
-    // Jacobian storage
-    MatrixImagePointer jac = LDDMMType::alloc_mimg(m_Reference);
-    MatrixImagePointer jac_work = LDDMMType::alloc_mimg(m_Reference);
+      // Some working images
+      lev->work = LDDMMType::alloc_vimg(lev->reference);
+      lev->lev_psi_root = LDDMMType::alloc_vimg(lev->reference);
+      lev->scalar_work = LDDMMType::alloc_img(lev->reference);
+      lev->factor = factor;
+
+      // Create all the image data
+      lev->img_data.resize(m_Size);
+      for(int i = 0; i < m_Size; i++)
+        {
+        lev->img_data[i].u = LDDMMType::alloc_vimg(lev->reference);
+        lev->img_data[i].u_root = LDDMMType::alloc_vimg(lev->reference);
+        lev->img_data[i].grad_u = LDDMMType::alloc_vimg(lev->reference);
+        lev->img_data[i].delta = LDDMMType::alloc_vimg(lev->reference);
+        lev->img_data[i].pair_data.resize(m_Size);
+        }
+      }
+
+    // Iterate over all the pairwise registrations
+    MatrixImagePointer jac = LDDMMType::alloc_mimg(m_Levels.back().reference);
+    MatrixImagePointer jac_work = LDDMMType::alloc_mimg(m_Levels.back().reference);
 
     // Create all the pair data
     for(int i = 0; i < m_Size; i++)
       {
-      m_Data[i].u = LDDMMType::alloc_vimg(m_Reference);
-      m_Data[i].u_root = LDDMMType::alloc_vimg(m_Reference);
-      m_Data[i].grad_u = LDDMMType::alloc_vimg(m_Reference);
-      m_Data[i].delta = LDDMMType::alloc_vimg(m_Reference);
-      
-      m_Data[i].pair_data.resize(m_Size);
-
       for(int j = 0; j < m_Size; j++)
         {
         if(i != j)
           {
+          // Start with the last leve
+          lev = m_Levels.rbegin();
+
           // Reference the current pair data
-          PairData &pd = m_Data[i].pair_data[j];
+          PairData &pd = lev->img_data[i].pair_data[j];
 
           // Read the psi root image
           string fn = exp_pattern_2(m_Param.fnPsiPattern, m_Ids[i], m_Ids[j]);
           VectorImagePointer psi_root = LDDMMType::vimg_read(fn.c_str());
           OFHelperType::PhysicalWarpToVoxelWarp(psi_root, psi_root, psi_root);
 
-          // Integrate the psi image forward
-          pd.psi_forward = LDDMMType::alloc_vimg(m_Reference);
-          LDDMMType::vimg_exp(psi_root, pd.psi_forward, m_Work, m_Param.exponent, 1.0);
-
           // Load the weight image
           fn = exp_pattern_2(m_Param.fnWeightPattern, m_Ids[i], m_Ids[j]);
           pd.wgt_fixed = LDDMMType::img_read(fn.c_str());
+
+          // Integrate the psi image forward
+          pd.psi_forward = LDDMMType::alloc_vimg(lev->reference);
+          LDDMMType::vimg_exp(psi_root, pd.psi_forward, lev->work, m_Param.exponent, 1.0);
 
           // Did the user supply the transported weights?
           if(m_Param.fnTransportedWeightsPattern.size())
@@ -162,23 +183,23 @@ public:
             pd.wgt_moving = LDDMMType::img_read(fn.c_str());
 
             // Simply integrate the velocity backwards to get inverse psi
-            pd.psi_inverse = LDDMMType::alloc_vimg(m_Reference);
-            LDDMMType::vimg_exp(psi_root, pd.psi_inverse, m_Work, m_Param.exponent, -1.0);
+            pd.psi_inverse = LDDMMType::alloc_vimg(lev->reference);
+            LDDMMType::vimg_exp(psi_root, pd.psi_inverse, lev->work, m_Param.exponent, -1.0);
             }
           else
             {
             // Integrate the psi image backward with jacobian 
-            pd.psi_inverse = LDDMMType::alloc_vimg(m_Reference);
+            pd.psi_inverse = LDDMMType::alloc_vimg(lev->reference);
             LDDMMType::vimg_exp_with_jacobian(
-              psi_root, pd.psi_inverse, m_Work, jac, jac_work, m_Param.exponent, -1.0);
+              psi_root, pd.psi_inverse, lev->work, jac, jac_work, m_Param.exponent, -1.0);
 
             // Compute Jacobian determinant
-            LDDMMType::mimg_det(jac, 1.0, m_ScalarWork);
+            LDDMMType::mimg_det(jac, 1.0, lev->scalar_work);
 
             // Warp the weight by the inverse psi and scale by the determinant
-            pd.wgt_moving = LDDMMType::alloc_img(m_Reference);
+            pd.wgt_moving = LDDMMType::alloc_img(lev->reference);
             LDDMMType::interp_img( pd.wgt_fixed, pd.psi_inverse, pd.wgt_moving, false, false, 0);
-            LDDMMType::img_multiply_in_place(pd.wgt_moving, m_ScalarWork);
+            LDDMMType::img_multiply_in_place(pd.wgt_moving, lev->scalar_work);
 
             // Save the transported weights if requested
             if(m_Param.fnOutTransportedWeightsPattern.size())
@@ -188,6 +209,30 @@ public:
               }
             }
 
+          // Downsample to the other levels
+          uplev = lev; lev++;
+          for(; lev != m_Levels.rend(); uplev = lev, ++lev)
+            {
+            // Reference the current pair data
+            PairData &pd = lev->img_data[i].pair_data[j];
+            PairData &up_pd = uplev->img_data[i].pair_data[j];
+
+            // Downsample the psi root
+            LDDMMType::vimg_resample_identity(psi_root, lev->reference, lev->lev_psi_root);
+
+            // Exponentiate forward
+            pd.psi_forward = LDDMMType::alloc_vimg(lev->reference);
+            LDDMMType::vimg_exp(lev->lev_psi_root, pd.psi_forward, lev->work, m_Param.exponent, 1.0 / lev->factor);
+
+            // Exponentiate backward
+            pd.psi_inverse = LDDMMType::alloc_vimg(lev->reference);
+            LDDMMType::vimg_exp(lev->lev_psi_root, pd.psi_inverse, lev->work, m_Param.exponent, -1.0 / lev->factor);
+
+            // Downsample the weight images from previous level
+            pd.wgt_fixed = LDDMMType::img_downsample(up_pd.wgt_fixed, 2);
+            pd.wgt_moving = LDDMMType::img_downsample(up_pd.wgt_moving, 2);
+            }
+
           cout << "." << flush;
           }
         }
@@ -195,67 +240,87 @@ public:
       // Read the optional grayscale images
       if(m_Param.fnGrayPattern.size())
         {
+        // Start with the last level
+        lev = m_Levels.rbegin();
+
         string fn = exp_pattern_1(m_Param.fnOutTransportedWeightsPattern, m_Ids[i]);
-        m_Data[i].img_gray = LDDMMType::img_read(fn.c_str());
+        lev->img_data[i].img_gray = LDDMMType::img_read(fn.c_str());
+
+        // Downsample to the other levels
+        uplev = lev; lev++;
+        for(; lev != m_Levels.rend(); uplev = lev, ++lev)
+          lev->img_data[i].img_gray = LDDMMType::img_downsample(uplev->img_data[i].img_gray, 2);
         }
 
       cout << "." << endl;
       }
     }
 
-  double ComputeDeltasAndObjective()
+  double ComputeDeltasAndObjective(int level)
     {
     double total_error = 0;
+
+    // Reference to the level data
+    LevelData &lev = m_Levels[level];
 
     // Compute the deltas and the objective
     for(int i = 0; i < m_Size; i++)
       {
+      // Get a reference to the i-th image data
+      ImageData &id = lev.img_data[i];
+
       // Set the delta to the current u_i
-      LDDMMType::vimg_copy(m_Data[i].u, m_Data[i].delta);
+      LDDMMType::vimg_copy(id.u, id.delta);
 
       // Add all the differences
       for(int j = 0; j < m_Size; j++)
         {
         if(j != i)
           {
-          PairData &pd = m_Data[i].pair_data[j];
-          LDDMMType::interp_vimg(m_Data[j].u, pd.psi_forward, 1.0, m_Work);
-          LDDMMType::vimg_add_in_place(m_Work, pd.psi_forward);
-          LDDMMType::vimg_multiply_in_place(m_Work, pd.wgt_fixed);
-          LDDMMType::vimg_subtract_in_place(m_Data[i].delta, m_Work);
+          PairData &pd = id.pair_data[j];
+          LDDMMType::interp_vimg(lev.img_data[j].u, pd.psi_forward, 1.0, lev.work);
+          LDDMMType::vimg_add_in_place(lev.work, pd.psi_forward);
+          LDDMMType::vimg_multiply_in_place(lev.work, pd.wgt_fixed);
+          LDDMMType::vimg_subtract_in_place(id.delta, lev.work);
           }
         }
 
       // Compute the norm of the delta
-      m_Data[i].norm_delta = LDDMMType::vimg_euclidean_norm_sq(m_Data[i].delta);
+      id.norm_delta = LDDMMType::vimg_euclidean_norm_sq(id.delta);
 
       // Add to the total error
-      total_error += m_Data[i].norm_delta;
+      total_error += id.norm_delta;
       }
 
     // Extract the average error per pixel per image
-    total_error /= m_Size * m_Reference->GetBufferedRegion().GetNumberOfPixels();
+    total_error /= m_Size * lev.reference->GetBufferedRegion().GetNumberOfPixels();
 
     return total_error;
     }
 
-  void BuildTemplate(int iter)
+  void BuildTemplate(int level, int iter)
     {
+    // Reference to the level data
+    LevelData &lev = m_Levels[level];
+
     // We need a couple of images
-    ImagePointer templ = LDDMMType::alloc_img(m_Reference);
-    VectorImagePointer phi_exp = LDDMMType::alloc_vimg(m_Reference);
+    ImagePointer templ = LDDMMType::alloc_img(lev.reference);
+    VectorImagePointer phi_exp = LDDMMType::alloc_vimg(lev.reference);
 
     // Iterate over the images
     for(int i = 0; i < m_Size; i++)
       {
+      // Get a reference to the i-th image data
+      ImageData &id = lev.img_data[i];
+
       // Compute the deformation that warps i-th image into template space
-      LDDMMType::vimg_exp(m_Data[i].u_root, phi_exp, m_Work, m_Param.exponent, -1.0);
+      LDDMMType::vimg_exp(id.u_root, phi_exp, lev.work, m_Param.exponent, -1.0);
 
       // Apply that warp to the gray image
-      LDDMMType::interp_img(m_Data[i].img_gray, phi_exp, m_ScalarWork, false, false, 0);
+      LDDMMType::interp_img(id.img_gray, phi_exp, lev.scalar_work, false, false, 0);
 
       // Add the image to the template
-      LDDMMType::img_add_in_place(templ, m_ScalarWork);
+      LDDMMType::img_add_in_place(templ, lev.scalar_work);
       }
 
     // Scale the template by the number of images
@@ -267,34 +332,43 @@ public:
     LDDMMType::img_write(templ, fn);
     }
 
-  void ComputeGradientAndUpdate()
+  void ComputeGradientAndUpdate(int level)
     {
+    // Reference to the level data
+    LevelData &lev = m_Levels[level];
+
     double global_max_norm = 0.0;
 
     // Compute gradients and their norms
     for(int m = 0; m < m_Size; m++)
       {
+      // Get a reference to the i-th image data
+      ImageData &id_m = lev.img_data[m];
+
       // Start by adding the delta
-      LDDMMType::vimg_copy(m_Data[m].delta, m_Data[m].grad_u);
+      LDDMMType::vimg_copy(id_m.delta, id_m.grad_u);
 
       // Subtract each of the deltas warped into moving space
       for(int j = 0; j < m_Size; j++)
         {
         if(m != j)
           {
-          PairData &pd = m_Data[j].pair_data[m];
-          LDDMMType::interp_vimg(m_Data[j].delta, pd.psi_inverse, 1.0, m_Work);
-          LDDMMType::vimg_multiply_in_place(m_Work, pd.wgt_moving);
-          LDDMMType::vimg_subtract_in_place(m_Data[m].grad_u, m_Work);
+          // Get a reference to the i-th image data
+          ImageData &id_j = lev.img_data[j];
+
+          PairData &pd = id_j.pair_data[m];
+          LDDMMType::interp_vimg(id_j.delta, pd.psi_inverse, 1.0, lev.work);
+          LDDMMType::vimg_multiply_in_place(lev.work, pd.wgt_moving);
+          LDDMMType::vimg_subtract_in_place(id_m.grad_u, lev.work);
           }
         }
 
       // Smooth the gradient 
-      LDDMMType::vimg_smooth_withborder(m_Data[m].grad_u, m_Work, m_Param.sigma1, 1);
+      LDDMMType::vimg_smooth_withborder(id_m.grad_u, lev.work, m_Param.sigma1, 1);
 
       // Compute the norm of the gradient
       TFloat norm_min, norm_max;
-      LDDMMType::vimg_norm_min_max(m_Data[m].grad_u, m_ScalarWork, norm_min, norm_max);
+      LDDMMType::vimg_norm_min_max(id_m.grad_u, lev.scalar_work, norm_min, norm_max);
       if(norm_max > global_max_norm)
         global_max_norm = norm_max;
       }
@@ -307,24 +381,45 @@ public:
     // Scale everything down by the max norm and smooth again
     for(int m = 0; m < m_Size; m++)
       {
+      // Get a reference to the i-th image data
+      ImageData &id_m = lev.img_data[m];
+
       // Compute the updated root warp
-      LDDMMType::vimg_copy(m_Data[m].u_root, m_Work);
-      LDDMMType::vimg_add_scaled_in_place(m_Work, m_Data[m].grad_u, -scale);
-      LDDMMType::vimg_smooth_withborder(m_Work, m_Data[m].u_root, m_Param.sigma2, 1);
+      LDDMMType::vimg_copy(id_m.u_root, lev.work);
+      LDDMMType::vimg_add_scaled_in_place(lev.work, id_m.grad_u, -scale);
+      LDDMMType::vimg_smooth_withborder(lev.work, id_m.u_root, m_Param.sigma2, 1);
 
       // Exponentiate the root warps
-      LDDMMType::vimg_exp(m_Data[m].u_root, m_Data[m].u, m_Work, m_Param.exponent, 1.0);
+      LDDMMType::vimg_exp(id_m.u_root, id_m.u, lev.work, m_Param.exponent, 1.0);
       }
     }
 
   void WriteResults()
     {
+    // Get the last level
+    LevelData &lev = m_Levels.back();
+
     for(int i = 0; i < m_Size; i++)
       {
       // Map the warp back into physical units
-      OFHelperType::VoxelWarpToPhysicalWarp(m_Data[i].u_root, m_Reference, m_Work);
+      OFHelperType::VoxelWarpToPhysicalWarp(lev.img_data[i].u_root, lev.reference, lev.work);
       string fn = exp_pattern_1(m_Param.fnOutPhiPattern, m_Ids[i]);
-      LDDMMType::vimg_write(m_Work, fn.c_str()); 
+      LDDMMType::vimg_write(lev.work, fn.c_str()); 
+      }
+    }
+
+  void UpsampleWarps(int level)
+    {
+    LevelData &src_lev = m_Levels[level-1];
+    LevelData &trg_lev = m_Levels[level];
+
+    for(int i = 0; i < m_Size; i++)
+      {
+      ImageData &id_src = src_lev.img_data[i];
+      ImageData &id_trg = trg_lev.img_data[i];
+      LDDMMType::vimg_resample_identity(id_src.u_root, trg_lev.reference, id_trg.u_root);
+      LDDMMType::vimg_scale_in_place(id_trg.u_root, 2.0);
+      LDDMMType::vimg_exp(id_trg.u_root, id_trg.u, trg_lev.work, m_Param.exponent, 1.0);
       }
     }
 
@@ -335,18 +430,26 @@ public:
     printf("Read images for %d ids\n", m_Size);
 
     // Iterate
-    for(int iter = 0; iter < m_Param.n_iter; iter++)
+    for(int ilev = 0; ilev < m_Param.n_iter.size(); ilev++)
       {
-      // Compute the objective and deltas
-      double total_error = ComputeDeltasAndObjective();
-      printf("Iter %04d:   Total Error: %12.4f\n", iter, total_error);
+      // Upsample warps from previous level
+      if(ilev > 0)
+        UpsampleWarps(ilev);
 
-      // Write the iteration template
-      if(m_Param.fnGrayPattern.size() && m_Param.fnOutIterTemplatePattern.size())
-        BuildTemplate(iter);
+      // Gradient descent for this level
+      for(int iter = 0; iter < m_Param.n_iter[ilev]; iter++)
+        {
+        // Compute the objective and deltas
+        double total_error = ComputeDeltasAndObjective(ilev);
+        printf("Level %d, Iter %04d:   Total Error: %12.4f\n", ilev, iter, total_error);
 
-      // Compute the gradients 
-      ComputeGradientAndUpdate();
+        // Write the iteration template
+        if(m_Param.fnGrayPattern.size() && m_Param.fnOutIterTemplatePattern.size())
+          BuildTemplate(ilev, iter);
+
+        // Compute the gradients 
+        ComputeGradientAndUpdate(ilev);
+        }
       }
 
     // Write out final warps
@@ -373,17 +476,19 @@ protected:
     double norm_delta;
     };
 
-  VectorImagePointer m_Work;
-  ImagePointer m_ScalarWork;
+  struct LevelData
+    {
+    vector<ImageData> img_data;
+    VectorImagePointer work, lev_psi_root;
+    ImagePointer scalar_work;
+    ImagePointer reference;
+    int factor;
+    };
+
+  vector<LevelData> m_Levels;
   MACFParameters m_Param;
-
-  ImagePointer m_Reference;
-
-
-  vector<ImageData> m_Data;
   vector<string> m_Ids;
   int m_Size;
-
 };
 
 int main(int argc, char *argv[])
@@ -451,7 +556,7 @@ int main(int argc, char *argv[])
       }
     else if(arg == "-n")
       {
-      param.n_iter = cl.read_integer();
+      param.n_iter = cl.read_int_vector();
       }
     else if(arg == "-otemp")
       {

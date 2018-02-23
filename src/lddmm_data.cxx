@@ -1423,6 +1423,15 @@ LDDMMData<TFloat, VDim>
   filter->Update();
 }
 
+template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::ImagePointer
+LDDMMData<TFloat, VDim>
+::img_downsample(ImageType *src, double factor)
+{
+  ImagePointer p = ImageType::New();
+  img_downsample(src, p, factor);
+  return p;
+}
 
 template <class TFloat, uint VDim>
 void
@@ -1506,6 +1515,16 @@ LDDMMData<TFloat, VDim>
   filter->SetOutputDirection(ref->GetDirection());
   filter->GraftOutput(trg);
   filter->Update();
+}
+
+template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::VectorImagePointer
+LDDMMData<TFloat, VDim>
+::vimg_resample_identity(VectorImageType *src, ImageBaseType *ref)
+{
+  VectorImagePointer p = VectorImageType::New();
+  vimg_resample_identity(src, ref, p);
+  return p;
 }
 
 template <class TFloat, uint VDim>

@@ -215,6 +215,10 @@ public:
   static void img_resample_identity(ImageType *src, ImageBaseType *ref, ImageType *trg);
   static void vimg_resample_identity(VectorImageType *src, ImageBaseType *ref, VectorImageType *trg);
 
+  // Versions of these methods that return pointers
+  static ImagePointer img_downsample(ImageType *src, double factor);
+  static VectorImagePointer vimg_resample_identity(VectorImageType *src, ImageBaseType *ref);
+
   // Threshold image
   static void img_threshold_in_place(ImageType *src, double lt, double up, double fore, double back);
 
