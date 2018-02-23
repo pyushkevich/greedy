@@ -15,7 +15,7 @@ struct MACFParameters
   string fnGrayPattern, fnOutIterTemplatePattern;
   string fnTransportedWeightsPattern, fnOutTransportedWeightsPattern;
   string fnGlobalMask, fnInitialRootPhiInvPattern;
-  string fnOutIterDeltaSq;
+  string fnOutIterDeltaSq, fnOutIterSubjDeltaSq;
 
   int exponent;
   double sigma1, sigma2;
@@ -63,6 +63,7 @@ int usage()
   printf("  -img <pattern_1s>    : pattern of grayscale images (for visualizing registration)\n");
   printf("  -otemp <pattern_2d>  : pattern for saving templates at each iteration\n");
   printf("  -odelta <pattern_2d> : pattern for saving delta^2 at each iteration\n");
+  printf("  -odsubj <patt1s2d>   : pattern for saving each delta \n");
   printf("  -freq <value>        : frequency with which per-iteration images are saved (def = %d)\n", p.dumpfreq);
   printf("transported weights:\n");
   printf("  -owtm <pattern_2s>   : write the weights transported to moving space to files\n");
@@ -398,6 +399,15 @@ public:
       // Get the squared norm of delta
       LDDMMType::vimg_euclidean_inner_product(delta_i, id.delta, id.delta);
 
+      // Save it
+      if(m_Param.fnOutIterSubjDeltaSq.size())
+        {
+        string fna = exp_pattern_1(m_Param.fnOutIterSubjDeltaSq, m_Ids[i]);
+        char fnb[1024];
+        sprintf(fnb, fna.c_str(), level, iter);
+        LDDMMType::img_write(delta_i, fnb);
+        }
+
       // Compute the deformation that warps i-th image into template space
       LDDMMType::vimg_exp(id.u_root, phi_exp, lev.work, m_Param.exponent, -1.0);
 
@@ -659,6 +669,10 @@ int main(int argc, char *argv[])
     else if(arg == "-odelta")
       {
       param.fnOutIterDeltaSq = cl.read_string();
+      }
+    else if(arg == "-odsubj")
+      {
+      param.fnOutIterSubjDeltaSq = cl.read_string();
       }
     else if(arg == "-freq")
       {
