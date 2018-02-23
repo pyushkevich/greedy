@@ -13,6 +13,7 @@ struct MACFParameters
 {
   string fnReference, fnPsiPattern, fnWeightPattern, fnIds, fnOutPhiPattern;
   string fnGrayPattern, fnOutIterTemplatePattern;
+  string fnTransportedWeightsPattern, fnOutTransportedWeightsPattern;
 
   int exponent;
   double sigma1, sigma2;
@@ -51,11 +52,36 @@ int usage()
   printf("  -s <sigma1> <sigma2> : smoothing in voxels (def = %f, %f)\n",p.sigma1,p.sigma2);
   printf("  -img <pattern_1s>    : pattern of grayscale images (for visualizing registration)\n");
   printf("  -otemp <pattern_1d>  : pattern for saving templates at each iteration\n");
+  printf("transported weights:\n");
+  printf("  -owtm <pattern_2s>   : write the weights transported to moving space to files\n");
+  printf("  -wtm <pattern_2s>    : read transported weights (saves a lot of time upfront)\n");
   printf("patterns:\n");
-  printf("  pattern_1s           : of form blah_%%s_blah.nii.gz\n");
-  printf("  pattern_2s           : of form blah_%%s_blah_%%s_blah.nii.gz (fixed, then moving)\n");
+  printf("  pattern_1s           : of form blah_%%1_blah.nii.gz\n");
+  printf("  pattern_2s           : of form blah_%%1_blah_%%2_blah.nii.gz (1:fixed, 2:moving)\n");
   printf("  pattern_1d           : of form blah_%%03d_blah.nii.gz\n");
   return -1;
+}
+
+string string_replace(const string &str, const string &pattern, const string &replacement)
+{
+  string result = str;
+  string::size_type pos = 0u;
+  while((pos = result.find(pattern, pos)) != std::string::npos)
+    {
+     result.replace(pos, pattern.length(), replacement);
+     pos += replacement.length();
+    }
+  return result;
+}
+
+string exp_pattern_1(const string &pattern, const string &id)
+{
+  return string_replace(pattern, "%1", id);
+}
+
+string exp_pattern_2(const string &pattern, const string &id_fixed, const string &id_moving)
+{
+  return string_replace(string_replace(pattern, "%1", id_fixed), "%2", id_moving);
 }
 
 template <typename TFloat, unsigned int VDim>
@@ -116,30 +142,51 @@ public:
           PairData &pd = m_Data[i].pair_data[j];
 
           // Read the psi root image
-          sprintf(fn, m_Param.fnPsiPattern.c_str(), m_Ids[i].c_str(), m_Ids[j].c_str());
-          VectorImagePointer psi_root = LDDMMType::vimg_read(fn);
+          string fn = exp_pattern_2(m_Param.fnPsiPattern, m_Ids[i], m_Ids[j]);
+          VectorImagePointer psi_root = LDDMMType::vimg_read(fn.c_str());
           OFHelperType::PhysicalWarpToVoxelWarp(psi_root, psi_root, psi_root);
 
           // Integrate the psi image forward
           pd.psi_forward = LDDMMType::alloc_vimg(m_Reference);
           LDDMMType::vimg_exp(psi_root, pd.psi_forward, m_Work, m_Param.exponent, 1.0);
 
-          // Integrate the psi image backward with jacobian 
-          pd.psi_inverse = LDDMMType::alloc_vimg(m_Reference);
-          LDDMMType::vimg_exp_with_jacobian(
-            psi_root, pd.psi_inverse, m_Work, jac, jac_work, m_Param.exponent, -1.0);
-
-          // Compute Jacobian determinant
-          LDDMMType::mimg_det(jac, 1.0, m_ScalarWork);
-
           // Load the weight image
-          sprintf(fn, m_Param.fnWeightPattern.c_str(), m_Ids[i].c_str(), m_Ids[j].c_str());
-          pd.wgt_fixed = LDDMMType::img_read(fn);
+          fn = exp_pattern_2(m_Param.fnWeightPattern, m_Ids[i], m_Ids[j]);
+          pd.wgt_fixed = LDDMMType::img_read(fn.c_str());
 
-          // Warp the weight by the inverse psi and scale by the determinant
-          pd.wgt_moving = LDDMMType::alloc_img(m_Reference);
-          LDDMMType::interp_img( pd.wgt_fixed, pd.psi_inverse, pd.wgt_moving, false, false, 0);
-          LDDMMType::img_multiply_in_place(pd.wgt_moving, m_ScalarWork);
+          // Did the user supply the transported weights?
+          if(m_Param.fnTransportedWeightsPattern.size())
+            {
+            // Read the transported weights
+            fn = exp_pattern_2(m_Param.fnTransportedWeightsPattern, m_Ids[i], m_Ids[j]);
+            pd.wgt_moving = LDDMMType::img_read(fn.c_str());
+
+            // Simply integrate the velocity backwards to get inverse psi
+            pd.psi_inverse = LDDMMType::alloc_vimg(m_Reference);
+            LDDMMType::vimg_exp(psi_root, pd.psi_inverse, m_Work, m_Param.exponent, -1.0);
+            }
+          else
+            {
+            // Integrate the psi image backward with jacobian 
+            pd.psi_inverse = LDDMMType::alloc_vimg(m_Reference);
+            LDDMMType::vimg_exp_with_jacobian(
+              psi_root, pd.psi_inverse, m_Work, jac, jac_work, m_Param.exponent, -1.0);
+
+            // Compute Jacobian determinant
+            LDDMMType::mimg_det(jac, 1.0, m_ScalarWork);
+
+            // Warp the weight by the inverse psi and scale by the determinant
+            pd.wgt_moving = LDDMMType::alloc_img(m_Reference);
+            LDDMMType::interp_img( pd.wgt_fixed, pd.psi_inverse, pd.wgt_moving, false, false, 0);
+            LDDMMType::img_multiply_in_place(pd.wgt_moving, m_ScalarWork);
+
+            // Save the transported weights if requested
+            if(m_Param.fnOutTransportedWeightsPattern.size())
+              {
+              fn = exp_pattern_2(m_Param.fnOutTransportedWeightsPattern, m_Ids[i], m_Ids[j]);
+              LDDMMType::img_write(pd.wgt_moving, fn.c_str());
+              }
+            }
 
           cout << "." << flush;
           }
@@ -148,8 +195,8 @@ public:
       // Read the optional grayscale images
       if(m_Param.fnGrayPattern.size())
         {
-        sprintf(fn, m_Param.fnGrayPattern.c_str(), m_Ids[i].c_str());
-        m_Data[i].img_gray = LDDMMType::img_read(fn);
+        string fn = exp_pattern_1(m_Param.fnOutTransportedWeightsPattern, m_Ids[i]);
+        m_Data[i].img_gray = LDDMMType::img_read(fn.c_str());
         }
 
       cout << "." << endl;
@@ -276,9 +323,8 @@ public:
       {
       // Map the warp back into physical units
       OFHelperType::VoxelWarpToPhysicalWarp(m_Data[i].u_root, m_Reference, m_Work);
-      char fn[1024];
-      sprintf(fn, m_Param.fnOutPhiPattern.c_str(), m_Ids[i].c_str());
-      LDDMMType::vimg_write(m_Work, fn); 
+      string fn = exp_pattern_1(m_Param.fnOutPhiPattern, m_Ids[i]);
+      LDDMMType::vimg_write(m_Work, fn.c_str()); 
       }
     }
 
@@ -381,6 +427,14 @@ int main(int argc, char *argv[])
     else if(arg == "-img")
       {
       param.fnGrayPattern = cl.read_string();
+      }
+    else if(arg == "-wtm")
+      {
+      param.fnTransportedWeightsPattern = cl.read_string();
+      }
+    else if(arg == "-owtm")
+      {
+      param.fnOutTransportedWeightsPattern = cl.read_string();
       }
     else if(arg == "-exp")
       {
