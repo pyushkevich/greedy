@@ -14,6 +14,7 @@ struct MACFParameters
   string fnReference, fnPsiPattern, fnWeightPattern, fnIds, fnOutPhiPattern;
   string fnGrayPattern, fnOutIterTemplatePattern;
   string fnTransportedWeightsPattern, fnOutTransportedWeightsPattern;
+  string fnGlobalMask, fnInitialRootPhiInvPattern;
 
   int exponent;
   double sigma1, sigma2;
@@ -54,6 +55,8 @@ int usage()
   printf("  -eps <value>         : step size (def = %f)\n",p.epsilon);
   printf("  -exp <value>         : exponent for scaling and squaring (def = %d)\n",p.exponent);
   printf("  -s <sigma1> <sigma2> : smoothing in voxels (def = %f, %f)\n",p.sigma1,p.sigma2);
+  printf("  -gm <image>          : global mask image *** BROKEN ***\n");
+  printf("  -phi <pattern_1s>    : initial root-phi-inv (starting point for optimization)\n");
   printf("  -img <pattern_1s>    : pattern of grayscale images (for visualizing registration)\n");
   printf("  -otemp <pattern_1d>  : pattern for saving templates at each iteration\n");
   printf("transported weights:\n");
@@ -252,7 +255,37 @@ public:
           lev->img_data[i].img_gray = LDDMMType::img_downsample(uplev->img_data[i].img_gray, 2);
         }
 
+      // Read the optional initial fields
+      if(m_Param.fnInitialRootPhiInvPattern.size())
+        {
+        // We can go straight to the terminal level
+        LevelData &first_lev = m_Levels.front();
+        ImageData &id = first_lev.img_data[i];
+
+        string fn = exp_pattern_1(m_Param.fnInitialRootPhiInvPattern, m_Ids[i]);
+        VectorImagePointer u_root_full = LDDMMType::vimg_read(fn.c_str());
+
+        // Downsample to the current level and exponentate
+        OFHelperType::PhysicalWarpToVoxelWarp(u_root_full, u_root_full, u_root_full);
+        LDDMMType::vimg_resample_identity(u_root_full, first_lev.reference, id.u_root);
+        LDDMMType::vimg_scale_in_place(id.u_root, 1.0 / first_lev.factor);
+        LDDMMType::vimg_exp(id.u_root, id.u, first_lev.work, m_Param.exponent, 1.0);
+        }
+
       cout << "." << endl;
+      }
+
+    // Read the global masks
+    if(m_Param.fnGlobalMask.size())
+      {
+      // Start with the last level
+      lev = m_Levels.rbegin();
+      lev->global_mask = LDDMMType::img_read(m_Param.fnGlobalMask.c_str());
+
+      // Downsample to the other levels
+      uplev = lev; lev++;
+      for(; lev != m_Levels.rend(); uplev = lev, ++lev)
+        lev->global_mask = LDDMMType::img_downsample(uplev->global_mask, 2);
       }
     }
 
@@ -286,7 +319,16 @@ public:
         }
 
       // Compute the norm of the delta
-      id.norm_delta = LDDMMType::vimg_euclidean_norm_sq(id.delta);
+      if(lev.global_mask)
+        {
+        LDDMMType::vimg_euclidean_inner_product(lev.scalar_work, id.delta, id.delta);
+        LDDMMType::img_multiply_in_place(lev.scalar_work, lev.global_mask);
+        id.norm_delta = LDDMMType::img_voxel_sum(lev.scalar_work);
+        }
+      else
+        {
+        id.norm_delta = LDDMMType::vimg_euclidean_norm_sq(id.delta);
+        }
 
       // Add to the total error
       total_error += id.norm_delta;
@@ -362,6 +404,10 @@ public:
           LDDMMType::vimg_subtract_in_place(id_m.grad_u, lev.work);
           }
         }
+
+      // Multiply by the mask
+      if(lev.global_mask)
+        LDDMMType::vimg_multiply_in_place(id_m.grad_u, lev.global_mask);
 
       // Smooth the gradient 
       LDDMMType::vimg_smooth_withborder(id_m.grad_u, lev.work, m_Param.sigma1, 1);
@@ -482,6 +528,7 @@ protected:
     VectorImagePointer work, lev_psi_root;
     ImagePointer scalar_work;
     ImagePointer reference;
+    ImagePointer global_mask;
     int factor;
     };
 
@@ -540,6 +587,14 @@ int main(int argc, char *argv[])
     else if(arg == "-owtm")
       {
       param.fnOutTransportedWeightsPattern = cl.read_string();
+      }
+    else if(arg == "-gm")
+      {
+      param.fnGlobalMask = cl.read_existing_filename();
+      }
+    else if(arg == "-phi")
+      {
+      param.fnInitialRootPhiInvPattern = cl.read_string();
       }
     else if(arg == "-exp")
       {
