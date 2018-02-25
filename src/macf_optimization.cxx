@@ -252,7 +252,7 @@ public:
         // Start with the last level
         lev = m_Levels.rbegin();
 
-        string fn = exp_pattern_1(m_Param.fnOutTransportedWeightsPattern, m_Ids[i]);
+        string fn = exp_pattern_1(m_Param.fnGrayPattern, m_Ids[i]);
         lev->img_data[i].img_gray = LDDMMType::img_read(fn.c_str());
 
         // Downsample to the other levels
