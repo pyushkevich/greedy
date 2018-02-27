@@ -946,6 +946,10 @@ public:
       // Gradient descent for this level
       for(int iter = 0; iter < m_Param.n_iter[ilev]; iter++)
         {
+        // Do the probe (at the start of the iteration)
+        if(m_Param.probe && DumpThisIter(ilev, iter))
+          Probe(ilev,iter);
+
         // Compute the objective and deltas
         double total_error = ComputeDeltasAndObjectiveNewest(ilev);
         printf("Level %d, Iter %04d:   Total Error: %12.4f\n", ilev, iter, total_error);
@@ -953,10 +957,6 @@ public:
         // Write the iteration template
         if(m_Param.fnGrayPattern.size() && m_Param.fnOutIterTemplatePattern.size() && DumpThisIter(ilev, iter))
           BuildTemplate(ilev, iter);
-
-        // Do the probe
-        if(m_Param.probe && DumpThisIter(ilev, iter))
-          Probe(ilev,iter);
 
         // Write the iteration template
         // if(m_Param.fnOutIterDeltaSq.size() && DumpThisIter(ilev, iter))
