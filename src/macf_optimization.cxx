@@ -878,7 +878,7 @@ public:
         FastInterpolator fi(lev.img_data[i].u);
         itk::ContinuousIndex<TFloat, VDim> cix;
         for(int a = 0; a < VDim; a++)
-          cix[a] = psi_vec[a];
+          cix[a] = m_Param.probe_image_index[a] + psi_vec[a];
         typename VectorImageType::PixelType out;
         fi.Interpolate(cix.GetDataPointer(), &out);
 
