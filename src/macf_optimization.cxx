@@ -545,6 +545,7 @@ public:
     double scale = 1.0 / (2 << m_Param.exponent);
     if(global_max_norm > m_Param.epsilon)
       scale = scale * m_Param.epsilon / global_max_norm;
+    printf("GMN: %f, Eps: %f, Scale: %f\n", global_max_norm, m_Param.epsilon, scale);
 
     // Scale everything down by the max norm and smooth again
     for(int m = 0; m < m_Size; m++)
@@ -716,6 +717,8 @@ public:
     if(global_max_norm > m_Param.epsilon)
       scale = scale * m_Param.epsilon / global_max_norm;
 
+    printf("GMN: %f, Eps: %f, Scale: %f\n", global_max_norm, m_Param.epsilon, scale);
+
     // Scale everything down by the max norm and smooth again
     for(int m = 0; m < m_Size; m++)
       {
@@ -856,7 +859,7 @@ public:
     // Create an index for the probe
     itk::Index<VDim> idx;
     for(int a = 0; a < VDim; a++)
-      idx[a] = m_Param.probe_index[a];
+      idx[a] = m_Param.probe_index[a] / (1 << level);
 
     // Check where the index maps in template space
     LevelData &lev = m_Levels[level];
