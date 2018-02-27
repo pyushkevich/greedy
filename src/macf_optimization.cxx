@@ -2,6 +2,7 @@
 #include <string>
 #include <fstream>
 #include <vector>
+#include "FastLinearInterpolator.h"
 
 #include "lddmm_data.h"
 
@@ -14,16 +15,26 @@ struct MACFParameters
   string fnReference, fnPsiPattern, fnWeightPattern, fnIds, fnOutPhiPattern;
   string fnGrayPattern, fnOutIterTemplatePattern;
   string fnTransportedWeightsPattern, fnOutTransportedWeightsPattern;
-  string fnGlobalMask, fnInitialRootPhiInvPattern;
+  string fnSaliencyPattern, fnInitialRootPhiInvPattern;
   string fnOutIterDeltaSq, fnOutIterSubjDeltaSq;
 
   int exponent;
   double sigma1, sigma2;
   double epsilon;
   int dumpfreq;
+  double rect_thresh;
 
   // Number of iterations per level
   vector<int> n_iter;
+
+  // Probe
+  bool probe = false;
+  int probe_image_index;
+  vector<int> probe_index;
+
+  // Which mode (distance to weighted center, sum of weighted distances)
+  enum Mode { MODE_DIST_TO_WCENTER, MODE_SUM_WDISTANCE };
+  Mode mode;
 
 
   MACFParameters()
@@ -33,6 +44,9 @@ struct MACFParameters
     sigma2 = sqrt(0.5);
     epsilon = 0.25;
     dumpfreq = 10;
+    probe = false;
+    mode = MODE_DIST_TO_WCENTER;
+    rect_thresh = 0.0;
 
     n_iter.push_back(100);
     n_iter.push_back(100);
@@ -58,13 +72,16 @@ int usage()
   printf("  -eps <value>         : step size (def = %f)\n",p.epsilon);
   printf("  -exp <value>         : exponent for scaling and squaring (def = %d)\n",p.exponent);
   printf("  -s <sigma1> <sigma2> : smoothing in voxels (def = %f, %f)\n",p.sigma1,p.sigma2);
-  printf("  -gm <image>          : global mask image *** BROKEN ***\n");
+  printf("  -sal <pattern_1s>    : saliency images (per-pixel weighting)\n");
   printf("  -phi <pattern_1s>    : initial root-phi-inv (starting point for optimization)\n");
   printf("  -img <pattern_1s>    : pattern of grayscale images (for visualizing registration)\n");
   printf("  -otemp <pattern_2d>  : pattern for saving templates at each iteration\n");
   printf("  -odelta <pattern_2d> : pattern for saving delta^2 at each iteration\n");
   printf("  -odsubj <patt1s2d>   : pattern for saving each delta \n");
   printf("  -freq <value>        : frequency with which per-iteration images are saved (def = %d)\n", p.dumpfreq);
+  printf("  -probe <N> <index>   : debugging information for specified image/index\n");
+  printf("  -wssd                : optimize using the weighted sum of sqr. distances mode\n"); 
+  printf("  -rect <thresh>       : apply a rectifier function to squared distances\n");
   printf("transported weights:\n");
   printf("  -owtm <pattern_2s>   : write the weights transported to moving space to files\n");
   printf("  -wtm <pattern_2s>    : read transported weights (saves a lot of time upfront)\n");
@@ -140,6 +157,7 @@ public:
       lev->work = LDDMMType::alloc_vimg(lev->reference);
       lev->work2 = LDDMMType::alloc_vimg(lev->reference);
       lev->scalar_work = LDDMMType::alloc_img(lev->reference);
+      lev->scalar_work2 = LDDMMType::alloc_img(lev->reference);
       lev->factor = factor;
 
       // Create all the image data
@@ -161,6 +179,22 @@ public:
     // Create all the pair data
     for(int i = 0; i < m_Size; i++)
       {
+      // Read the saliency images if they are requested
+      if(m_Param.fnSaliencyPattern.size())
+        {
+        // Start with the last leve
+        lev = m_Levels.rbegin();
+
+        // Read the top-level saliency image
+        string fn = exp_pattern_1(m_Param.fnSaliencyPattern, m_Ids[i]);
+        lev->img_data[i].saliency = LDDMMType::img_read(fn.c_str());
+
+        // Downsample for the remaining levels
+        uplev = lev; lev++;
+        for(; lev != m_Levels.rend(); uplev = lev, ++lev)
+          lev->img_data[i].saliency = LDDMMType::img_downsample(uplev->img_data[i].saliency, 2);
+        }
+
       for(int j = 0; j < m_Size; j++)
         {
         if(i != j)
@@ -202,12 +236,23 @@ public:
             LDDMMType::vimg_exp_with_jacobian(
               psi_root, pd.psi_inverse, lev->work, jac, jac_work, m_Param.exponent, -1.0);
 
-            // Compute Jacobian determinant
-            LDDMMType::mimg_det(jac, 1.0, lev->scalar_work);
-
-            // Warp the weight by the inverse psi and scale by the determinant
+            // When saliency is provided, we can multiply it by the fixed weight and then
+            // warp the product back into moving space
             pd.wgt_moving = LDDMMType::alloc_img(lev->reference);
-            LDDMMType::interp_img( pd.wgt_fixed, pd.psi_inverse, pd.wgt_moving, false, false, 0);
+            if(m_Param.fnSaliencyPattern.size())
+              {
+              LDDMMType::img_copy(pd.wgt_fixed, lev->scalar_work);
+              LDDMMType::img_multiply_in_place(lev->scalar_work, lev->img_data[i].saliency);
+              LDDMMType::interp_img( lev->scalar_work, pd.psi_inverse, pd.wgt_moving, false, false, 0);
+              }
+            else
+              {
+              // Warp the weight by the inverse psi and scale by the determinant
+              LDDMMType::interp_img( pd.wgt_fixed, pd.psi_inverse, pd.wgt_moving, false, false, 0);
+              }
+
+            // Multiply the warped weight by the Jacobian
+            LDDMMType::mimg_det(jac, 1.0, lev->scalar_work);
             LDDMMType::img_multiply_in_place(pd.wgt_moving, lev->scalar_work);
 
             // Save the transported weights if requested
@@ -280,19 +325,6 @@ public:
 
       cout << "." << endl;
       }
-
-    // Read the global masks
-    if(m_Param.fnGlobalMask.size())
-      {
-      // Start with the last level
-      lev = m_Levels.rbegin();
-      lev->global_mask = LDDMMType::img_read(m_Param.fnGlobalMask.c_str());
-
-      // Downsample to the other levels
-      uplev = lev; lev++;
-      for(; lev != m_Levels.rend(); uplev = lev, ++lev)
-        lev->global_mask = LDDMMType::img_downsample(uplev->global_mask, 2);
-      }
     }
 
   double ComputeDeltasAndObjective(int level)
@@ -325,10 +357,10 @@ public:
         }
 
       // Compute the norm of the delta
-      if(lev.global_mask)
+      if(m_Param.fnSaliencyPattern.size())
         {
         LDDMMType::vimg_euclidean_inner_product(lev.scalar_work, id.delta, id.delta);
-        LDDMMType::img_multiply_in_place(lev.scalar_work, lev.global_mask);
+        LDDMMType::img_multiply_in_place(lev.scalar_work, id.saliency);
         id.norm_delta = LDDMMType::img_voxel_sum(lev.scalar_work);
         }
       else
@@ -362,6 +394,10 @@ public:
       // Start by adding the delta
       LDDMMType::vimg_copy(id_m.delta, id_m.grad_u);
 
+      // If using saliency, multiply by it
+      if(m_Param.fnSaliencyPattern.size())
+        LDDMMType::vimg_multiply_in_place(id_m.grad_u, id_m.saliency);
+
       // Subtract each of the deltas warped into moving space
       for(int j = 0; j < m_Size; j++)
         {
@@ -376,10 +412,6 @@ public:
           LDDMMType::vimg_subtract_in_place(id_m.grad_u, lev.work);
           }
         }
-
-      // Multiply by the mask
-      if(lev.global_mask)
-        LDDMMType::vimg_multiply_in_place(id_m.grad_u, lev.global_mask);
 
       // Smooth the gradient 
       LDDMMType::vimg_smooth_withborder(id_m.grad_u, lev.work, m_Param.sigma1, 1);
@@ -562,6 +594,67 @@ public:
           LDDMMType::vimg_add_in_place(lev.work, pd.psi_forward);
           LDDMMType::vimg_scale_in_place(lev.work, -1.0);
           LDDMMType::vimg_add_in_place(lev.work, id_i.u);
+
+          // If using rectifier do this
+          if(m_Param.rect_thresh > 0.0)
+            {
+            // Compute the norm of the delta (no weighting)
+            LDDMMType::vimg_euclidean_inner_product(lev.scalar_work, lev.work, lev.work);
+
+            // Apply the rectifier function to the norm
+            LDDMMType::img_linear_to_const_rectifier_deriv(lev.scalar_work, lev.scalar_work2, m_Param.rect_thresh);
+
+            // Multiply through by the weight - this is what gives us the objective function
+            LDDMMType::img_multiply_in_place(lev.scalar_work2, pd.wgt_fixed);
+            total_error += LDDMMType::img_voxel_sum(lev.scalar_work2);
+
+            // The contribution to i'th gradient 
+            LDDMMType::img_linear_to_const_rectifier_deriv(lev.scalar_work, lev.scalar_work2, m_Param.rect_thresh);
+            LDDMMType::img_multiply_in_place(lev.scalar_work2, pd.wgt_fixed);
+            LDDMMType::vimg_copy(lev.work, lev.work2);
+            LDDMMType::vimg_multiply_in_place(lev.work2, lev.scalar_work2);
+            LDDMMType::vimg_add_in_place(id_i.grad_u, lev.work2);
+
+            // Transform the (unscaled) delta into moving space - in lev.work2
+            LDDMMType::interp_vimg(lev.work, pd.psi_inverse, 1.0, lev.work2);
+
+            // Square and rectify the transformed delta
+            LDDMMType::vimg_euclidean_inner_product(lev.scalar_work, lev.work2, lev.work2);
+            LDDMMType::img_linear_to_const_rectifier_deriv(lev.scalar_work, lev.scalar_work2, m_Param.rect_thresh);
+
+            // Multiply by the compressed moving weight 
+            LDDMMType::img_multiply_in_place(lev.scalar_work2, pd.wgt_moving);
+
+            // Multiple the transformed delta by this product
+            LDDMMType::vimg_multiply_in_place(lev.work2, lev.scalar_work2);
+
+            // Subtract this from the j'th gradient
+            LDDMMType::vimg_subtract_in_place(id_j.grad_u, lev.work2);
+            }
+          else
+            {
+            // Copy the delta into work2
+            LDDMMType::vimg_copy(lev.work, lev.work2);
+
+            // Scale the delta by the weight. This is added to i's gradient
+            LDDMMType::vimg_multiply_in_place(lev.work, pd.wgt_fixed);
+
+            // Compute the weighted norm (w * |Delta|)
+            LDDMMType::vimg_euclidean_inner_product(lev.scalar_work, lev.work, lev.work2);
+            total_error += LDDMMType::img_voxel_sum(lev.scalar_work);
+
+            // Make contribution to the i'th gradient
+            LDDMMType::vimg_add_in_place(id_i.grad_u, lev.work);
+
+            // Transform the (unscaled) delta into moving space - in lev.work
+            LDDMMType::interp_vimg(lev.work2, pd.psi_inverse, 1.0, lev.work);
+
+            // Multiply by the compressed weight in moving space
+            LDDMMType::vimg_multiply_in_place(lev.work, pd.wgt_moving);
+
+            // This is added with a minus sign to the j's gradient
+            LDDMMType::vimg_subtract_in_place(id_j.grad_u, lev.work);
+            }
 
           // Copy the delta into work2
           LDDMMType::vimg_copy(lev.work, lev.work2);
@@ -755,7 +848,48 @@ public:
     return (iter % m_Param.dumpfreq) == 0 || (iter == m_Param.n_iter.size() - 1);
     }
 
-  void Run()
+  void Probe(int level, int iter)
+    {
+    // Start the line
+    cout << level << "," << iter << ",";
+
+    // Create an index for the probe
+    itk::Index<VDim> idx;
+    for(int a = 0; a < VDim; a++)
+      idx[a] = m_Param.probe_index[a];
+
+    // Check where the index maps in template space
+    LevelData &lev = m_Levels[level];
+    ImageData &id = lev.img_data[m_Param.probe_image_index];
+    cout << id.u->GetPixel(idx) << ",";
+
+    // For each other image print the weight and the location
+    for(int i = 0; i < m_Size; i++)
+      {
+      if(i != m_Param.probe_image_index)
+        {
+        PairData &pd = id.pair_data[i];
+        typename VectorImageType::PixelType psi_vec = pd.psi_forward->GetPixel(idx);
+
+        cout << pd.wgt_fixed->GetPixel(idx) << ",";
+        cout << psi_vec << ",";
+
+        typedef FastLinearInterpolator<VectorImageType, TFloat, VDim> FastInterpolator;
+        FastInterpolator fi(lev.img_data[i].u);
+        itk::ContinuousIndex<TFloat, VDim> cix;
+        for(int a = 0; a < VDim; a++)
+          cix[a] = psi_vec[a];
+        typename VectorImageType::PixelType out;
+        fi.Interpolate(cix.GetDataPointer(), &out);
+
+        cout << out << ",";
+        }
+      }
+
+    cout << endl;
+    }
+
+  void RunDWC()
     {
     // Read the images into the datastructure
     ReadImages();
@@ -783,6 +917,10 @@ public:
         if(m_Param.fnOutIterDeltaSq.size() && DumpThisIter(ilev, iter))
           BuildErrorMap(ilev, iter);
 
+        // Do the probe
+        if(m_Param.probe && DumpThisIter(ilev, iter))
+          Probe(ilev,iter);
+
         // Compute the gradients 
         ComputeGradientAndUpdate(ilev);
         }
@@ -792,7 +930,7 @@ public:
     WriteResults();
     }
 
-  void RunNew()
+  void RunWSSD()
     {
     // Read the images into the datastructure
     ReadImages();
@@ -816,6 +954,10 @@ public:
         if(m_Param.fnGrayPattern.size() && m_Param.fnOutIterTemplatePattern.size() && DumpThisIter(ilev, iter))
           BuildTemplate(ilev, iter);
 
+        // Do the probe
+        if(m_Param.probe && DumpThisIter(ilev, iter))
+          Probe(ilev,iter);
+
         // Write the iteration template
         // if(m_Param.fnOutIterDeltaSq.size() && DumpThisIter(ilev, iter))
         //  BuildErrorMap(ilev, iter);
@@ -827,6 +969,14 @@ public:
 
     // Write out final warps
     WriteResults();
+    }
+
+  void Run()
+    {
+    if(m_Param.mode == MACFParameters::MODE_DIST_TO_WCENTER)
+      RunDWC();
+    else
+      RunWSSD();
     }
 
   MACFWorker(const MACFParameters &param) 
@@ -845,6 +995,7 @@ protected:
     vector<PairData> pair_data;
     VectorImagePointer u, u_root, grad_u;
     VectorImagePointer delta;
+    ImagePointer saliency;
     ImagePointer img_gray;
     double norm_delta;
     };
@@ -853,9 +1004,8 @@ protected:
     {
     vector<ImageData> img_data;
     VectorImagePointer work, work2;
-    ImagePointer scalar_work;
+    ImagePointer scalar_work, scalar_work2;
     ImagePointer reference;
-    ImagePointer global_mask;
     int factor;
     };
 
@@ -915,9 +1065,9 @@ int main(int argc, char *argv[])
       {
       param.fnOutTransportedWeightsPattern = cl.read_string();
       }
-    else if(arg == "-gm")
+    else if(arg == "-sal")
       {
-      param.fnGlobalMask = cl.read_existing_filename();
+      param.fnSaliencyPattern = cl.read_string();
       }
     else if(arg == "-phi")
       {
@@ -956,6 +1106,20 @@ int main(int argc, char *argv[])
       {
       param.fnOutIterTemplatePattern = cl.read_string();
       }
+    else if(arg == "-wssd")
+      {
+      param.mode = MACFParameters::MODE_SUM_WDISTANCE;
+      }
+    else if(arg == "-probe")
+      {
+      param.probe = true;
+      param.probe_image_index = cl.read_integer();
+      param.probe_index = cl.read_int_vector();
+      }
+    else if(arg == "-rect")
+      {
+      param.rect_thresh = cl.read_double();
+      }
     else
       {
       printf("Unknown parameter %s\n", arg.c_str());
@@ -966,11 +1130,11 @@ int main(int argc, char *argv[])
   if(dim == 2)
     {
     MACFWorker<float, 2> worker(param);
-    worker.RunNew();
+    worker.Run();
     }
   else if(dim == 3)
     {
     MACFWorker<float, 3> worker(param);
-    worker.RunNew();
+    worker.Run();
     }
 }

@@ -522,6 +522,84 @@ LDDMMData<TFloat, VDim>
   return (TFloat) accum;
 }
 
+
+template <class TFloat, uint VDim>
+class LinearToConstRectifierFunctor
+{
+public:
+  typedef LinearToConstRectifierFunctor<TFloat, VDim> Self;
+
+  LinearToConstRectifierFunctor() : m_Threshold(0.0), m_Offset(0.0) {}
+  LinearToConstRectifierFunctor(TFloat thresh) : m_Threshold(thresh)
+    { m_Offset = log(1 + exp(thresh)); }
+
+  TFloat operator() (const TFloat &x)
+    { return m_Offset - log(1 + exp(m_Threshold - x)); }
+
+  bool operator== (const Self &other)
+    { return m_Threshold == other.m_Threshold; }
+
+  bool operator!= (const Self &other)
+    { return m_Threshold != other.m_Threshold; }
+
+protected:
+  TFloat m_Threshold, m_Offset;
+};
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::img_linear_to_const_rectifier_fn(ImageType *src, ImageType *trg, TFloat thresh)
+{
+  typedef LinearToConstRectifierFunctor<TFloat, VDim> Functor;
+  typedef itk::UnaryFunctorImageFilter<ImageType, ImageType, Functor> Filter;
+  typename Filter::Pointer flt = Filter::New();
+
+  Functor func(thresh);
+  flt->SetFunctor(func);
+  flt->SetInput(trg);
+  flt->GraftOutput(trg);
+  flt->Update();
+}
+
+template <class TFloat, uint VDim>
+class LinearToConstRectifierDerivFunctor
+{
+public:
+  typedef LinearToConstRectifierDerivFunctor<TFloat, VDim> Self;
+
+  LinearToConstRectifierDerivFunctor() : m_Threshold(0.0) {}
+  LinearToConstRectifierDerivFunctor(TFloat thresh) : m_Threshold(thresh) {}
+
+  TFloat operator() (const TFloat &x)
+    { return 1.0 / (1.0 + exp(x - m_Threshold)); }
+
+  bool operator== (const Self &other)
+    { return m_Threshold == other.m_Threshold; }
+
+  bool operator!= (const Self &other)
+    { return m_Threshold != other.m_Threshold; }
+
+protected:
+  TFloat m_Threshold;
+};
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::img_linear_to_const_rectifier_deriv(ImageType *src, ImageType *trg, TFloat thresh)
+{
+  typedef LinearToConstRectifierDerivFunctor<TFloat, VDim> Functor;
+  typedef itk::UnaryFunctorImageFilter<ImageType, ImageType, Functor> Filter;
+  typename Filter::Pointer flt = Filter::New();
+
+  Functor func(thresh);
+  flt->SetFunctor(func);
+  flt->SetInput(trg);
+  flt->GraftOutput(trg);
+  flt->Update();
+}
+
 template <class TFloat, uint VDim>
 TFloat 
 LDDMMData<TFloat, VDim>

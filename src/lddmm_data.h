@@ -273,6 +273,11 @@ public:
   void integrate_phi_t0();
   void integrate_phi_t1();
 
+  // Rectifier functions that begin linear-like and switch to constant-like at the 
+  // specified threshold. These should be applied to non-negative quantities
+  static void img_linear_to_const_rectifier_fn(ImageType *src, ImageType *trg, TFloat thresh);
+  static void img_linear_to_const_rectifier_deriv(ImageType *src, ImageType *trg, TFloat thresh);
+
 protected:
 
   // A vector image for in-place interpolation operations
