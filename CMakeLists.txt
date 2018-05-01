@@ -1,79 +1,62 @@
-PROJECT(GREEDY_TOOL)
+PROJECT(GREEDY)
+
+# Required CMake version
+CMAKE_MINIMUM_REQUIRED(VERSION 3.3)
 
 #--------------------------------------------------------------------------------
-# MACROS
+# VERSION
 #--------------------------------------------------------------------------------
-# Get today's date (see http://cmake.3232098.n2.nabble.com/How-to-get-the-current-date-td5776870.html)
-MACRO (TODAY RESULT)
-    IF (WIN32)
-        EXECUTE_PROCESS(COMMAND "cmd" " /C date /T" OUTPUT_VARIABLE ${RESULT})
-        string(REGEX REPLACE "(..)/(..)/(....).*" "\\1/\\2/\\3" ${RESULT} ${${RESULT}})
-    ELSEIF(UNIX)
-        EXECUTE_PROCESS(COMMAND "date" "+%b %d, %Y" OUTPUT_VARIABLE ${RESULT})
-        string(REGEX REPLACE "(...) (..), (....).*" "\\1 \\2, \\3" ${RESULT} ${${RESULT}})
-    ELSE (WIN32)
-        MESSAGE(SEND_ERROR "date not implemented")
-        SET(${RESULT} 000000)
-    ENDIF (WIN32)
-	string(REPLACE "\n" "" ${RESULT} ${${RESULT}})
-	string(REPLACE " " "" ${RESULT} ${${RESULT}})
-ENDMACRO (TODAY)
+INCLUDE(CMake/PYVersion.cmake)
+
+# Set the semantic version and version date
+VERSION_VARS(1 0 0 "" "20171205" "Dec 05, 2017")
 
 #--------------------------------------------------------------------------------
-# CONFIG VARIABLES FOR BUILDING AS A SUBPROJECT
+# Build configuration
 #--------------------------------------------------------------------------------
-OPTION(GREEDY_TOOL_BUILD_AS_SUBPROJECT "Build greedy inside of another CMake build" OFF)
-MARK_AS_ADVANCED(GREEDY_TOOL_BUILD_AS_SUBPROJECT)
+INCLUDE(CMakeDependentOption)
 
-IF(GREEDY_TOOL_BUILD_AS_SUBPROJECT)
-  OPTION(GREEDY_TOOL_SUBPROJECT_BUILD_CLI "Build the executables" OFF)
-  OPTION(GREEDY_TOOL_SUBPROJECT_INSTALL_CLI "Install the executables" OFF)
-  SET(BUILD_CLI ${GREEDY_TOOL_SUBPROJECT_BUILD_CLI})
-  SET(INSTALL_CLI ${GREEDY_TOOL_SUBPROJECT_INSTALL_CLI})
-ELSE()
-  SET(BUILD_CLI ON)
-  SET(INSTALL_CLI ON)
+# Do we want to build LDDMM?
+OPTION(GREEDY_BUILD_LDDMM "Build experimental LDDMM implementation" OFF)
+
+# Do we want to use FFTW?
+CMAKE_DEPENDENT_OPTION(GREEDY_USE_FFTW 
+  "Use features provided by the FFTW library, only for experimental LDDMM code" OFF
+  "GREEDY_BUILD_LDDMM" OFF)
+
+# Do we want to build MACF tools?
+OPTION(GREEDY_BUILD_MACF "Build experimental multi-atlas correspondence fusion code" OFF)
+
+#--------------------------------------------------------------------------------
+# Dependent packages
+#--------------------------------------------------------------------------------
+
+# ITK
+FIND_PACKAGE(ITK 4.12.2 REQUIRED)
+INCLUDE(${ITK_USE_FILE})
+
+# Deal with FFTW - only used by experimental LDDMM code
+IF(GREEDY_USE_FFTW)
+  SET(ITK_USE_FFTWF ON)
+  SET(ITK_USE_FFTWD ON)
+  INCLUDE(CMake/FindFFTW.cmake)
+  ADD_DEFINITIONS(-D_LDDMM_FFT_)
 ENDIF()
 
-#--------------------------------------------------------------------------------
-# MAIN STUFF
-#--------------------------------------------------------------------------------
-
-# Configure whether LDDMM and potential other experimental binaries are built
-OPTION(BUILD_LDDMM "Build experimental lddmm implementation?" OFF)
-
-# If we are building as a sub-project we skip the extra steps
-IF(NOT GREEDY_TOOL_BUILD_AS_SUBPROJECT)
-
-  # Stand-alone build stuff
-  CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
-
-  # ITK
-  FIND_PACKAGE(ITK 4.8.2 REQUIRED)
-  INCLUDE(${ITK_USE_FILE})
-
-  # Advanced option to link with FFT 
-  OPTION(USE_FFTW "Use features provided by the FFTW library, only for experimental LDDMM code" OFF)
-
-  # Deal with FFTW - only used by experimental LDDMM code
-  IF(USE_FFTW)
-    SET(ITK_USE_FFTWF ON)
-    SET(ITK_USE_FFTWD ON)
-    INCLUDE(CMake/FindFFTW.cmake)
-    ADD_DEFINITIONS(-D_LDDMM_FFT_)
-  ENDIF(USE_FFTW)
-
-  # Include C-test
-  ENABLE_TESTING()
-  INCLUDE(CTest)
-
-ENDIF(NOT GREEDY_TOOL_BUILD_AS_SUBPROJECT)
-
 # Include the header directories
-SET(GREEDY_INCLUDE_DIRS
-  ${GREEDY_TOOL_SOURCE_DIR}/src
-  ${GREEDY_TOOL_SOURCE_DIR}/src/ITKFilters/include
+INCLUDE_DIRECTORIES(
+  ${GREEDY_SOURCE_DIR}/src
+  ${GREEDY_SOURCE_DIR}/src/ITKFilters/include
 )
+
+#--------------------------------------------------------------------------------
+# Source file specification
+#--------------------------------------------------------------------------------
+
+# One of the files needs to be configured (to insert version info)
+CONFIGURE_FILE(
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/GreedyVersion.cxx.in
+  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx @ONLY IMMEDIATE)
 
 # Define header files
 SET(HEADERS
@@ -121,67 +104,34 @@ SET(GREEDY_SRC
   ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
   src/greedy_main.cxx)
 
+SET(MACF_SRC src/macf_optimization.cxx)
+
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
 TARGET_INCLUDE_DIRECTORIES(greedyapi PUBLIC ${GREEDY_INCLUDE_DIRS})
 
+# The executables are only compiled when the software is built as its own project
+IF(GREEDY_BUILD_LDDMM)
+  ADD_EXECUTABLE(lddmm ${LDDMM_SRC})
+  TARGET_LINK_LIBRARIES(lddmm greedyapi
+    ${ITK_LIBRARIES} ${FFTWF_LIB}
+    ${FFTWF_THREADS_LIB})
+ENDIF()
 
-IF(BUILD_CLI)
+IF(GREEDY_BUILD_MACF)
+  ADD_EXECUTABLE(macf ${MACF_SRC})
+  TARGET_LINK_LIBRARIES(macf greedyapi ${ITK_LIBRARIES})
+ENDIF()
 
-  # Get today's date (see http://cmake.3232098.n2.nabble.com/How-to-get-the-current-date-td5776870.html)
-  TODAY(GREEDY_VERSION_COMPILE_DATE)
+ADD_EXECUTABLE(greedy ${GREEDY_SRC})
+TARGET_LINK_LIBRARIES(greedy greedyapi ${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB})
+INSTALL(TARGETS greedy DESTINATION . COMPONENT Runtime)
 
-  # Get the current git hash
-  include(${GREEDY_TOOL_SOURCE_DIR}/CMake/rpavlik/GetGitRevisionDescription.cmake)
-  get_git_head_revision(GIT_REFSPEC GREEDY_VERSION_GIT_SHA1)
+ADD_EXECUTABLE(test_accum testing/src/TestOneDimensionalInPlaceAccumulateFilter.cxx)
+TARGET_LINK_LIBRARIES(test_accum ${ITK_LIBRARIES})
 
-  # Get the current git branch
-  include(${GREEDY_TOOL_SOURCE_DIR}/CMake/GitBranch.cmake)
-  get_git_branch(GREEDY_VERSION_GIT_BRANCH)
-  get_git_commit_date(${GREEDY_VERSION_GIT_SHA1} GREEDY_VERSION_GIT_TIMESTAMP)
+IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
 
-  # Print the Git information
-  MESSAGE(STATUS "Greedy GIT Info:")
-  MESSAGE(STATUS "  Branch : ${GREEDY_VERSION_GIT_BRANCH}")
-  MESSAGE(STATUS "  SHA    : ${GREEDY_VERSION_GIT_SHA1}")
-  MESSAGE(STATUS "  Date   : ${GREEDY_VERSION_GIT_TIMESTAMP}")
+  ENABLE_TESTING()
+  INCLUDE(CTest)
 
-  # One of the files needs to be configured (to insert version info)
-  CONFIGURE_FILE(
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/GreedyVersion.cxx.in
-    ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx @ONLY IMMEDIATE)
-
-  # Build the greedy library
-  ADD_EXECUTABLE(greedy ${GREEDY_SRC})
-  TARGET_LINK_LIBRARIES(greedy greedyapi ${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB})
-  TARGET_INCLUDE_DIRECTORIES(greedy PUBLIC ${GREEDY_INCLUDE_DIRS})
-
-  ADD_EXECUTABLE(test_accum testing/src/TestOneDimensionalInPlaceAccumulateFilter.cxx)
-  TARGET_LINK_LIBRARIES(test_accum ${ITK_LIBRARIES})
-  TARGET_INCLUDE_DIRECTORIES(test_accum PUBLIC ${GREEDY_INCLUDE_DIRS})
-
-  # Configure LDDMM only if requested
-  IF(BUILD_LDDMM)
-    ADD_EXECUTABLE(lddmm ${LDDMM_SRC})
-    TARGET_LINK_LIBRARIES(lddmm greedyapi
-      ${ITK_LIBRARIES} ${FFTWF_LIB}
-      ${FFTWF_THREADS_LIB})
-    TARGET_INCLUDE_DIRECTORIES(lddmm PUBLIC ${GREEDY_INCLUDE_DIRS})
-  ENDIF(BUILD_LDDMM)
-
-ENDIF(BUILD_CLI)
-
-IF(INSTALL_CLI)
-
-  # Set the installation destination
-  IF(GREEDY_TOOL_SUBPROJECT_CLI_INSTALL_PATH)
-    SET(CLI_INSTALL_PATH ${GREEDY_TOOL_SUBPROJECT_CLI_INSTALL_PATH})
-  ELSE()
-    SET(CLI_INSTALL_PATH "bin")
-  ENDIF()
-
-  INSTALL(TARGETS greedy DESTINATION ${CLI_INSTALL_PATH} COMPONENT Runtime)
-  IF(BUILD_LDDMM)
-    INSTALL(TARGETS lddmm DESTINATION ${CLI_INSTALL_PATH} COMPONENT Runtime)
-  ENDIF()
-
-ENDIF(INSTALL_CLI)
+ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)

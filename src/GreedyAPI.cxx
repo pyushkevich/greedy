@@ -1646,6 +1646,10 @@ int GreedyApproach<VDim, TReal>
   // Set the scaling factors for multi-resolution
   of_helper.SetDefaultPyramidFactors(param.iter_per_level.size());
 
+  // Set the scaling mode depending on the metric
+  if(param.metric == GreedyParameters::MAHALANOBIS)
+    of_helper.SetScaleFixedImageWithVoxelSize(true);
+
   // Read the image pairs to register
   ReadImages(param, of_helper);
 
@@ -1675,13 +1679,24 @@ int GreedyApproach<VDim, TReal>
     std::cout << "  Smoothing sigmas: " << sigma_pre_phys << ", " << sigma_post_phys << std::endl;
 
     // Set up timers for different critical components of the optimization
-    itk::TimeProbe tm_Gradient, tm_Gaussian1, tm_Gaussian2, tm_Iteration;
+    itk::TimeProbe tm_Gradient, tm_Gaussian1, tm_Gaussian2, tm_Iteration, 
+      tm_Integration, tm_Update;
 
     // Intermediate images
     ImagePointer iTemp = ImageType::New();
     VectorImagePointer viTemp = VectorImageType::New();
     VectorImagePointer uk = VectorImageType::New();
     VectorImagePointer uk1 = VectorImageType::New();
+
+    // This is the exponentiated uk, in stationary velocity mode it is uk^(2^N)
+    VectorImagePointer uk_exp = VectorImageType::New();
+
+    // A pointer to the full warp image - either uk in greedy mode, or uk_exp in diff demons mdoe
+    VectorImageType *uFull;
+
+    // Matrix work image (for Lie Bracket) 
+    typedef typename LDDMMType::MatrixImageType MatrixImageType;
+    typename MatrixImageType::Pointer work_mat = MatrixImageType::New();
 
     // Allocate the intermediate data
     LDDMMType::alloc_vimg(uk, refspace);
@@ -1690,6 +1705,13 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::alloc_img(iTemp, refspace);
       LDDMMType::alloc_vimg(viTemp, refspace);
       LDDMMType::alloc_vimg(uk1, refspace);
+
+      // These are only allocated in diffeomorphic demons mode
+      if(param.flag_stationary_velocity_mode)
+        {
+        LDDMMType::alloc_vimg(uk_exp, refspace);
+        LDDMMType::alloc_mimg(work_mat, refspace);
+        }
       }
 
     // Initialize the deformation field from last iteration
@@ -1698,6 +1720,26 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::vimg_resample_identity(uLevel, refspace, uk);
       LDDMMType::vimg_scale_in_place(uk, 2.0);
       uLevel = uk;
+      }
+    else if(param.initial_warp.size())
+      {
+      // The user supplied an initial warp or initial root warp. In this case, we
+      // do not start iteration from zero, but use the initial warp to start from
+      VectorImagePointer uInit = VectorImageType::New();
+
+      // Read the warp file
+      LDDMMType::vimg_read(param.initial_warp.c_str(), uInit );
+
+      // Convert the warp file into voxel units from physical units
+      OFHelperType::PhysicalWarpToVoxelWarp(uInit, uInit, uInit);
+
+      // Scale the initial warp by the pyramid level
+      LDDMMType::vimg_resample_identity(uInit, refspace, uk);
+      LDDMMType::vimg_scale_in_place(uk, 1.0 / (1 << level));
+      uLevel = uk;
+      itk::Index<VDim> test; test.Fill(24);
+      std::cout << "Index 24x24x24 maps to " << uInit->GetPixel(test) << std::endl;
+      std::cout << "Index 24x24x24 maps to " << uk->GetPixel(test) << std::endl;
       }
     else if(param.affine_init_mode != VOX_IDENTITY)
       {
@@ -1740,13 +1782,30 @@ int GreedyApproach<VDim, TReal>
       // Compute the gradient of objective
       double total_energy;
 
+      // Integrate the total deformation field for this iteration
+      if(param.flag_stationary_velocity_mode)
+        {
+        tm_Integration.Start();
+
+        // This is the exponentiation of the stationary velocity field
+        // Take current warp to 'exponent' power - this is the actual warp
+        LDDMMType::vimg_exp(uk, uk_exp, viTemp, param.warp_exponent, 1.0);
+        uFull = uk_exp;
+
+        tm_Integration.Stop();
+        }
+      else
+        {
+        uFull = uk;
+        }
+
       if(param.metric == GreedyParameters::SSD)
         {
         // Begin gradient computation
         tm_Gradient.Start();
 
         vnl_vector<double> all_metrics =
-            of_helper.ComputeOpticalFlowField(level, uk, iTemp, uk1, eps)  / eps;
+            of_helper.ComputeOpticalFlowField(level, uFull, iTemp, uk1, eps)  / eps;
 
         // If there is a mask, multiply the gradient by the mask
         if(param.gradient_mask.size())
@@ -1771,7 +1830,7 @@ int GreedyApproach<VDim, TReal>
         tm_Gradient.Start();
 
         vnl_vector<double> all_metrics =
-            of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, uk, iTemp, uk1, eps);
+            of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, uFull, iTemp, uk1, eps);
 
         // If there is a mask, multiply the gradient by the mask
         if(param.gradient_mask.size())
@@ -1790,7 +1849,7 @@ int GreedyApproach<VDim, TReal>
         printf("]  Tot: %8.6f\n", total_energy);
         }
 
-      else
+      else if(param.metric == GreedyParameters::NCC)
         {
         itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
 
@@ -1861,11 +1920,19 @@ int GreedyApproach<VDim, TReal>
         tm_Gradient.Start();
 
         // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
-        total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, eps) / eps;
+        total_energy = of_helper.ComputeNCCMetricImage(level, uFull, radius, iTemp, uk1, eps) / eps;
 
         // End gradient computation
         tm_Gradient.Stop();
 
+        printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
+        fflush(stdout);
+        }
+      else if(param.metric == GreedyParameters::MAHALANOBIS)
+        {
+        tm_Gradient.Start();
+        double total_energy = of_helper.ComputeMahalanobisMetricImage(level, uFull, iTemp, uk1);
+        tm_Gradient.Stop();
         printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
         fflush(stdout);
         }
@@ -1899,8 +1966,42 @@ int GreedyApproach<VDim, TReal>
         }
 
       // Compute the updated deformation field - in uk1
-      LDDMMType::interp_vimg(uk, viTemp, 1.0, uk1);
-      LDDMMType::vimg_add_in_place(uk1, viTemp);
+      tm_Update.Start();
+      if(param.flag_stationary_velocity_mode)
+        {
+        // this is diffeomorphic demons - Vercauteren 2008
+        // We now hold the update field in viTemp. This update u should be integrated
+        // with the current stationary velocity field such that exp[v'] = exp[v] o exp[u]
+        // Vercauteren (2008) suggests using the following expressions
+        // v' = v + u (so-so)
+        // v' = v + u + [v, u]/2 (this is the Lie bracket)
+        
+        // Scale the update by 1 / 2^exponent (tiny update, first order approximation)
+        LDDMMType::vimg_scale_in_place(viTemp, 1.0 / (2 << param.warp_exponent));
+
+        // Use appropriate update
+        if(param.flag_stationary_velocity_mode_use_lie_bracket)
+          {
+          // Use the Lie Bracket approximation (v + u + [v,u])
+          LDDMMType::lie_bracket(uk, viTemp, work_mat, uk1);
+          LDDMMType::vimg_scale_in_place(uk1, 0.5); 
+          LDDMMType::vimg_add_in_place(uk1, uk);
+          LDDMMType::vimg_add_in_place(uk1, viTemp);
+          }
+        else
+          {
+          LDDMMType::vimg_copy(uk, uk1);
+          LDDMMType::vimg_add_in_place(uk1, viTemp);
+          }
+        }
+      else
+        {
+        // This is compositive (uk1 = viTemp + uk o viTemp), which is what is done with
+        // compositive demons and ANTS
+        LDDMMType::interp_vimg(uk, viTemp, 1.0, uk1);
+        LDDMMType::vimg_add_in_place(uk1, viTemp);
+        }
+      tm_Update.Stop();
 
       // Dump if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
@@ -1934,35 +2035,62 @@ int GreedyApproach<VDim, TReal>
              tm_Gradient.GetMean() * 100.0 / tm_Iteration.GetMean());
       printf("  Avg. Gaussian Time  : %6.4fs  %5.2f%% \n", tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean(),
              (tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean()) * 100.0 / tm_Iteration.GetMean());
-      printf("  Avg. Iteration Time : %6.4fs \n", tm_Iteration.GetMean());
+      printf("  Avg. Integration Time  : %6.4fs  %5.2f%% \n", tm_Integration.GetMean() + tm_Update.GetMean(),
+             (tm_Integration.GetMean() + tm_Update.GetMean()) * 100.0 / tm_Iteration.GetMean());
+      printf("  Avg. Total Iteration Time : %6.4fs \n", tm_Iteration.GetMean());
       }
     }
 
   // The transformation field is in voxel units. To work with ANTS, it must be mapped
   // into physical offset units - just scaled by the spacing?
-
-  // Write the resulting transformation field
-  of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevel, param.output.c_str(), param.warp_precision);
-
-  // If an inverse is requested, compute the inverse using the Chen 2008 fixed method.
-  // A modification of this method is that if convergence is slow, we take the square
-  // root of the forward transform.
-  //
-  // TODO: it would be more efficient to check the Lipschitz condition rather than
-  // the brute force approach below
-  //
-  // TODO: the maximum checks should only be done over the region where the warp is
-  // not going outside of the image. Right now, they are meaningless and we are doing
-  // extra work when computing the inverse.
-  if(param.inverse_warp.size())
+  
+  if(param.flag_stationary_velocity_mode)
     {
-    // Compute the inverse
-    VectorImagePointer uInverse = VectorImageType::New();
-    LDDMMType::alloc_vimg(uInverse, uLevel);
-    of_helper.ComputeDeformationFieldInverse(uLevel, uInverse, param.inverse_exponent);
+    // Take current warp to 'exponent' power - this is the actual warp
+    VectorImagePointer uLevelExp = LDDMMType::alloc_vimg(uLevel);
+    VectorImagePointer uLevelWork = LDDMMType::alloc_vimg(uLevel);
+    LDDMMType::vimg_exp(uLevel, uLevelExp, uLevelWork, param.warp_exponent, 1.0);
 
-    // Write the warp using compressed format
-    of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uInverse, param.inverse_warp.c_str(), param.warp_precision);
+    // Write the resulting transformation field
+    of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevelExp, param.output.c_str(), param.warp_precision);
+
+    if(param.root_warp.size())
+      {
+      // If asked to write root warp, do so
+      of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevel, param.root_warp.c_str(), 0);
+      }
+    if(param.inverse_warp.size())
+      {
+      // Compute the inverse (this is probably unnecessary for small warps)
+      of_helper.ComputeDeformationFieldInverse(uLevel, uLevelWork, 0);
+      of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevelWork, param.inverse_warp.c_str(), param.warp_precision);
+      }
+    }
+  else
+    {
+    // Write the resulting transformation field
+    of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevel, param.output.c_str(), param.warp_precision);
+
+    // If an inverse is requested, compute the inverse using the Chen 2008 fixed method.
+    // A modification of this method is that if convergence is slow, we take the square
+    // root of the forward transform.
+    //
+    // TODO: it would be more efficient to check the Lipschitz condition rather than
+    // the brute force approach below
+    //
+    // TODO: the maximum checks should only be done over the region where the warp is
+    // not going outside of the image. Right now, they are meaningless and we are doing
+    // extra work when computing the inverse.
+    if(param.inverse_warp.size())
+      {
+      // Compute the inverse
+      VectorImagePointer uInverse = VectorImageType::New();
+      LDDMMType::alloc_vimg(uInverse, uLevel);
+      of_helper.ComputeDeformationFieldInverse(uLevel, uInverse, param.warp_exponent);
+
+      // Write the warp using compressed format
+      of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uInverse, param.inverse_warp.c_str(), param.warp_precision);
+      }
     }
   return 0;
 }
@@ -2097,6 +2225,28 @@ void GreedyApproach<VDim, TReal>
       // Read the next warp
       VectorImagePointer warp_i = VectorImageType::New();
       LDDMMType::vimg_read(tran.c_str(), warp_i);
+
+      // If there is an exponent on the transform spec, handle it
+      if(tran_chain[i].exponent != 1)
+        {
+        // The exponent may be specified as a negative number, in which case we take the negative
+        // input and exponentiate it
+        double absexp = fabs(tran_chain[i].exponent);
+        double n_real = log(absexp) / log(2.0);
+        int n = (int) (n_real + 0.5);
+        if(fabs(n - n_real) > 1.0e-4) 
+          throw GreedyException("Currently only power of two exponents are supported for warps");
+
+        // Bring the transform into voxel space
+        VectorImagePointer warp_exp = LDDMMType::alloc_vimg(warp_i);
+        OFHelperType::PhysicalWarpToVoxelWarp(warp_i, warp_i, warp_i);
+
+        // Square the transform N times (in its own space)
+        LDDMMType::vimg_exp(warp_i, warp_exp, warp_tmp, n, tran_chain[i].exponent / absexp);
+
+        // Bring the transform back into physical space
+        OFHelperType::VoxelWarpToPhysicalWarp(warp_exp, warp_i, warp_i);
+        }
 
       // Now we need to compose the current transform and the overall warp.
       LDDMMType::interp_vimg(warp_i, out_warp, 1.0, warp_tmp, false, true);
@@ -2324,6 +2474,73 @@ private:
 };
 
 /**
+ * This code computes the jacobian determinant field for a deformation. The
+ * recommended mode for this computation is to take the k-th root of the input
+ * transformation and then compose the Jacobians
+ */
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::RunJacobian(GreedyParameters &param)
+{
+  // Read the warp as a transform chain
+  VectorImagePointer warp;
+
+  // Read the warp file
+  LDDMMType::vimg_read(param.jacobian_param.in_warp.c_str(), warp);
+
+  // Convert the warp file into voxel units from physical units
+  OFHelperType::PhysicalWarpToVoxelWarp(warp, warp, warp);
+
+  // Compute the root of the warp
+  VectorImagePointer root_warp = VectorImageType::New();
+  LDDMMType::alloc_vimg(root_warp, warp);
+
+  // Allocate a working warp
+  VectorImagePointer work_warp = VectorImageType::New();
+  LDDMMType::alloc_vimg(work_warp, warp);
+
+  // Compute the root warp, which is not stored in the variable warp
+  OFHelperType::ComputeWarpRoot(warp, root_warp, param.warp_exponent);
+
+  // Initialize empty array of Jacobians
+  typedef typename LDDMMType::MatrixImageType JacobianImageType;
+  typename JacobianImageType::Pointer jac = JacobianImageType::New();
+  LDDMMType::alloc_mimg(jac, warp);
+
+  typename JacobianImageType::Pointer jac_work = JacobianImageType::New();
+  LDDMMType::alloc_mimg(jac_work, warp);
+
+  // Compute the Jacobian of the root warp
+  LDDMMType::field_jacobian(root_warp, jac);
+
+  // Compute the Jacobian matrix of the root warp; jac[a] = D_a (warp)
+  for(int k = 0; k < param.warp_exponent; k++)
+    {
+    // Compute the composition of the Jacobian with itself
+    LDDMMType::jacobian_of_composition(jac, jac, root_warp, jac_work);
+
+    // Swap the pointers, so jac points to the actual composed jacobian
+    typename JacobianImageType::Pointer temp = jac_work.GetPointer();
+    jac_work = jac.GetPointer();
+    jac = temp.GetPointer();
+
+    // Compute the composition of the warp with itself, place into root_warp
+    LDDMMType::interp_vimg(root_warp, root_warp, 1.0, work_warp);
+    LDDMMType::vimg_add_in_place(root_warp, work_warp);
+    }
+
+  // At this point, root_warp should hold the original warp, and jac+I will hold
+  // the Jacobian of the original warp. We need to compute the determinant
+  ImagePointer jac_det = ImageType::New();
+  LDDMMType::alloc_img(jac_det, warp);
+  LDDMMType::mimg_det(jac, 1.0, jac_det);
+
+  // Write the computed Jacobian
+  LDDMMType::img_write(jac_det, param.jacobian_param.out_det_jac.c_str(), itk::ImageIOBase::FLOAT);
+  return 0;
+}
+
+/**
  * Run the reslice code - simply apply a warp or set of warps to images
  */
 template <unsigned int VDim, typename TReal>
@@ -2478,8 +2695,7 @@ int GreedyApproach<VDim, TReal>
       {
       // Read the input image
       CompositeImagePointer moving, warped;
-      itk::ImageIOBase::IOComponentType comp =
-          LDDMMType::cimg_read(filename, moving);
+      itk::ImageIOBase::IOComponentType comp = LDDMMType::cimg_read(filename, moving);
 
       // Allocate the warped image
       LDDMMType::alloc_cimg(warped, ref_space, moving->GetNumberOfComponentsPerPixel());
@@ -2487,7 +2703,7 @@ int GreedyApproach<VDim, TReal>
       // Perform the warp
       LDDMMType::interp_cimg(moving, warp, warped,
                              r_param.images[i].interp.mode == InterpSpec::NEAREST,
-                             true);
+                             true, r_param.images[i].interp.outside_value);
 
       // Write, casting to the input component type
       LDDMMType::cimg_write(warped, r_param.images[i].output.c_str(), comp);
@@ -2691,7 +2907,7 @@ int GreedyApproach<VDim, TReal>
   // Compute the inverse of the warp
   VectorImagePointer uInverse = VectorImageType::New();
   LDDMMType::alloc_vimg(uInverse, warp);
-  OFHelperType::ComputeDeformationFieldInverse(warp, uInverse, param.inverse_exponent, true);
+  OFHelperType::ComputeDeformationFieldInverse(warp, uInverse, param.warp_exponent, true);
 
   // Write the warp using compressed format
   OFHelperType::WriteCompressedWarpInPhysicalSpace(uInverse, warp, param.invwarp_param.out_warp.c_str(), param.warp_precision);
@@ -2715,44 +2931,15 @@ int GreedyApproach<VDim, TReal>
   // Convert the warp file into voxel units from physical units
   OFHelperType::PhysicalWarpToVoxelWarp(warp, warp, warp);
 
-  // Compute the inverse of the warp
-  VectorImagePointer uInverse = VectorImageType::New();
-  LDDMMType::alloc_vimg(uInverse, warp);
+  // Allocate the root
+  VectorImagePointer warp_root = VectorImageType::New();
+  LDDMMType::alloc_vimg(warp_root, warp);
 
-  // Do the root computation
-
-  // Create a copy of the forward warp
-  VectorImagePointer uForward = VectorImageType::New();
-  LDDMMType::alloc_vimg(uForward, warp);
-  LDDMMType::vimg_copy(warp, uForward);
-
-  // Create a working image for the square root computation
-  VectorImagePointer uWork = VectorImageType::New();
-  LDDMMType::alloc_vimg(uWork, warp);
-
-  // Compute the square root
-  for(int k = 0; k < param.warproot_param.exponent; k++)
-    {
-    for(int i = 0; i < 20; i++)
-      {
-      LDDMMType::interp_vimg(uInverse, uInverse, 1.0, uWork);
-      LDDMMType::vimg_scale_in_place(uWork, -1.0);
-      LDDMMType::vimg_add_scaled_in_place(uWork, uInverse, -1.0);
-      LDDMMType::vimg_add_in_place(uWork, uForward);
-
-      // Check the maximum delta
-      std::cout << "." << std::flush;
-
-      LDDMMType::vimg_add_scaled_in_place(uInverse, uWork, 0.5);
-      }
-
-    std::cout << "." << std::endl;
-    LDDMMType::vimg_copy(uInverse, uForward);
-    uInverse->FillBuffer(itk::NumericTraits<typename VectorImageType::PixelType>::ZeroValue());
-    }
+  // Take the n-th root
+  OFHelperType::ComputeWarpRoot(warp, warp_root, param.warp_exponent, 1e-6);
 
   // Write the warp using compressed format
-  OFHelperType::WriteCompressedWarpInPhysicalSpace(uForward, warp, param.warproot_param.out_warp.c_str(), param.warp_precision);
+  OFHelperType::WriteCompressedWarpInPhysicalSpace(warp_root, warp, param.warproot_param.out_warp.c_str(), param.warp_precision);
 
   return 0;
 }
@@ -2791,6 +2978,8 @@ int GreedyApproach<VDim, TReal>
       return Self::RunReslice(param);
     case GreedyParameters::INVERT_WARP:
       return Self::RunInvertWarp(param);
+    case GreedyParameters::JACOBIAN_WARP:
+      return Self::RunJacobian(param);
     case GreedyParameters::ROOT_WARP:
       return Self::RunRootWarp(param);
     }

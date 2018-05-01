@@ -53,6 +53,7 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
   // Create a fast interpolator for the moving image
   typedef FastLinearInterpolator<TInputImage, FloatType, ImageDimension> FastInterpolator;
   FastInterpolator fi(input);
+  fi.SetOutsideValue(m_OutsideValue);
 
   int ncomp = fi.GetPointerIncrement();
 
@@ -115,7 +116,7 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
       else
         {
         for(int k = 0; k < ncomp; k++)
-          *out++ = itk::NumericTraits<OutputComponentType>::ZeroValue();
+          *out++ = m_OutsideValue;
         }
       }
     }

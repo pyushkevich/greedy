@@ -66,6 +66,13 @@ public:
   /** Set the pyramid factors - for multi-resolution (e.g., 8,4,2) */
   void SetPyramidFactors(const PyramidFactorsType &factors);
 
+  /** 
+   * Set whether the fixed images should be scaled down by the pyramid factors
+   * when subsampling. This is needed for the Mahalanobis distance metric, but not for
+   * any of the metrics that use image intensities 
+   */
+  void SetScaleFixedImageWithVoxelSize(bool onoff) { m_ScaleFixedImageWithVoxelSize = onoff; }
+
   /** Add a pair of multi-component images to the class - same weight for each component */
   void AddImagePair(MultiComponentImageType *fixed, MultiComponentImageType *moving, double weight);
 
@@ -133,7 +140,10 @@ public:
                               FloatImageType *out_metric, VectorImageType *out_gradient = NULL,
                                double result_scaling = 1.0);
 
-
+  /** Compute the Mahalanobis metric with gradient */
+  double ComputeMahalanobisMetricImage(int level, VectorImageType *def, 
+                                       FloatImageType *out_metric, 
+                                       VectorImageType *out_gradient = NULL);
 
   /** Compute affine similarity and gradient */
   double ComputeAffineMSDMatchAndGradient(int level, LinearTransformType *tran,
@@ -165,6 +175,8 @@ public:
 
   static void AffineToField(LinearTransformType *tran, VectorImageType *def);
 
+  void DownsampleWarp(VectorImageType *srcWarp, VectorImageType *trgWarp, int srcLevel, int trgLevel);
+
   /** Convert a warp to physical space */
   static void VoxelWarpToPhysicalWarp(VectorImageType *warp, ImageBaseType *moving_space, VectorImageType *result);
   static void PhysicalWarpToVoxelWarp(VectorImageType *warp, ImageBaseType *moving_space, VectorImageType *result);
@@ -183,9 +195,31 @@ public:
    * Invert a deformation field by first dividing it into small transformations using the
    * square root command, and then inverting the small transformations
    */
-  static void ComputeDeformationFieldInverse(VectorImageType *warp, VectorImageType *result, int n_sqrt, bool verbose = false);
+  static void ComputeDeformationFieldInverse(
+    VectorImageType *warp, VectorImageType *result, int n_sqrt, bool verbose = false);
 
-  MultiImageOpticalFlowHelper() : m_JitterSigma(0.0) {}
+  /**
+   * Compute the (2^k)-th root of a warp using an iterative scheme. For each
+   * square root computation, the following iteration is used, where f = x + u
+   * is the input warp, and g is the square root.
+   */
+  static void ComputeWarpRoot(
+    VectorImageType *warp, VectorImageType *root, int exponent, TFloat tol = 0, int max_iter = 20);
+
+  /**
+   * Compute the square root of an input warp f = x + u(x) using an iterative scheme
+   *
+   *    g[0] = Id
+   *    g[t+1] = g[t] + (f - g[t] o g[t]) / 2
+   *
+   * A working image of the same size as the input and output must be provided
+   */
+  static void ComputeWarpSquareRoot(
+    VectorImageType *warp, VectorImageType *out, VectorImageType *work, 
+    FloatImageType *error_norm = NULL, double tol = 0.0, int max_iter = 20);
+
+  MultiImageOpticalFlowHelper() : 
+    m_JitterSigma(0.0), m_ScaleFixedImageWithVoxelSize(false) {}
 
 protected:
 
@@ -229,6 +263,11 @@ protected:
 
   // Adjust NCC radius to be smaller than half image size
   SizeType AdjustNCCRadius(int level, const SizeType &radius, bool report_on_adjust);
+
+  // Whether the fixed images should be scaled down by the pyramid factors
+  // when subsampling. This is needed for the Mahalanobis distance metric, but not for
+  // any of the metrics that use image intensities
+  bool m_ScaleFixedImageWithVoxelSize;
 };
 
 #endif

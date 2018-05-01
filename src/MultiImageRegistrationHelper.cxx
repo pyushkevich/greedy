@@ -36,10 +36,12 @@
 #include "MultiComponentNCCImageMetric.h"
 #include "MultiComponentApproximateNCCImageMetric.h"
 #include "MultiComponentMutualInfoImageMetric.h"
+#include "MahalanobisDistanceToTargetWarpMetric.h"
 #include "itkVectorIndexSelectionCastImageFilter.h"
 #include "OneDimensionalInPlaceAccumulateFilter.h"
 #include "itkUnaryFunctorImageFilter.h"
 #include "itkImageFileWriter.h"
+#include "GreedyException.h"
 
 template <class TFloat, unsigned int VDim>
 void
@@ -237,6 +239,11 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
           lMoving = FloatImageType::New();
           LDDMMType::img_downsample(fltExtractFixed->GetOutput(), lFixed, m_PyramidFactors[i]);
           LDDMMType::img_downsample(fltExtractMoving->GetOutput(), lMoving, m_PyramidFactors[i]);
+
+          // For the Mahalanobis metric, the fixed image needs to be scaled by the factor of the 
+          // pyramid level because it describes voxel coordinates
+          if(m_ScaleFixedImageWithVoxelSize)
+            LDDMMType::img_scale_in_place(lFixed, 1.0 / m_PyramidFactors[i]);
           }
 
         // Add some noise to the images
@@ -568,6 +575,29 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   return filter->GetMetricValue();
 }
 
+template <class TFloat, unsigned int VDim>
+double
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeMahalanobisMetricImage(int level, VectorImageType *def, 
+  FloatImageType *out_metric, 
+  VectorImageType *out_gradient)
+{
+  typedef DefaultMahalanobisDistanceToTargetMetricTraits<TFloat, VDim> TraitsType;
+  typedef MahalanobisDistanceToTargetWarpMetric<TraitsType> FilterType;
+  typename FilterType::Pointer filter = FilterType::New();
+
+  filter->SetFixedImage(m_FixedComposite[level]);
+  filter->SetMovingImage(m_MovingComposite[level]);
+  filter->SetDeformationField(def);
+  filter->SetComputeGradient(true);
+  filter->GetMetricOutput()->Graft(out_metric);
+  filter->GetDeformationGradientOutput()->Graft(out_gradient);
+  filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
+
+  filter->Update();
+
+  return filter->GetMetricValue();
+}
 
 
 template <class TFloat, unsigned int VDim>
@@ -1048,6 +1078,10 @@ public:
       for(int i = 0; i < TInputWarp::ImageDimension; i++)
         w[i] = std::floor(v[i] * m_ScaleFactor + 0.5) * m_Precision;
       }
+    else
+      {
+      w = v;
+      }
 
     // Map to physical space
     w = m_PhysFunctor(w, pos);
@@ -1102,6 +1136,34 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
+::DownsampleWarp(VectorImageType *srcWarp, VectorImageType *trgWarp, int srcLevel, int trgLevel)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  // Get the factor by which to downsample
+  int src_factor = m_PyramidFactors[srcLevel];
+  int trg_factor = m_PyramidFactors[trgLevel];
+  if(src_factor < trg_factor)
+    {
+    // Resample the warp - no smoothing
+    LDDMMType::vimg_resample_identity(srcWarp, this->GetReferenceSpace(trgLevel), trgWarp);
+
+    // Scale by the factor
+    LDDMMType::vimg_scale_in_place(trgWarp, src_factor / trg_factor);
+    }
+  else if(src_factor == trg_factor)
+    {
+    LDDMMType::vimg_copy(srcWarp, trgWarp);
+    }
+  else
+    {
+    throw GreedyException("DownsampleWarp called for upsampling");
+    }
+}
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
 ::WriteCompressedWarpInPhysicalSpace(int level, VectorImageType *warp, const char *filename, double precision)
 {
   WriteCompressedWarpInPhysicalSpace(warp, this->GetMovingReferenceSpace(level), filename, precision);
@@ -1129,6 +1191,99 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 }
 
 template <class TFloat, unsigned int VDim>
+void 
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeWarpSquareRoot(
+  VectorImageType *warp, VectorImageType *out, VectorImageType *work, 
+  FloatImageType *error_norm, double tol, int max_iter)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  // Use more convenient variables
+  VectorImageType *u = warp, *v = out;
+
+  // Initialize the iterate to zero
+  v->FillBuffer(typename LDDMMType::Vec(0.0));
+
+  // Perform iteration
+  for(int i = 0; i < max_iter; i++)
+    {
+    // Min and max norm of the error at this iteration
+    TFloat norm_max = tol, norm_min = 0.0; 
+
+    // Perform a single iteration
+    LDDMMType::interp_vimg(v, v, 1.0, work);   // work = v(v(x))
+    LDDMMType::vimg_scale_in_place(work, -1.0); // work = -v(v(x))
+    LDDMMType::vimg_add_scaled_in_place(work, v, -1.0); // work = -v(v) - v(v(x))
+    LDDMMType::vimg_add_in_place(work, u); // work = u - v - v(v(x)) = f - g o g
+
+    // At this point, 'work' stores the difference between actual warp and square of the
+    // square root estimate, i.e., the estimation error
+    if(error_norm)
+      {
+      LDDMMType::vimg_norm_min_max(work, error_norm, norm_min, norm_max);
+      std::cout << " " << norm_max << " " << std::endl;
+      }
+
+    // Update v - which is being put into the output anyway
+    LDDMMType::vimg_add_scaled_in_place(v, work, 0.5);
+
+    // Check the maximum delta
+    std::cout << "." << std::flush;
+
+    // Break if the tolerance bound reached
+    if(norm_max < tol)
+      break;
+    }
+}
+
+
+template <class TFloat, unsigned int VDim>
+void 
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeWarpRoot(VectorImageType *warp, VectorImageType *root, int exponent, TFloat tol, int max_iter)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  // If the exponent is zero, return the image itself
+  if(exponent == 0)
+    {
+    LDDMMType::vimg_copy(warp, root);
+    return;
+    }
+
+  // Create the current root and the next root
+  VectorImagePointer u = VectorImageType::New();
+  LDDMMType::alloc_vimg(u, warp);
+  LDDMMType::vimg_copy(warp, u);
+
+  // Create a working image
+  VectorImagePointer work = VectorImageType::New();
+  LDDMMType::alloc_vimg(work, warp);
+
+  // If there is tolerance, create an error norm image
+  FloatImagePointer error_norm;
+  if(tol > 0.0)
+    {
+    error_norm = FloatImageType::New();
+    LDDMMType::alloc_img(error_norm, warp);
+    }
+    
+  // Compute the square root 'exponent' times
+  for(int k = 0; k < exponent; k++)
+    {
+    // Square root of u goes into root
+    ComputeWarpSquareRoot(u, root, work, error_norm, tol, max_iter);
+    std::cout << std::endl;
+
+    // Copy root into u
+    LDDMMType::vimg_copy(root, u);
+    }
+}
+
+
+
+template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeDeformationFieldInverse(
@@ -1141,31 +1296,15 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   LDDMMType::alloc_vimg(uForward, warp);
   LDDMMType::vimg_copy(warp, uForward);
 
-  // Create a working image for the square root computation
+  // Create a working image 
   VectorImagePointer uWork = VectorImageType::New();
   LDDMMType::alloc_vimg(uWork, warp);
 
-  // Compute the square root
-  for(int k = 0; k < n_sqrt; k++)
-    {
-    for(int i = 0; i < 20; i++)
-      {
-      LDDMMType::interp_vimg(uInverse, uInverse, 1.0, uWork);
-      LDDMMType::vimg_scale_in_place(uWork, -1.0);
-      LDDMMType::vimg_add_scaled_in_place(uWork, uInverse, -1.0);
-      LDDMMType::vimg_add_in_place(uWork, uForward);
+  // Take the desired square root of the input warp and place into uForward
+  ComputeWarpRoot(warp, uForward, n_sqrt);
 
-      // Check the maximum delta
-      // LDDMMType::vimg_norm_min_max(uDelta, iTemp, norm_min, norm_max);
-      // std::cout << "sqrt iter " << i << " max_delta " << norm_max << std::endl;
-
-      LDDMMType::vimg_add_scaled_in_place(uInverse, uWork, 0.5);
-      }
-
-    LDDMMType::vimg_copy(uInverse, uForward);
-    uInverse->FillBuffer(
-      itk::NumericTraits<typename VectorImageType::PixelType>::ZeroValue());
-    }
+  // Clear uInverse
+  uInverse->FillBuffer(itk::NumericTraits<typename LDDMMType::Vec>::ZeroValue());
 
   // At this point, uForward holds the small deformation
   // Try to compute the inverse of the current forward transformation
