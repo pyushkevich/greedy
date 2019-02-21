@@ -310,6 +310,10 @@ protected:
     // the same as rigid in voxel space
     PhysicalSpaceAffineCostFunction m_AffineFn;
 
+    // Flip matrix -- allows rigid registration with flips. If the input matrix has a flip,
+    // that flip is maintained during registration
+    Mat3 flip;
+
   };
 
   friend class GreedyApproach<VDim, TReal>::PureAffineCostFunction;

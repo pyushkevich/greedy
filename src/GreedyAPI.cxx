@@ -553,6 +553,8 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
 ::RigidCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
   : AbstractAffineCostFunction(VDim * 2), m_AffineFn(param, parent, level, helper)
 {
+  // Store the flipped status of the matrix
+  this->flip.set_identity();
 }
 
 template <unsigned int VDim, typename TReal>
@@ -601,7 +603,7 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
 
   // Now we have a rotation and a translation, convert to parameters for the affine function
   vnl_vector<double> x_affine(m_AffineFn.get_number_of_unknowns());
-  flatten_affine_transform(R, b, x_affine.data_block());
+  flatten_affine_transform(this->flip * R, b, x_affine.data_block());
 
   // Split depending on whether there is gradient to compute
   if(g)
@@ -654,7 +656,7 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
       {
       // Fill the corresponding column
       vnl_vector<double> jac_col_q(m_AffineFn.get_number_of_unknowns());
-      flatten_affine_transform(d_R[p], zero_vec, jac_col_q.data_block());
+      flatten_affine_transform(this->flip * d_R[p], zero_vec, jac_col_q.data_block());
       jac.set_column(p, jac_col_q);
 
       // Also set column on the right (wrt translation)
@@ -705,8 +707,14 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
   Mat3 A; Vec3 b;
   unflatten_affine_transform(x_aff_phys.data_block(), A, b);
 
+  // If the determinant of A is negative, we need to use the flip
+  if(vnl_determinant(A) < 0.0)
+    {
+    this->flip(0,0) = -1.0;
+    }
+
   // Compute polar decomposition of the affine matrix
-  vnl_svd<double> svd(A);
+  vnl_svd<double> svd(this->flip * A);
   Mat3 R = svd.U() * svd.V().transpose();
   Vec3 q = this->GetAxisAngle(R);
 
@@ -856,7 +864,7 @@ GreedyApproach<VDim, TReal>::RigidCostFunction
 
   // This gives us the physical space affine matrices. Flatten and map to voxel space
   vnl_vector<double> x_aff_phys(m_AffineFn.get_number_of_unknowns());
-  flatten_affine_transform(R, b, x_aff_phys.data_block());
+  flatten_affine_transform(this->flip * R, b, x_aff_phys.data_block());
   m_AffineFn.GetTransform(x_aff_phys, tran);
 }
 
