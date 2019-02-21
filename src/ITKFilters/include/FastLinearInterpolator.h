@@ -108,6 +108,12 @@ public:
     delete [] def_value_store;
   }
 
+  void SetOutsideValue(InputComponentType value)
+    {
+    for(int i = 0; i < nComp; i++)
+      def_value_store[i] = value;
+    }
+
 protected:
 
 
