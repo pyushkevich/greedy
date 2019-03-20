@@ -97,6 +97,8 @@ SET(HEADERS
   src/ITKFilters/include/itkOptVectorLinearInterpolateImageFunction.txx
   src/lddmm_common.h
   src/lddmm_data.h
+  src/AffineCostFunctions.h
+  src/AffineTransformUtilities.h
   src/GreedyAPI.h
   src/GreedyException.h
   src/GreedyParameters.h
@@ -110,6 +112,7 @@ SET(GREEDY_LIB_SRC
   src/GreedyAPI.cxx
   src/GreedyParameters.cxx
   src/MultiImageRegistrationHelper.cxx
+  src/AffineCostFunctions.cxx
 )
 
 SET(LDDMM_SRC src/lddmm_main.cxx)

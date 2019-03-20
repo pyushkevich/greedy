@@ -28,6 +28,8 @@
 #define __MultiComponentImageMetricBase_txx_
 
 #include "MultiComponentImageMetricBase.h"
+#include "AffineTransformUtilities.h"
+
 
 template <class TMetricTraits>
 MultiComponentImageMetricBase<TMetricTraits>
