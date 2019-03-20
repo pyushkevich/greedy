@@ -206,6 +206,9 @@ struct GreedyParameters
   // Mask for gradient computation (fixed mask)
   std::string gradient_mask;
 
+  // Trim for the gradient mask
+  std::vector<int> gradient_mask_trim_radius;
+
   // Mask for the moving image
   std::string moving_mask;
 

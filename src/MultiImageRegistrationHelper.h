@@ -85,6 +85,9 @@ public:
   /** Set jitter sigma - for jittering image samples in affine mode */
   void SetJitterSigma(double sigma);
 
+  /** Set automatic mask generation radius */
+  void SetGradientMaskTrimRadius(const std::vector<int> &radius);
+
   /** Compute the composite image - must be run before any sampling is done */
   void BuildCompositeImages(double noise_sigma_relative = 0.0);
 
@@ -254,6 +257,9 @@ protected:
 
   // Amount of jitter - for affine only
   double m_JitterSigma;
+
+  // Gradient mask trim radius
+  std::vector<int> m_GradientMaskTrimRadius;
 
   // Jitter composite
   VectorImageSet m_JitterComposite;

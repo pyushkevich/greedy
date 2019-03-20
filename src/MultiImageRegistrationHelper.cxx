@@ -82,6 +82,17 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   m_JitterSigma = sigma;
 }
 
+template<class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::SetGradientMaskTrimRadius(const std::vector<int> &radius)
+{
+  if(radius.size() != VDim)
+    throw GreedyException("Gradien mask trim radius parameter has incorrect dimension");
+
+  m_GradientMaskTrimRadius = radius;
+}
+
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
@@ -307,6 +318,36 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         LDDMMType::img_downsample(m_GradientMaskImage, m_GradientMaskComposite[i], m_PyramidFactors[i]);
         LDDMMType::img_threshold_in_place(m_GradientMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
         }      
+      }
+    }
+  else if(m_GradientMaskTrimRadius.size() > 0)
+    {
+    // User wants auto-generated box masks. Create them for every pyramid level
+    for(int i = 0; i < m_PyramidFactors.size(); i++)
+      {
+      // Allocate the image
+      LDDMMType::alloc_img(m_GradientMaskComposite[i], m_FixedComposite[i]);
+
+      // Fill out the image
+      itk::Size<VDim> sz = m_GradientMaskComposite[i]->GetBufferedRegion().GetSize();
+
+      typedef itk::ImageRegionIteratorWithIndex<FloatImageType> IterType;
+      for(IterType it(m_GradientMaskComposite[i], m_GradientMaskComposite[i]->GetBufferedRegion());
+          !it.IsAtEnd(); ++it)
+        {
+        TFloat mask_val = 1.0;
+        for(unsigned int d = 0; d < VDim; d++)
+          {
+          if(it.GetIndex()[d] < m_GradientMaskTrimRadius[d]
+             || sz[d] - it.GetIndex()[d] <= m_GradientMaskTrimRadius[d])
+            {
+            mask_val = 0.0;
+            break;
+            }
+          }
+
+        it.Set(mask_val);
+        }
       }
     }
 

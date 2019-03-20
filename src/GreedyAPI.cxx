@@ -274,6 +274,8 @@ GreedyApproach<VDim, TReal>
 }
 
 
+#include <itkBinaryErodeImageFilter.h>
+
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
 ::ReadImages(GreedyParameters &param, OFHelperType &ofhelper)
@@ -281,12 +283,19 @@ void GreedyApproach<VDim, TReal>
   // If the parameters include a sequence of transforms, apply it first
   VectorImagePointer moving_pre_warp;
 
+  // Keep a pointer to the fixed image space
+  typename OFHelperType::ImageBaseType *ref_space = NULL;
+
   // Read the input images and stick them into an image array
   for(int i = 0; i < param.inputs.size(); i++)
     {
     // Read fixed and moving images
     CompositeImagePointer imgFix = ReadImageViaCache<CompositeImageType>(param.inputs[i].fixed);
     CompositeImagePointer imgMov = ReadImageViaCache<CompositeImageType>(param.inputs[i].moving);
+
+    // Store the fixed image and/or check it
+    if(ref_space == NULL)
+      ref_space = imgFix;
 
     // Read the pre-warps (only once)
     if(param.moving_pre_transforms.size() && moving_pre_warp.IsNull())
@@ -322,6 +331,14 @@ void GreedyApproach<VDim, TReal>
         ReadImageViaCache<MaskType>(param.gradient_mask);
 
     ofhelper.SetGradientMask(imgMask);
+    }
+
+  if(param.gradient_mask_trim_radius.size() == VDim)
+    {
+    if(param.gradient_mask.size())
+      throw GreedyException("Cannot specify both gradient mask and gradient mask trim radius");
+
+    ofhelper.SetGradientMaskTrimRadius(param.gradient_mask_trim_radius);
     }
 
   // Read the moving-space mask

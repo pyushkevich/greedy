@@ -87,6 +87,10 @@ int usage()
   printf("  -n NxNxN               : number of iterations per level of multi-res (100x100) \n");
   printf("  -threads N             : set the number of allowed concurrent threads\n");
   printf("  -gm mask.nii           : mask for gradient computation\n");
+  printf("  -gm-trim <radius>      : generate mask for gradient computation by trimming the extent\n");
+  printf("                           of the fixed image by given radius. This is useful during affine\n");
+  printf("                           registration with the NCC metric when the background of your images\n");
+  printf("                           is non-zero. The radius should match that of the NCC metric.");
   printf("  -mm mask.nii           : mask for the moving image\n");
   printf("  -it filenames          : sequence of transforms to apply to the moving image first \n");
   printf("Specific to deformable mode: \n");
@@ -297,6 +301,10 @@ int main(int argc, char *argv[])
       else if(arg == "-gm")
         {
         param.gradient_mask = cl.read_existing_filename();
+        }
+      else if(arg == "-gm-trim")
+        {
+        param.gradient_mask_trim_radius = cl.read_int_vector();
         }
       else if(arg == "-mm")
         {
