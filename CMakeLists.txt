@@ -9,7 +9,7 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.3)
 INCLUDE(CMake/PYVersion.cmake)
 
 # Set the semantic version and version date
-VERSION_VARS(1 0 0 "" "20171205" "Dec 05, 2017")
+VERSION_VARS(1 0 1 "" "20190321" "Mar 21, 2019")
 
 #--------------------------------------------------------------------------------
 # Build configuration
