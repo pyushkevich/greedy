@@ -731,11 +731,18 @@ int GreedyApproach<VDim, TReal>
         vnl_vector<double> x1 = xLevel, x2 = xLevel, x3 = xLevel, x4 = xLevel;
         x1[i] -= 2 * eps; x2[i] -= eps; x3[i] += eps; x4[i] += 2 * eps;
 
-        // Four-point derivative computation
-        acf->compute(x1, &f1, NULL);
-        acf->compute(x2, &f2, NULL);
-        acf->compute(x3, &f3, NULL);
-        acf->compute(x4, &f4, NULL);
+        // Keep track of gradient even though we do not need it. There is an apparent bug
+        // at least with the NCC metric, where the reuse of the working image in a scenario
+        // where you first compute the gradient and then do not, causes the iteration through
+        // the working image to incorrectly align the per-pixel arrays. Asking for gradient
+        // every time is a little more costly, but it avoids this issue
+        vnl_vector<double> xGradDummy(acf->get_number_of_unknowns(), 0.0);
+
+        // Four-point derivative computation        
+        acf->compute(x1, &f1, &xGradDummy);
+        acf->compute(x2, &f2, &xGradDummy);
+        acf->compute(x3, &f3, &xGradDummy);
+        acf->compute(x4, &f4, &xGradDummy);
 
         xGradN[i] = (f1 - 8 * f2 + 8 * f3 - f4) / (12 * eps);
         }

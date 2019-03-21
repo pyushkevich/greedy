@@ -568,6 +568,10 @@ RigidCostFunction<VDim, TReal>
     {
     this->flip(0,0) = -1.0;
     }
+  else
+    {
+    this->flip(0,0) = 1.0;
+    }
 
   // Compute polar decomposition of the affine matrix
   vnl_svd<double> svd(this->flip * A);
