@@ -40,6 +40,9 @@ CMAKE_DEPENDENT_OPTION(GREEDY_USE_FFTW
 # Do we want to build MACF tools?
 OPTION(GREEDY_BUILD_MACF "Build experimental multi-atlas correspondence fusion code" OFF)
 
+# Do we want to build the stack registration binary
+OPTION(GREEDY_BUILD_STACK_REG "Build experimental slice stack registration code" OFF)
+
 #--------------------------------------------------------------------------------
 # Dependent packages
 #--------------------------------------------------------------------------------
@@ -122,6 +125,10 @@ SET(GREEDY_SRC
 
 SET(MACF_SRC src/macf_optimization.cxx)
 
+SET(STACK_GREEDY_SRC
+  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
+  src/greedy_stack_reg.cxx)
+
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
 TARGET_INCLUDE_DIRECTORIES(greedyapi PUBLIC ${GREEDY_INCLUDE_DIRS})
 
@@ -137,6 +144,11 @@ IF(BUILD_CLI)
   IF(GREEDY_BUILD_MACF)
     ADD_EXECUTABLE(macf ${MACF_SRC})
     TARGET_LINK_LIBRARIES(macf greedyapi ${ITK_LIBRARIES})
+  ENDIF()
+
+  IF(GREEDY_BUILD_STACK_REG)
+    ADD_EXECUTABLE(stack_greedy ${STACK_GREEDY_SRC})
+    TARGET_LINK_LIBRARIES(stack_greedy greedyapi ${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB})
   ENDIF()
 
   ADD_EXECUTABLE(greedy ${GREEDY_SRC})

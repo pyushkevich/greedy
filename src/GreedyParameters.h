@@ -32,6 +32,8 @@
 #include <vnl/vnl_matrix.h>
 #include <vnl/vnl_vector.h>
 
+class CommandLineHelper;
+
 struct ImagePairSpec
 {
   std::string fixed;
@@ -242,7 +244,16 @@ struct GreedyParameters
   // Floating point precision?
   bool flag_float_math;
 
+  // Weight applied to new image pairs
+  double current_weight;
+
+  // Interpolation applied to new reslice image pairs
+  InterpSpec current_interp;
+
   static void SetToDefaults(GreedyParameters &param);
+
+  // Read parameters from the
+  bool ParseCommandLine(const std::string &cmd, CommandLineHelper &cl);
 };
 
 

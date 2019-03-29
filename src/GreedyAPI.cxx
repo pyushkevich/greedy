@@ -845,6 +845,7 @@ int GreedyApproach<VDim, TReal>
   return 0;
 }
 
+
 #include "itkStatisticsImageFilter.h"
 
 
@@ -1930,8 +1931,35 @@ int GreedyApproach<VDim, TReal>
     {
     typedef itk::Mesh<TReal, VDim> MeshType;
     typedef itk::MeshFileReader<MeshType> MeshReader;
-    typename MeshReader::Pointer reader = MeshReader::New();
-    reader->SetFileName(r_param.meshes[i].fixed.c_str());
+    typename MeshType::Pointer mesh;
+
+    if(itksys::SystemTools::GetFilenameExtension(r_param.meshes[i].fixed) == ".csv")
+      {
+      mesh = MeshType::New();
+
+      std::ifstream fin(r_param.meshes[i].fixed);
+      std::string f_line, f_token;
+      unsigned int n_pts = 0;
+      while(std::getline(fin, f_line))
+        {
+        std::istringstream iss(f_line);
+        itk::Point<TReal, VDim> pt;
+        for(unsigned int a = 0; a < VDim; a++)
+          {
+          if(!std::getline(iss, f_token, ','))
+            throw GreedyException("Error reading CSV file, line %s", f_line.c_str());
+          pt[a] = atof(f_token.c_str());
+          }
+        mesh->SetPoint(n_pts++, pt);
+        }
+      }
+    else
+      {
+      typename MeshReader::Pointer reader = MeshReader::New();
+      reader->SetFileName(r_param.meshes[i].fixed.c_str());
+      reader->Update();
+      mesh = reader->GetOutput();
+      }
 
     typedef WarpMeshTransformFunctor<VDim, TReal> TransformType;
     typename TransformType::Pointer transform = TransformType::New();
@@ -1941,13 +1969,29 @@ int GreedyApproach<VDim, TReal>
     typedef itk::TransformMeshFilter<MeshType, MeshType, TransformType> FilterType;
     typename FilterType::Pointer filter = FilterType::New();
     filter->SetTransform(transform);
-    filter->SetInput(reader->GetOutput());
+    filter->SetInput(mesh);
+    filter->Update();
 
-    typedef itk::MeshFileWriter<MeshType> MeshWriter;
-    typename MeshWriter::Pointer writer = MeshWriter::New();
-    writer->SetInput(filter->GetOutput());
-    writer->SetFileName(r_param.meshes[i].output.c_str());
-    writer->Update();
+    mesh = filter->GetOutput();
+
+    if(itksys::SystemTools::GetFilenameExtension(r_param.meshes[i].output) == ".csv")
+      {
+      std::ofstream out(r_param.meshes[i].output);
+      for(unsigned int i = 0; i < mesh->GetNumberOfPoints(); i++)
+        {
+        itk::Point<TReal, VDim> pt = mesh->GetPoint(i);
+        for(unsigned int a = 0; a < VDim; a++)
+          out << pt[a] << (a < VDim-1 ? "," : "\n");
+        }
+      }
+    else
+      {
+      typedef itk::MeshFileWriter<MeshType> MeshWriter;
+      typename MeshWriter::Pointer writer = MeshWriter::New();
+      writer->SetInput(mesh);
+      writer->SetFileName(r_param.meshes[i].output.c_str());
+      writer->Update();
+      }
     }
 
 
