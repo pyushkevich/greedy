@@ -78,6 +78,7 @@ public:
     double weight;
   };
 
+  static void ConfigThreads(GreedyParameters &param);
 
   int Run(GreedyParameters &param);
 
@@ -132,7 +133,16 @@ public:
    */
   const MetricLogType &GetMetricLog() const;
 
+  /** Get the last value of the metric recorded */
+  double GetLastMetricValue() const;
+
+  vnl_matrix<double> ReadAffineMatrixViaCache(const TransformSpec &ts);
+
   void WriteAffineMatrixViaCache(const std::string &filename, const vnl_matrix<double> &Qp);
+
+  static vnl_matrix<double> ReadAffineMatrix(const TransformSpec &ts);
+
+  static void WriteAffineMatrix(const std::string &filename, const vnl_matrix<double> &Qp);
 
   static vnl_matrix<double> MapAffineToPhysicalRASSpace(
       OFHelperType &of_helper, int level,
@@ -160,7 +170,6 @@ protected:
   template <class TImage>
   itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename);
 
-  vnl_matrix<double> ReadAffineMatrixViaCache(const TransformSpec &ts);
 
   void ReadImages(GreedyParameters &param, OFHelperType &ofhelper);
 

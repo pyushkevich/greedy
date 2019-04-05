@@ -125,8 +125,9 @@ int usage()
   printf("Specific to affine mode (-a):\n");
   printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 12=affine\n");
   printf("  -jitter sigma          : Jitter (in voxel units) applied to sample points (def: 0.5)\n");
-  printf("  -search N s_ang s_xyz  : Random search over rigid transforms (N iter) before starting optimization\n");
-  printf("                           s_ang, s_xyz: sigmas for rot-n angle (degrees) and offset between image centers\n");
+  printf("  -search N sa sx [flip] : Random search over rigid transforms (N iter) before starting optimization\n");
+  printf("                           sa, sx: sigmas for rot-n angle (degrees) and offset between image centers\n");
+  printf("                           'flip' optional keyword will enable search over flips too\n");
   printf("Specific to moments of inertia mode (-moments 2): \n");
   printf("  -det <-1|1>            : Force the determinant of transform to be either 1 (no flip) or -1 (flip)\n");
   printf("  -cov-id                : Assume identity covariance (match centers and do flips only, no rotation)\n");
@@ -159,9 +160,9 @@ class GreedyRunner
 public:
   static int Run(GreedyParameters &param)
   {
-    GreedyApproach<VDim, TReal> greedy;
+    // Use the threads parameter
+    GreedyApproach<VDim, TReal> greedy;   
     return greedy.Run(param);
-
   }
 };
 
@@ -200,18 +201,6 @@ int main(int argc, char *argv[])
         std::cerr << "Unknown parameter " << cmd << std::endl;
         return -1;
         }
-      }
-
-    // Use the threads parameter
-    if(param.threads > 0)
-      {
-      std::cout << "Limiting the number of threads to " << param.threads << std::endl;
-      itk::MultiThreader::SetGlobalMaximumNumberOfThreads(param.threads);
-      }
-    else
-      {
-      std::cout << "Executing with the default number of threads: " << itk::MultiThreader::GetGlobalDefaultNumberOfThreads() << std::endl;
-
       }
 
     // Some parameters may be specified as either vector or scalar, and need to be verified

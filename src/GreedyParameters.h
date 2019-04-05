@@ -54,8 +54,9 @@ struct RigidSearchSpec
   int iterations;
   double sigma_xyz;
   double sigma_angle;
+  bool flips;
 
-  RigidSearchSpec() : iterations(0), sigma_xyz(0.0), sigma_angle(0.0) {}
+  RigidSearchSpec() : iterations(0), sigma_xyz(0.0), sigma_angle(0.0), flips(false) {}
 };
 
 struct InterpSpec
@@ -74,6 +75,11 @@ struct ResliceSpec
   std::string moving;
   std::string output;
   InterpSpec interp;
+
+  ResliceSpec(const std::string &in_moving = "",
+              const std::string &in_output = "",
+              InterpSpec in_interp =  InterpSpec())
+    : moving(in_moving), output(in_output), interp(in_interp) {}
 };
 
 struct ResliceMeshSpec
@@ -89,6 +95,10 @@ struct TransformSpec
 
   // Optional exponent (-1 for inverse, 0.5 for square root)
   double exponent;
+
+  // Constructor
+  TransformSpec(const std::string in_filename = std::string(), double in_exponent = 1.0)
+    : filename(in_filename), exponent(in_exponent) {}
 };
 
 enum AffineInitMode

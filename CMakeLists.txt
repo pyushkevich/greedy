@@ -127,6 +127,7 @@ SET(MACF_SRC src/macf_optimization.cxx)
 
 SET(STACK_GREEDY_SRC
   ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
+  src/dijkstra/ShortestPath.cxx
   src/greedy_stack_reg.cxx)
 
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
@@ -148,6 +149,7 @@ IF(BUILD_CLI)
 
   IF(GREEDY_BUILD_STACK_REG)
     ADD_EXECUTABLE(stack_greedy ${STACK_GREEDY_SRC})
+    INCLUDE_DIRECTORIES(${GREEDY_SOURCE_DIR}/src/dijkstra)
     TARGET_LINK_LIBRARIES(stack_greedy greedyapi ${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB})
   ENDIF()
 

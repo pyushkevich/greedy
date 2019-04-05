@@ -172,6 +172,8 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     this->rigid_search.iterations = cl.read_integer();
     this->rigid_search.sigma_angle = cl.read_double();
     this->rigid_search.sigma_xyz = cl.read_double();
+    if(cl.command_arg_count() > 0)
+      this->rigid_search.flips = (cl.read_string() == "flip");
     }
   else if(cmd == "-it")
     {

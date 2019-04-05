@@ -242,7 +242,23 @@ GreedyApproach<VDim, TReal>
     }
 }
 
+template<unsigned int VDim, typename TReal>
+vnl_matrix<double>
+GreedyApproach<VDim, TReal>
+::ReadAffineMatrix(const TransformSpec &ts)
+{
+  GreedyApproach<VDim, TReal> api;
+  return api.ReadAffineMatrixViaCache(ts);
+}
 
+template<unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>
+::WriteAffineMatrix(const std::string &filename, const vnl_matrix<double> &Qp)
+{
+  GreedyApproach<VDim, TReal> api;
+  api.WriteAffineMatrixViaCache(filename, Qp);
+}
 
 template <unsigned int VDim, typename TReal>
 template <class TImage>
@@ -653,47 +669,65 @@ int GreedyApproach<VDim, TReal>
         // Create a pure rigid acf
         RigidCostFunction search_fun(&param, this, level, &of_helper);
 
-        // Get the parameters corresponding to the current transform
-        vnl_vector<double> xRigidInit = search_fun.GetCoefficients(tLevel);
+        // Keep track of the best transform
+        typename LinearTransformType::Pointer tSearchBest = LinearTransformType::New();
+        tSearchBest->SetMatrix(tLevel->GetMatrix());
+        tSearchBest->SetOffset(tLevel->GetOffset());
 
         // Get center of fixed and moving images in physical space
         vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(level));
         vnl_vector<double> cmov = GetImageCenterinNiftiSpace(of_helper.GetMovingReferenceSpace(level));
 
-        // At random, try a whole bunch of transforms, around 5 degrees
-        vnl_random randy(12345);
-
-        // TODO: make a heap of k best tries
-        double fBest;
-        vnl_vector<double> xBest = xRigidInit;
-        search_fun.compute(xBest, &fBest, NULL);
-
         // Report the initial best
+        double fBest = 0.0;
+        vnl_vector<double> xBest = search_fun.GetCoefficients(tLevel);
+        search_fun.compute(xBest, &fBest, NULL);
         std::cout << "Rigid search -> Initial best: " << fBest << " " << xBest << std::endl;
 
+        // Iterate over the random candidates
+        vnl_random randy(12345);
         for(int i = 0; i < param.rigid_search.iterations; i++)
           {
-          // Get random coefficient
-          // Compute a random rotation
-          vnl_vector<double> xTry = search_fun.GetRandomCoeff(xRigidInit, randy,
+          typename LinearTransformType::Pointer tSearchTry = LinearTransformType::New();
+          tSearchTry->SetMatrix(tLevel->GetMatrix());
+          tSearchTry->SetOffset(tLevel->GetOffset());
+
+          // If we are allowing flips, randomly flip around each axis
+          if(param.rigid_search.flips)
+            {
+            // Generate a flip matrix
+            itk::Matrix<TReal, VDim, VDim> m_flip;
+            m_flip.SetIdentity();
+            for(unsigned int a = 0; a < VDim; a++)
+              m_flip(a,a) = (randy.normal() > 0.0) ? 1.0 : -1.0;
+
+            // The flip should preserve the offsets. However, since the random code handles
+            // the centers during search, we don't really need to worry about it
+            tSearchTry->SetMatrix(m_flip * tLevel->GetMatrix());
+            }
+
+          // Get random coefficients for a random rotation and translation
+          vnl_vector<double> xTry = search_fun.GetRandomCoeff(search_fun.GetCoefficients(tSearchTry), randy,
                                                               param.rigid_search.sigma_angle,
                                                               param.rigid_search.sigma_xyz,
                                                               cfix, cmov);
 
           // Evaluate this transform
-          double f;
+          double f = 0.0;
           search_fun.compute(xTry, &f, NULL);
-
           if(f < fBest)
             {
             fBest = f;
-            xBest = xTry;
-            std::cout << "New best: " << fBest << " " << xBest << std::endl;
+            search_fun.GetTransform(xTry, tSearchBest);
+            std::cout << "Rigid search -> Iter " << i << ": " << fBest << " "
+                      << xTry << " det = " << vnl_determinant(tSearchBest->GetMatrix().GetVnlMatrix())
+                      <<  std::endl;
             }
           }
 
-        xInit = xBest;
-        search_fun.GetTransform(xInit, tLevel);
+        // Assign the best transform to tLevel
+        tLevel->SetMatrix(tSearchBest->GetMatrix());
+        tLevel->SetOffset(tSearchBest->GetOffset());
         }
       }
     else
@@ -2221,10 +2255,44 @@ GreedyApproach<VDim,TReal>
   return m_MetricLog;
 }
 
+template<unsigned int VDim, typename TReal>
+double GreedyApproach<VDim, TReal>
+::GetLastMetricValue() const
+{
+  // Find last non-empty result
+  for(int k = m_MetricLog.size()-1; k >= 0; --k)
+    {
+    if(m_MetricLog[k].size())
+      return m_MetricLog[k].back();
+    }
+
+  // If empty, throw exception
+  throw GreedyException("Metric log is empty in GetLastMetricValue()");
+  return 0;
+}
+
 template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
+::ConfigThreads(GreedyParameters &param)
+{
+  if(param.threads > 0)
+    {
+    std::cout << "Limiting the number of threads to " << param.threads << std::endl;
+    itk::MultiThreader::SetGlobalMaximumNumberOfThreads(param.threads);
+    }
+  else
+    {
+    std::cout << "Executing with the default number of threads: " << itk::MultiThreader::GetGlobalDefaultNumberOfThreads() << std::endl;
+
+    }
+}
+
+template<unsigned int VDim, typename TReal>
 int GreedyApproach<VDim, TReal>
 ::Run(GreedyParameters &param)
 {
+  ConfigThreads(param);
+
   switch(param.mode)
     {
     case GreedyParameters::GREEDY:

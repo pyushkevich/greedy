@@ -29,6 +29,7 @@
 
 #include <cstdio>
 #include <cstdarg>
+#include <exception>
 
 /**
  * A simple exception class with string formatting
