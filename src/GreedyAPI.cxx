@@ -41,6 +41,7 @@
 #include <itkTransformFactory.h>
 #include <itkTimeProbe.h>
 #include <itkImageFileWriter.h>
+#include <itkCastImageFilter.h>
 
 #include "MultiImageRegistrationHelper.h"
 #include "FastWarpCompositeImageFilter.h"
@@ -97,7 +98,7 @@ GreedyApproach<VDim, TReal>
   typename ImageCache::const_iterator itCache = m_ImageCache.find(ts.filename);
   if(itCache != m_ImageCache.end())
     {
-    TransformType *cached = dynamic_cast<TransformType *>(itCache->second);
+    TransformType *cached = dynamic_cast<TransformType *>(itCache->second.target);
     if(!cached)
       throw GreedyException("Cached transform %s cannot be cast to type %s",
                             ts.filename.c_str(), typeid(TransformType).name());
@@ -203,7 +204,7 @@ GreedyApproach<VDim, TReal>
   typename ImageCache::const_iterator itCache = m_ImageCache.find(filename);
   if(itCache != m_ImageCache.end())
     {
-    TransformType *cached = dynamic_cast<TransformType *>(itCache->second);
+    TransformType *cached = dynamic_cast<TransformType *>(itCache->second.target);
     if(!cached)
       throw GreedyException("Cached transform %s cannot be cast to type %s",
                             filename.c_str(), typeid(TransformType).name());
@@ -233,7 +234,9 @@ GreedyApproach<VDim, TReal>
     cached->SetMatrix(matrix);
     cached->SetOffset(offset);
     }
-  else
+
+  // Write to actual file
+  if(itCache == m_ImageCache.end() || itCache->second.force_write)
     {
     std::ofstream matrixFile;
     matrixFile.open(filename.c_str());
@@ -270,7 +273,7 @@ GreedyApproach<VDim, TReal>
   typename ImageCache::const_iterator it = m_ImageCache.find(filename);
   if(it != m_ImageCache.end())
     {
-    TImage *image = dynamic_cast<TImage *>(it->second);
+    TImage *image = dynamic_cast<TImage *>(it->second.target);
     if(!image)
       throw GreedyException("Cached image %s cannot be cast to type %s",
                             filename.c_str(), typeid(TImage).name());
@@ -288,6 +291,81 @@ GreedyApproach<VDim, TReal>
   itk::SmartPointer<TImage> pointer = reader->GetOutput();
   return pointer;
 }
+
+template <unsigned int VDim, typename TReal>
+template <class TImage>
+void
+GreedyApproach<VDim, TReal>
+::WriteImageViaCache(TImage *img, const std::string &filename, typename LDDMMType::IOComponentType comp)
+{
+  typename ImageCache::const_iterator it = m_ImageCache.find(filename);
+  if(it != m_ImageCache.end())
+    {
+    // The image was found in the cache. Make sure it is an image pointer
+    typename LDDMMType::ImageBaseType *cached =
+        dynamic_cast<typename LDDMMType::ImageBaseType *>(it->second.target);
+
+    if(!cached)
+      throw GreedyException("Cached image %s cannot be cast to ImageBase",
+                            filename.c_str(), typeid(TImage).name());
+
+    // Try the automatic cast
+    bool cast_rc = false;
+
+    // This is a little dumb, but the vimg_write uses some special code that
+    // we need to account for
+    if(dynamic_cast<VectorImageType *>(img))
+      cast_rc =LDDMMType::vimg_auto_cast(dynamic_cast<VectorImageType *>(img), cached);
+    else if(dynamic_cast<ImageType *>(img))
+      cast_rc =LDDMMType::img_auto_cast(dynamic_cast<ImageType *>(img), cached);
+    else if(dynamic_cast<CompositeImageType *>(img))
+      cast_rc =LDDMMType::cimg_auto_cast(dynamic_cast<CompositeImageType *>(img), cached);
+    else
+      {
+      // Some other type (e.g., LabelImage). Instead of doing an auto_cast, we require the
+      // cached object to be of the same type as the image
+      TImage *cached_typed = dynamic_cast<TImage *>(cached);
+      if(cached_typed)
+        {
+        typedef itk::CastImageFilter<TImage, TImage> CopyFilterType;
+        typename CopyFilterType::Pointer copier = CopyFilterType::New();
+        copier->SetInput(img);
+        copier->GraftOutput(cached_typed);
+        copier->Update();
+        }
+      else throw GreedyException("Cached image %s cannot be cast to type %s",
+                                 filename.c_str(), typeid(TImage).name());
+      }
+
+
+    // If cast failed, throw exception
+    if(!cast_rc)
+      throw GreedyException("Image to save %s could not cast to any known type", filename.c_str());
+    }
+
+  if(it == m_ImageCache.end() || it->second.force_write)
+    {
+    // This is a little dumb, but the vimg_write uses some special code that
+    // we need to account for
+    if(dynamic_cast<VectorImageType *>(img))
+      LDDMMType::vimg_write(dynamic_cast<VectorImageType *>(img), filename.c_str(), comp);
+    else if(dynamic_cast<ImageType *>(img))
+      LDDMMType::img_write(dynamic_cast<ImageType *>(img), filename.c_str(), comp);
+    else if(dynamic_cast<CompositeImageType *>(img))
+      LDDMMType::cimg_write(dynamic_cast<CompositeImageType *>(img), filename.c_str(), comp);
+    else
+      {
+      // Some other type (e.g., LabelImage). We use the image writer and ignore the comp
+      typedef itk::ImageFileWriter<TImage> WriterType;
+      typename WriterType::Pointer writer = WriterType::New();
+      writer->SetFileName(filename.c_str());
+      writer->SetUseCompression(true);
+      writer->SetInput(img);
+      writer->Update();
+      }
+    }
+}
+
 
 
 #include <itkBinaryErodeImageFilter.h>
@@ -322,9 +400,8 @@ void GreedyApproach<VDim, TReal>
     if(moving_pre_warp.IsNotNull())
       {
       // Create an image to store the warp
-      CompositeImagePointer warped_moving;
-      LDDMMType::alloc_cimg(warped_moving, imgFix,
-                            imgMov->GetNumberOfComponentsPerPixel());
+      CompositeImagePointer warped_moving =
+          LDDMMType::new_cimg(imgFix, imgMov->GetNumberOfComponentsPerPixel());
 
       // Interpolate the moving image using the transform chain
       LDDMMType::interp_cimg(imgMov, moving_pre_warp, warped_moving, false, true);
@@ -367,8 +444,7 @@ void GreedyApproach<VDim, TReal>
     if(moving_pre_warp.IsNotNull())
       {
       // Create an image to store the warp
-      typename MaskType::Pointer warped_moving_mask;
-      LDDMMType::alloc_img(warped_moving_mask, moving_pre_warp);
+      typename MaskType::Pointer warped_moving_mask = LDDMMType::new_img(moving_pre_warp);
 
       // Interpolate the moving image using the transform chain
       LDDMMType::interp_img(imgMovMask, moving_pre_warp, warped_moving_mask, false, true);
@@ -666,17 +742,19 @@ int GreedyApproach<VDim, TReal>
       // If the uses asks for rigid search, do it!
       if(param.rigid_search.iterations > 0)
         {
+        // Random seed. TODO: let user supply seed
+        vnl_random randy(12345);
+
+        // For rigid search, we must search in physical space, rather than in voxel space.
+        // This is the affine transformation in physical space that corresponds to whatever
+        // the current initialization is.
+        vnl_matrix<double> Qp = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
+
+        // Get the center of the fixed image in physical coordinates
+        vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(level));
+
         // Create a pure rigid acf
         RigidCostFunction search_fun(&param, this, level, &of_helper);
-
-        // Keep track of the best transform
-        typename LinearTransformType::Pointer tSearchBest = LinearTransformType::New();
-        tSearchBest->SetMatrix(tLevel->GetMatrix());
-        tSearchBest->SetOffset(tLevel->GetOffset());
-
-        // Get center of fixed and moving images in physical space
-        vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(level));
-        vnl_vector<double> cmov = GetImageCenterinNiftiSpace(of_helper.GetMovingReferenceSpace(level));
 
         // Report the initial best
         double fBest = 0.0;
@@ -684,50 +762,73 @@ int GreedyApproach<VDim, TReal>
         search_fun.compute(xBest, &fBest, NULL);
         std::cout << "Rigid search -> Initial best: " << fBest << " " << xBest << std::endl;
 
-        // Iterate over the random candidates
-        vnl_random randy(12345);
+        // Loop over random iterations
         for(int i = 0; i < param.rigid_search.iterations; i++)
           {
-          typename LinearTransformType::Pointer tSearchTry = LinearTransformType::New();
-          tSearchTry->SetMatrix(tLevel->GetMatrix());
-          tSearchTry->SetOffset(tLevel->GetOffset());
-
-          // If we are allowing flips, randomly flip around each axis
-          if(param.rigid_search.flips)
+          // Depending on the search mode, we either apply a small rotation, or any random rotation,
+          // or a random rotation and a flip to the input. Whatever rotation we apply, it must
+          // be around the center of the fixed coordinate system.
+          typename RigidCostFunction::Mat RF;
+          if(param.rigid_search.mode == RANDOM_NORMAL_ROTATION)
             {
-            // Generate a flip matrix
-            itk::Matrix<TReal, VDim, VDim> m_flip;
-            m_flip.SetIdentity();
-            for(unsigned int a = 0; a < VDim; a++)
-              m_flip(a,a) = (randy.normal() > 0.0) ? 1.0 : -1.0;
-
-            // The flip should preserve the offsets. However, since the random code handles
-            // the centers during search, we don't really need to worry about it
-            tSearchTry->SetMatrix(m_flip * tLevel->GetMatrix());
+            // Random angle in radians
+            double alpha = randy.normal() * param.rigid_search.sigma_angle * 0.01745329252;
+            RF = RigidCostFunction::GetRandomRotation(randy, alpha);
             }
+          else if(param.rigid_search.mode == ANY_ROTATION)
+            {
+            double alpha = randy.drand32(-vnl_math::pi, vnl_math::pi);
+            RF = RigidCostFunction::GetRandomRotation(randy, alpha);
+            }
+          else if(param.rigid_search.mode == ANY_ROTATION_AND_FLIP)
+            {
+            typename RigidCostFunction::Mat R, F;
+            F.set_identity();
+            for(unsigned int a = 0; a < VDim; a++)
+              F(a,a) = (randy.normal() > 0.0) ? 1.0 : -1.0;
+            double alpha = randy.drand32(-vnl_math::pi, vnl_math::pi);
+            R = RigidCostFunction::GetRandomRotation(randy, alpha);
+            RF = R * F;
+            }
+          else throw GreedyException("Unknown rotation search mode encountered");
 
-          // Get random coefficients for a random rotation and translation
-          vnl_vector<double> xTry = search_fun.GetRandomCoeff(search_fun.GetCoefficients(tSearchTry), randy,
-                                                              param.rigid_search.sigma_angle,
-                                                              param.rigid_search.sigma_xyz,
-                                                              cfix, cmov);
+          // Find the offset so that the rotation/flip preserve fixed image center
+          typename RigidCostFunction::Vec b_RF = cfix - RF * cfix;
 
-          // Evaluate this transform
+          // Create the physical space matrix corresponding to random search point
+          vnl_matrix<double> Qp_rand(VDim+1, VDim+1); Qp_rand.set_identity();
+          Qp_rand.update(RF);
+          for(unsigned int a = 0; a < VDim; a++)
+            Qp_rand(a,VDim) = b_RF[a];
+
+          // Combine the two matrices. The matrix Qp_rand operates in fixed image space so
+          // it should be applied first, followed by Qp
+          vnl_matrix<double> Qp_search = Qp * Qp_rand;
+
+          // Add the random translation
+          for(unsigned int a = 0; a < VDim; a++)
+            Qp_search(a,VDim) += randy.normal() * param.rigid_search.sigma_xyz;
+
+          // Convert this physical space transformation into a voxel-space transform
+          typename LinearTransformType::Pointer tSearchTry = LinearTransformType::New();
+          MapPhysicalRASSpaceToAffine(of_helper, level, Qp_search, tSearchTry);
+
+          // Evaluate the metric for this point
+          vnl_vector<double> xTry = search_fun.GetCoefficients(tSearchTry);
           double f = 0.0;
           search_fun.compute(xTry, &f, NULL);
+
+          // Is this an improvement?
           if(f < fBest)
             {
             fBest = f;
-            search_fun.GetTransform(xTry, tSearchBest);
+            tLevel->SetMatrix(tSearchTry->GetMatrix());
+            tLevel->SetOffset(tSearchTry->GetOffset());
             std::cout << "Rigid search -> Iter " << i << ": " << fBest << " "
-                      << xTry << " det = " << vnl_determinant(tSearchBest->GetMatrix().GetVnlMatrix())
+                      << xTry << " det = " << vnl_determinant(Qp_search)
                       <<  std::endl;
             }
           }
-
-        // Assign the best transform to tLevel
-        tLevel->SetMatrix(tSearchBest->GetMatrix());
-        tLevel->SetOffset(tSearchBest->GetOffset());
         }
       }
     else
@@ -1297,8 +1398,8 @@ int GreedyApproach<VDim, TReal>
   if(param.flag_stationary_velocity_mode)
     {
     // Take current warp to 'exponent' power - this is the actual warp
-    VectorImagePointer uLevelExp = LDDMMType::alloc_vimg(uLevel);
-    VectorImagePointer uLevelWork = LDDMMType::alloc_vimg(uLevel);
+    VectorImagePointer uLevelExp = LDDMMType::new_vimg(uLevel);
+    VectorImagePointer uLevelWork = LDDMMType::new_vimg(uLevel);
     LDDMMType::vimg_exp(uLevel, uLevelExp, uLevelWork, param.warp_exponent, 1.0);
 
     // Write the resulting transformation field
@@ -1334,8 +1435,7 @@ int GreedyApproach<VDim, TReal>
     if(param.inverse_warp.size())
       {
       // Compute the inverse
-      VectorImagePointer uInverse = VectorImageType::New();
-      LDDMMType::alloc_vimg(uInverse, uLevel);
+      VectorImagePointer uInverse = LDDMMType::new_vimg(uLevel);
       of_helper.ComputeDeformationFieldInverse(uLevel, uInverse, param.warp_exponent);
 
       // Write the warp using compressed format
@@ -1380,16 +1480,10 @@ int GreedyApproach<VDim, TReal>
   ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
 
   // Intermediate images
-  VectorImagePointer u_best = VectorImageType::New();
-  VectorImagePointer u_curr = VectorImageType::New();
-  ImagePointer m_curr = ImageType::New();
-  ImagePointer m_best = ImageType::New();
-
-  // Allocate the intermediate data
-  LDDMMType::alloc_vimg(u_best, refspace);
-  LDDMMType::alloc_vimg(u_curr, refspace);
-  LDDMMType::alloc_img(m_best, refspace);
-  LDDMMType::alloc_img(m_curr, refspace);
+  VectorImagePointer u_best = LDDMMType::new_vimg(refspace);
+  VectorImagePointer u_curr = LDDMMType::new_vimg(refspace);
+  ImagePointer m_curr = LDDMMType::new_img(refspace);
+  ImagePointer m_best = LDDMMType::new_img(refspace);
 
   // Allocate m_best to a negative value
   m_best->FillBuffer(-100.0);
@@ -1469,8 +1563,7 @@ void GreedyApproach<VDim, TReal>
     if(itk::ImageIOFactory::CreateImageIO(tran.c_str(), itk::ImageIOFactory::ReadMode))
       {
       // Create a temporary warp
-      VectorImagePointer warp_tmp = VectorImageType::New();
-      LDDMMType::alloc_vimg(warp_tmp, ref_space);
+      VectorImagePointer warp_tmp = LDDMMType::new_vimg(ref_space);
 
       // Read the next warp
       VectorImagePointer warp_i = VectorImageType::New();
@@ -1488,7 +1581,7 @@ void GreedyApproach<VDim, TReal>
           throw GreedyException("Currently only power of two exponents are supported for warps");
 
         // Bring the transform into voxel space
-        VectorImagePointer warp_exp = LDDMMType::alloc_vimg(warp_i);
+        VectorImagePointer warp_exp = LDDMMType::new_vimg(warp_i);
         OFHelperType::PhysicalWarpToVoxelWarp(warp_i, warp_i, warp_i);
 
         // Square the transform N times (in its own space)
@@ -1754,11 +1847,9 @@ int GreedyApproach<VDim, TReal>
 
   // Initialize empty array of Jacobians
   typedef typename LDDMMType::MatrixImageType JacobianImageType;
-  typename JacobianImageType::Pointer jac = JacobianImageType::New();
-  LDDMMType::alloc_mimg(jac, warp);
+  typename JacobianImageType::Pointer jac = LDDMMType::new_mimg(warp);
 
-  typename JacobianImageType::Pointer jac_work = JacobianImageType::New();
-  LDDMMType::alloc_mimg(jac_work, warp);
+  typename JacobianImageType::Pointer jac_work = LDDMMType::new_mimg(warp);
 
   // Compute the Jacobian of the root warp
   LDDMMType::field_jacobian(root_warp, jac);
@@ -1810,8 +1901,7 @@ int GreedyApproach<VDim, TReal>
                           "Use one of -rm, -rs or -rc commands.");
 
   // Read the fixed as a plain image (we don't care if it's composite)
-  ImagePointer ref = ImageType::New();
-  LDDMMType::img_read(r_param.ref_image.c_str(), ref);
+  ImagePointer ref = ReadImageViaCache<ImageType>(r_param.ref_image);
   itk::ImageBase<VDim> *ref_space = ref;
 
   // Read the transform chain
@@ -1821,8 +1911,7 @@ int GreedyApproach<VDim, TReal>
   // Write the composite warp if requested
   if(r_param.out_composed_warp.size())
     {
-    LDDMMType::vimg_write(warp.GetPointer(), r_param.out_composed_warp.c_str(),
-                          itk::ImageIOBase::FLOAT);
+    WriteImageViaCache(warp.GetPointer(), r_param.out_composed_warp.c_str(), itk::ImageIOBase::FLOAT);
     }
 
   // Compute the Jacobian of the warp if requested
@@ -1832,8 +1921,7 @@ int GreedyApproach<VDim, TReal>
     LDDMMType::alloc_img(iTemp, warp);
     LDDMMType::field_jacobian_det(warp, iTemp);
 
-    LDDMMType::img_write(iTemp, r_param.out_jacobian_image.c_str(),
-                         itk::ImageIOBase::FLOAT);
+    WriteImageViaCache(iTemp.GetPointer(), r_param.out_jacobian_image.c_str(), itk::ImageIOBase::FLOAT);
     }
 
 
@@ -1934,17 +2022,12 @@ int GreedyApproach<VDim, TReal>
       fltVoting->Update();
 
       // Save
-      typedef itk::ImageFileWriter<LabelImageType> WriterType;
-      typename WriterType::Pointer writer = WriterType::New();
-      writer->SetFileName(r_param.images[i].output.c_str());
-      writer->SetUseCompression(true);
-      writer->SetInput(fltVoting->GetOutput());
-      writer->Update();
+      WriteImageViaCache(fltVoting->GetOutput(), r_param.images[i].output.c_str());
       }
     else
       {
       // Read the input image
-      CompositeImagePointer moving, warped;
+      CompositeImagePointer moving, warped = CompositeImageType::New();
       itk::ImageIOBase::IOComponentType comp = LDDMMType::cimg_read(filename, moving);
 
       // Allocate the warped image
@@ -1956,7 +2039,7 @@ int GreedyApproach<VDim, TReal>
                              true, r_param.images[i].interp.outside_value);
 
       // Write, casting to the input component type
-      LDDMMType::cimg_write(warped, r_param.images[i].output.c_str(), comp);
+      WriteImageViaCache(warped.GetPointer(), r_param.images[i].output.c_str(), comp);
       }
     }
 
@@ -2242,9 +2325,18 @@ int GreedyApproach<VDim, TReal>
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
-::AddCachedInputObject(std::string &string, itk::Object *object)
+::AddCachedInputObject(std::string key, itk::Object *object)
 {
-  m_ImageCache[string] = object;
+  m_ImageCache[key].target = object;
+  m_ImageCache[key].force_write = false;
+}
+
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
+::AddCachedOutputObject(std::string key, itk::Object *object, bool force_write)
+{
+  m_ImageCache[key].target = object;
+  m_ImageCache[key].force_write = force_write;
 }
 
 template <unsigned int VDim, typename TReal>

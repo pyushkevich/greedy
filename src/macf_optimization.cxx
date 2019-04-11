@@ -154,27 +154,27 @@ public:
         lev->reference = LDDMMType::img_downsample(uplev->reference, 2);
 
       // Some working images
-      lev->work = LDDMMType::alloc_vimg(lev->reference);
-      lev->work2 = LDDMMType::alloc_vimg(lev->reference);
-      lev->scalar_work = LDDMMType::alloc_img(lev->reference);
-      lev->scalar_work2 = LDDMMType::alloc_img(lev->reference);
+      lev->work = LDDMMType::new_vimg(lev->reference);
+      lev->work2 = LDDMMType::new_vimg(lev->reference);
+      lev->scalar_work = LDDMMType::new_img(lev->reference);
+      lev->scalar_work2 = LDDMMType::new_img(lev->reference);
       lev->factor = factor;
 
       // Create all the image data
       lev->img_data.resize(m_Size);
       for(int i = 0; i < m_Size; i++)
         {
-        lev->img_data[i].u = LDDMMType::alloc_vimg(lev->reference);
-        lev->img_data[i].u_root = LDDMMType::alloc_vimg(lev->reference);
-        lev->img_data[i].grad_u = LDDMMType::alloc_vimg(lev->reference);
-        lev->img_data[i].delta = LDDMMType::alloc_vimg(lev->reference);
+        lev->img_data[i].u = LDDMMType::new_vimg(lev->reference);
+        lev->img_data[i].u_root = LDDMMType::new_vimg(lev->reference);
+        lev->img_data[i].grad_u = LDDMMType::new_vimg(lev->reference);
+        lev->img_data[i].delta = LDDMMType::new_vimg(lev->reference);
         lev->img_data[i].pair_data.resize(m_Size);
         }
       }
 
     // Iterate over all the pairwise registrations
-    MatrixImagePointer jac = LDDMMType::alloc_mimg(m_Levels.back().reference);
-    MatrixImagePointer jac_work = LDDMMType::alloc_mimg(m_Levels.back().reference);
+    MatrixImagePointer jac = LDDMMType::new_mimg(m_Levels.back().reference);
+    MatrixImagePointer jac_work = LDDMMType::new_mimg(m_Levels.back().reference);
 
     // Create all the pair data
     for(int i = 0; i < m_Size; i++)
@@ -215,7 +215,7 @@ public:
           pd.wgt_fixed = LDDMMType::img_read(fn.c_str());
 
           // Integrate the psi image forward
-          pd.psi_forward = LDDMMType::alloc_vimg(lev->reference);
+          pd.psi_forward = LDDMMType::new_vimg(lev->reference);
           LDDMMType::vimg_exp(psi_root, pd.psi_forward, lev->work, m_Param.exponent, 1.0);
 
           // Did the user supply the transported weights?
@@ -226,19 +226,19 @@ public:
             pd.wgt_moving = LDDMMType::img_read(fn.c_str());
 
             // Simply integrate the velocity backwards to get inverse psi
-            pd.psi_inverse = LDDMMType::alloc_vimg(lev->reference);
+            pd.psi_inverse = LDDMMType::new_vimg(lev->reference);
             LDDMMType::vimg_exp(psi_root, pd.psi_inverse, lev->work, m_Param.exponent, -1.0);
             }
           else
             {
             // Integrate the psi image backward with jacobian 
-            pd.psi_inverse = LDDMMType::alloc_vimg(lev->reference);
+            pd.psi_inverse = LDDMMType::new_vimg(lev->reference);
             LDDMMType::vimg_exp_with_jacobian(
               psi_root, pd.psi_inverse, lev->work, jac, jac_work, m_Param.exponent, -1.0);
 
             // When saliency is provided, we can multiply it by the fixed weight and then
             // warp the product back into moving space
-            pd.wgt_moving = LDDMMType::alloc_img(lev->reference);
+            pd.wgt_moving = LDDMMType::new_img(lev->reference);
             if(m_Param.fnSaliencyPattern.size())
               {
               LDDMMType::img_copy(pd.wgt_fixed, lev->scalar_work);
@@ -275,11 +275,11 @@ public:
             LDDMMType::vimg_resample_identity(psi_root, lev->reference, lev->work2);
 
             // Exponentiate forward
-            pd.psi_forward = LDDMMType::alloc_vimg(lev->reference);
+            pd.psi_forward = LDDMMType::new_vimg(lev->reference);
             LDDMMType::vimg_exp(lev->work2, pd.psi_forward, lev->work, m_Param.exponent, 1.0 / lev->factor);
 
             // Exponentiate backward
-            pd.psi_inverse = LDDMMType::alloc_vimg(lev->reference);
+            pd.psi_inverse = LDDMMType::new_vimg(lev->reference);
             LDDMMType::vimg_exp(lev->work2, pd.psi_inverse, lev->work, m_Param.exponent, -1.0 / lev->factor);
 
             // Downsample the weight images from previous level
@@ -742,8 +742,8 @@ public:
     LevelData &lev = m_Levels[level];
 
     // We need a couple of images
-    ImagePointer templ = LDDMMType::alloc_img(lev.reference);
-    VectorImagePointer phi_exp = LDDMMType::alloc_vimg(lev.reference);
+    ImagePointer templ = LDDMMType::new_img(lev.reference);
+    VectorImagePointer phi_exp = LDDMMType::new_vimg(lev.reference);
 
     // Iterate over the images
     for(int i = 0; i < m_Size; i++)
@@ -776,9 +776,9 @@ public:
     LevelData &lev = m_Levels[level];
 
     // We need a couple of images
-    ImagePointer delta_i = LDDMMType::alloc_img(lev.reference);
-    ImagePointer mean_delta = LDDMMType::alloc_img(lev.reference);
-    VectorImagePointer phi_exp = LDDMMType::alloc_vimg(lev.reference);
+    ImagePointer delta_i = LDDMMType::new_img(lev.reference);
+    ImagePointer mean_delta = LDDMMType::new_img(lev.reference);
+    VectorImagePointer phi_exp = LDDMMType::new_vimg(lev.reference);
 
     // Iterate over the images
     for(int i = 0; i < m_Size; i++)

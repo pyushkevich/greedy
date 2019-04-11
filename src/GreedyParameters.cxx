@@ -170,10 +170,26 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
   else if(cmd == "-search")
     {
     this->rigid_search.iterations = cl.read_integer();
-    this->rigid_search.sigma_angle = cl.read_double();
+
+    std::string angle_cmd = cl.read_string();
+
+    if(angle_cmd == "any" || angle_cmd == "ANY")
+      {
+      this->rigid_search.mode = ANY_ROTATION;
+      this->rigid_search.sigma_angle = 0.0;
+      }
+    else if(angle_cmd == "flip" || angle_cmd == "FLIP")
+      {
+      this->rigid_search.mode = ANY_ROTATION_AND_FLIP;
+      this->rigid_search.sigma_angle = 0.0;
+      }
+    else
+      {
+      this->rigid_search.mode = RANDOM_NORMAL_ROTATION;
+      this->rigid_search.sigma_angle = atof(angle_cmd.c_str());
+      }
+
     this->rigid_search.sigma_xyz = cl.read_double();
-    if(cl.command_arg_count() > 0)
-      this->rigid_search.flips = (cl.read_string() == "flip");
     }
   else if(cmd == "-it")
     {

@@ -617,58 +617,6 @@ RigidCostFunction<VDim, TReal>
   return q;
 }
 
-
-
-template <unsigned int VDim, typename TReal>
-vnl_vector<double>
-RigidCostFunction<VDim, TReal>
-::GetRandomCoeff(const vnl_vector<double> &xInit, vnl_random &randy, double sigma_angle, double sigma_xyz,
-                 const Vec &C_fixed, const Vec &C_moving)
-{
-  // Generate a random axis of rotation. A triple of Gaussian numbers, normalized to
-  // unit length gives a uniform distribution over the sphere
-  Vec q_axis;
-  for(int d = 0; d < 3; d++)
-    q_axis[d] = randy.normal();
-  q_axis.normalize();
-
-  // Generate an angle of rotation from the normal distribution (degrees->radians)
-  Vec q = q_axis * (randy.normal() * sigma_angle * 0.01745329252);
-
-  // Generate a random rotation using given angles
-  Mat R = this->GetRotationMatrix(q);
-
-  // Generate a rotation matrix for the initial parameters
-  Vec qInit;
-  for(int d = 0; d < 3; d++)
-    qInit[d] = xInit[d];
-  Mat R_init = this->GetRotationMatrix(qInit);
-
-  // Combined rotation
-  Mat R_comb = R * R_init;
-
-  // Take the log map
-  Vec q_comb = this->GetAxisAngle(R_comb);
-
-  // Generate the offset
-  Vec b = C_moving - R_comb * C_fixed;
-
-  // Apply random offset
-  for(int d = 0; d < 3; d++)
-    b[d] += randy.normal() * sigma_xyz;
-
-  // Generate output vector
-  vnl_vector<double> x(6);
-  x[0] = q_comb[0];
-  x[1] = q_comb[1];
-  x[2] = q_comb[2];
-  x[3] = b[0];
-  x[4] = b[1];
-  x[5] = b[2];
-
-  return x;
-}
-
 template <unsigned int VDim, typename TReal>
 typename RigidCostFunction<VDim, TReal>::Mat
 RigidCostFunction<VDim, TReal>
@@ -726,6 +674,25 @@ RigidCostFunction<VDim, TReal>
   vnl_vector<double> x_aff_phys(m_AffineFn.get_number_of_unknowns());
   flatten_affine_transform(this->flip * R, b, x_aff_phys.data_block());
   m_AffineFn.GetTransform(x_aff_phys, tran);
+}
+
+template <unsigned int VDim, typename TReal>
+typename RigidCostFunction<VDim, TReal>::Mat
+RigidCostFunction<VDim, TReal>
+::GetRandomRotation(vnl_random &randy, double alpha)
+{
+  // Generate a random axis of rotation. A triple of Gaussian numbers, normalized to
+  // unit length gives a uniform distribution over the sphere
+  Vec q_axis;
+  for(int d = 0; d < VDim; d++)
+    q_axis[d] = randy.normal();
+  q_axis.normalize();
+
+  // Generate the axis-angle representation of the rotation
+  Vec q = q_axis * alpha;
+
+  // Generate a random rotation using given angles
+  return GetRotationMatrix(q);
 }
 
 
@@ -859,40 +826,11 @@ RigidCostFunction<2, TReal>
 }
 
 template <typename TReal>
-vnl_vector<double>
+typename RigidCostFunction<2, TReal>::Mat
 RigidCostFunction<2, TReal>
-::GetRandomCoeff(const vnl_vector<double> &xInit, vnl_random &randy, double sigma_angle, double sigma_xyz,
-                 const Vec &C_fixed, const Vec &C_moving)
+::GetRandomRotation(vnl_random &, double alpha)
 {
-  // Generate a random rotation
-  double theta = randy.normal() * sigma_angle * 0.01745329252;
-
-  // Generate a random rotation using given angles
-  Mat R = this->GetRotationMatrix(theta);
-
-  // Generate a rotation matrix for the initial parameters
-  Mat R_init = this->GetRotationMatrix(xInit[0]);
-
-  // Combined rotation
-  Mat R_comb = R * R_init;
-
-  // Take the log map
-  double theta_comb = this->GetRotationAngle(R_comb);
-
-  // Generate the offset
-  Vec b = C_moving - R_comb * C_fixed;
-
-  // Apply random offset
-  for(int d = 0; d < 2; d++)
-    b[d] += randy.normal() * sigma_xyz;
-
-  // Generate output vector
-  vnl_vector<double> x(3);
-  x[0] = theta_comb;
-  x[1] = b[0];
-  x[2] = b[1];
-
-  return x;
+  return GetRotationMatrix(alpha);
 }
 
 template <typename TReal>

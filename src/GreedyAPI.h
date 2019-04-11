@@ -125,7 +125,16 @@ public:
    * so it's the caller's responsibility to keep the object pointed to while
    * the API is being used.
    */
-  void AddCachedInputObject(std::string &string, itk::Object *object);
+  void AddCachedInputObject(std::string key, itk::Object *object);
+
+  /**
+   * Add an image/matrix to the output cache. This has the same behavior as
+   * the input cache, but there is an additional flag as to whether you want
+   * to save the output object to the specified filename in addition to writing
+   * it to the cached image/matrix. This allows you to both store the result in
+   * the cache and write it to a filename specified in the key
+   */
+  void AddCachedOutputObject(std::string key, itk::Object *object, bool force_write = false);
 
   /**
    * Get the metric log - values of metric per level. Can be called from
@@ -157,7 +166,12 @@ public:
 
 protected:
 
-  typedef std::map<std::string, itk::Object *> ImageCache;
+  struct CacheEntry {
+    itk::Object *target;
+    bool force_write;
+  };
+
+  typedef std::map<std::string, CacheEntry> ImageCache;
   ImageCache m_ImageCache;
 
   // A log of metric values used during registration - so metric can be looked up
@@ -170,6 +184,10 @@ protected:
   template <class TImage>
   itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename);
 
+  // Write an image using the cache
+  template <class TImage>
+  void WriteImageViaCache(TImage *img, const std::string &filename,
+                          typename LDDMMType::IOComponentType comp = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE);
 
   void ReadImages(GreedyParameters &param, OFHelperType &ofhelper);
 

@@ -92,18 +92,20 @@ public:
   // Number of timesteps, number of voxels
   uint nt, nv;
 
-  // Allocate a velocity field
-  static void alloc_vf(VelocityField &vf, uint nt, ImageBaseType *ref);
-  static void alloc_img(ImagePointer &img, ImageBaseType *ref);
-  static void alloc_vimg(VectorImagePointer &vimg, ImageBaseType *ref);
-  static void alloc_cimg(CompositeImagePointer &img, ImageBaseType *ref, int n_comp);
-  static void alloc_mimg(MatrixImagePointer &img, ImageBaseType *ref);
+  // Allocate image using an existing pointer
+  static void alloc_img(ImageType *img, ImageBaseType *ref);
+  static void alloc_vimg(VectorImageType *vimg, ImageBaseType *ref);
+  static void alloc_cimg(CompositeImageType *img, ImageBaseType *ref, int n_comp);
+  static void alloc_mimg(MatrixImageType *img, ImageBaseType *ref);
 
   // These methods are shorthands for creating an image and allocating it
-  static ImagePointer alloc_img(ImageBaseType *ref);
-  static VectorImagePointer alloc_vimg(ImageBaseType *ref);
-  static MatrixImagePointer alloc_mimg(ImageBaseType *ref);
-  static CompositeImagePointer alloc_cimg(ImageBaseType *ref, int n_comp);
+  static ImagePointer new_img(ImageBaseType *ref);
+  static VectorImagePointer new_vimg(ImageBaseType *ref);
+  static MatrixImagePointer new_mimg(ImageBaseType *ref);
+  static CompositeImagePointer new_cimg(ImageBaseType *ref, int n_comp);
+
+  // Create and allocate velocity field
+  static void new_vf(VelocityField &vf, uint nt, ImageBaseType *ref);
 
   // Initialize LDDMM data 
   static void init(LDDMMData<TFloat, VDim> &, 
@@ -253,6 +255,11 @@ public:
   static void vimg_copy(const VectorImageType *src, VectorImageType *trg);
   static void img_copy(const ImageType *src, ImageType *trg);
   static void mimg_copy(const MatrixImageType *src, MatrixImageType *trg);
+
+  /** Cast to image of different datatype automatically */
+  static bool vimg_auto_cast(const VectorImageType *src, ImageBaseType *trg);
+  static bool img_auto_cast(const ImageType *src, ImageBaseType *trg);
+  static bool cimg_auto_cast(const CompositeImageType *src, ImageBaseType *trg);
 
   // Compute a array from v
   void compute_semi_lagrangean_a();

@@ -59,19 +59,18 @@
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::alloc_vf(VelocityField &vf, uint nt, ImageBaseType *ref)
+::new_vf(VelocityField &vf, uint nt, ImageBaseType *ref)
 {
   vf.resize(nt);
   for(uint i = 0; i < nt; i++)
-    alloc_vimg(vf[i], ref);
+    vf[i] = new_vimg(ref);
 }
 
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::alloc_vimg(VectorImagePointer &img, ImageBaseType *ref)
+::alloc_vimg(VectorImageType *img, ImageBaseType *ref)
 {
-  img = VectorImageType::New();
   img->SetRegions(ref->GetBufferedRegion());
   img->CopyInformation(ref);
   img->Allocate();
@@ -81,7 +80,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::VectorImagePointer
 LDDMMData<TFloat, VDim>
-::alloc_vimg(ImageBaseType *ref)
+::new_vimg(ImageBaseType *ref)
 {
   VectorImagePointer p = VectorImageType::New();
   alloc_vimg(p, ref);
@@ -91,9 +90,8 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::alloc_mimg(MatrixImagePointer &img, ImageBaseType *ref)
+::alloc_mimg(MatrixImageType *img, ImageBaseType *ref)
 {
-  img = MatrixImageType::New();
   img->SetRegions(ref->GetBufferedRegion());
   img->CopyInformation(ref);
   img->Allocate();
@@ -103,7 +101,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::MatrixImagePointer
 LDDMMData<TFloat, VDim>
-::alloc_mimg(ImageBaseType *ref)
+::new_mimg(ImageBaseType *ref)
 {
   MatrixImagePointer p = MatrixImageType::New();
   alloc_mimg(p, ref);
@@ -113,9 +111,8 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::alloc_cimg(CompositeImagePointer &img, ImageBaseType *ref, int n_comp)
+::alloc_cimg(CompositeImageType *img, ImageBaseType *ref, int n_comp)
 {
-  img = CompositeImageType::New();
   img->SetRegions(ref->GetBufferedRegion());
   img->CopyInformation(ref);
   img->SetNumberOfComponentsPerPixel(n_comp);
@@ -130,9 +127,9 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::CompositeImagePointer
 LDDMMData<TFloat, VDim>
-::alloc_cimg(ImageBaseType *ref, int n_comp)
+::new_cimg(ImageBaseType *ref, int n_comp)
 {
-  CompositeImagePointer p;
+  CompositeImagePointer p = CompositeImageType::New();
   alloc_cimg(p, ref, n_comp);
   return p;
 }
@@ -140,9 +137,8 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::alloc_img(ImagePointer &img, ImageBaseType *ref)
+::alloc_img(ImageType *img, ImageBaseType *ref)
 {
-  img = ImageType::New();
   img->SetRegions(ref->GetBufferedRegion());
   img->CopyInformation(ref);
   img->Allocate();
@@ -152,9 +148,9 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::ImagePointer
 LDDMMData<TFloat, VDim>
-::alloc_img(ImageBaseType *ref)
+::new_img(ImageBaseType *ref)
 {
-  ImagePointer p;
+  ImagePointer p = ImageType::New();
   alloc_img(p, ref);
   return p;
 }
@@ -182,13 +178,13 @@ LDDMMData<TFloat, VDim>
     p.n[i] = p.r.GetSize()[i];
 
   // Initialize the velocity fields
-  alloc_vf(p.v, nt, fix);
-  alloc_vf(p.a, nt, fix);
-  alloc_vf(p.f, nt, fix);
+  new_vf(p.v, nt, fix);
+  new_vf(p.a, nt, fix);
+  new_vf(p.f, nt, fix);
 
   // Initialize kernel terms
-  alloc_img(p.f_kernel, fix);
-  alloc_img(p.f_kernel_sq, fix);
+  p.f_kernel = new_img(fix);
+  p.f_kernel_sq = new_img(fix);
 
   // Compute these images
   ImageIterator it(p.f_kernel, p.r), itsq(p.f_kernel_sq, p.r);
@@ -202,7 +198,7 @@ LDDMMData<TFloat, VDim>
     }
 
   // Initialize temporary vector field
-  alloc_vimg(p.vtmp, fix);
+  p.vtmp = new_vimg(fix);
 }
 
 template <class TFloat, uint VDim>
@@ -1035,7 +1031,7 @@ LDDMMData<TFloat, VDim>
   mimg_vimg_product_plus_vimg(work, v, out, -1.0, 1.0, out);
 
   // Alternative approach
-  VectorImagePointer alt = alloc_vimg(out);
+  VectorImagePointer alt = new_vimg(out);
   
   typedef LieBracketFilter<VectorImageType, VectorImageType> LieBracketFilterType;
   typename LieBracketFilterType::Pointer fltLieBracket = LieBracketFilterType::New();
@@ -1230,6 +1226,8 @@ write_cast(TInputImage *image, const char *filename)
   writer->Update();
 }
 
+
+
 template <class TInputImage, class TOutputComponent>
 struct image_type_cast
 {
@@ -1242,9 +1240,9 @@ struct image_type_cast< itk::Image<TPixel, VDim>, TOutputComponent>
 };
 
 template <class TPixel, unsigned int VDim, class TOutputComponent>
-struct image_type_cast< itk::Image<itk::CovariantVector<TPixel>, VDim>, TOutputComponent>
+struct image_type_cast< itk::Image<itk::CovariantVector<TPixel, VDim>, VDim>, TOutputComponent>
 {
-  typedef itk::Image<itk::CovariantVector<TOutputComponent>, VDim> OutputImageType;
+  typedef itk::Image<itk::CovariantVector<TOutputComponent, VDim>, VDim> OutputImageType;
 };
 
 template <class TPixel, unsigned int VDim, class TOutputComponent>
@@ -1298,6 +1296,38 @@ void write_cast_to_iocomp(TInputImage *image, const char *filename,
       writer->Update();
     }
 }
+
+template <class TInputImage, class TOutputImage>
+bool
+try_auto_cast(const TInputImage *source, itk::Object *target)
+{
+  TOutputImage *output = dynamic_cast<TOutputImage *>(target);
+  if(output)
+    {
+    output->CopyInformation(source);
+    output->SetRegions(source->GetBufferedRegion());
+    output->Allocate();
+    itk::ImageAlgorithm::Copy(source, output, source->GetBufferedRegion(), output->GetBufferedRegion());
+    return true;
+    }
+  return false;
+}
+
+template <class TInputImage>
+bool auto_cast(const TInputImage *source, itk::Object *target)
+{
+  return try_auto_cast<TInputImage, typename image_type_cast<TInputImage, unsigned char>::OutputImageType>(source, target)
+      || try_auto_cast<TInputImage, typename image_type_cast<TInputImage, char>::OutputImageType>(source, target)
+      || try_auto_cast<TInputImage, typename image_type_cast<TInputImage, unsigned short>::OutputImageType>(source, target)
+      || try_auto_cast<TInputImage, typename image_type_cast<TInputImage, short>::OutputImageType>(source, target)
+      || try_auto_cast<TInputImage, typename image_type_cast<TInputImage, unsigned int>::OutputImageType>(source, target)
+      || try_auto_cast<TInputImage, typename image_type_cast<TInputImage, int>::OutputImageType>(source, target)
+      || try_auto_cast<TInputImage, typename image_type_cast<TInputImage, unsigned long>::OutputImageType>(source, target)
+      || try_auto_cast<TInputImage, typename image_type_cast<TInputImage, long>::OutputImageType>(source, target)
+      || try_auto_cast<TInputImage, typename image_type_cast<TInputImage, float>::OutputImageType>(source, target)
+      || try_auto_cast<TInputImage, typename image_type_cast<TInputImage, double>::OutputImageType>(source, target);
+}
+
 
 } // namespace
 
@@ -1466,6 +1496,32 @@ LDDMMData<TFloat, VDim>
   fltCast->GraftOutput(trg);
   fltCast->Update();
 }
+
+template<class TFloat, uint VDim>
+bool
+LDDMMData<TFloat, VDim>
+::vimg_auto_cast(const VectorImageType *src, ImageBaseType *trg)
+{
+  return lddmm_data_io::auto_cast(src, trg);
+}
+
+template<class TFloat, uint VDim>
+bool
+LDDMMData<TFloat, VDim>
+::cimg_auto_cast(const CompositeImageType *src, ImageBaseType *trg)
+{
+  return lddmm_data_io::auto_cast(src, trg);
+}
+
+template<class TFloat, uint VDim>
+bool
+LDDMMData<TFloat, VDim>
+::img_auto_cast(const ImageType *src, ImageBaseType *trg)
+{
+  return lddmm_data_io::auto_cast(src, trg);
+}
+
+
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
@@ -1826,10 +1882,10 @@ LDDMMImageMatchingObjective<TFloat, VDim>
   : fft(p.fix)
 {
   // Allocate intermediate datasets
-  LDDMM::alloc_img(Jt0, p.fix);
-  LDDMM::alloc_img(Jt1, p.fix);
-  LDDMM::alloc_img(DetPhit1, p.fix);
-  LDDMM::alloc_vimg(GradJt0, p.fix);
+  Jt0 = LDDMM::new_img(p.fix);
+  Jt1 = LDDMM::new_img(p.fix);
+  DetPhit1 = LDDMM::new_img(p.fix);
+  GradJt0 = LDDMM::new_vimg(p.fix);
 }
 
 template <class TFloat, uint VDim>

@@ -125,9 +125,10 @@ int usage()
   printf("Specific to affine mode (-a):\n");
   printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 12=affine\n");
   printf("  -jitter sigma          : Jitter (in voxel units) applied to sample points (def: 0.5)\n");
-  printf("  -search N sa sx [flip] : Random search over rigid transforms (N iter) before starting optimization\n");
-  printf("                           sa, sx: sigmas for rot-n angle (degrees) and offset between image centers\n");
-  printf("                           'flip' optional keyword will enable search over flips too\n");
+  printf("  -search N <rot> <tran> : Random search over rigid transforms (N iter) before starting optimization\n");
+  printf("                           'rot' may be the standard deviation of the random rotation angle (degrees) or \n");
+  printf("                           keyword 'any' (any rotation) or 'flip' (any rotation or flip). \n");
+  printf("                           'tran' is the standard deviation of the random offset, in physical units. \n");
   printf("Specific to moments of inertia mode (-moments 2): \n");
   printf("  -det <-1|1>            : Force the determinant of transform to be either 1 (no flip) or -1 (flip)\n");
   printf("  -cov-id                : Assume identity covariance (match centers and do flips only, no rotation)\n");

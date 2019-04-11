@@ -193,14 +193,13 @@ public:
   // Get the preferred scaling for this function given image dimensions
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
 
-  // Create a random set of parameters, such that on average point C_fixed maps to point C_mov
-  vnl_vector<double> GetRandomCoeff(const vnl_vector<double> &xInit, vnl_random &randy, double sigma_angle, double sigma_xyz,
-                                   const Vec &C_fixed, const Vec &C_moving);
+  // Generate a random rotation matrix with rotation angle alpha (radians)
+  static Mat GetRandomRotation(vnl_random &randy, double alpha);
 
 protected:
 
-  Mat GetRotationMatrix(const Vec &q);
-  Vec GetAxisAngle(const Mat &R);
+  static Mat GetRotationMatrix(const Vec &q);
+  static Vec GetAxisAngle(const Mat &R);
 
   // We wrap around a physical space affine function, since rigid in physical space is not
   // the same as rigid in voxel space
@@ -236,14 +235,13 @@ public:
   // Get the preferred scaling for this function given image dimensions
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
 
-  // Create a random set of parameters, such that on average point C_fixed maps to point C_mov
-  vnl_vector<double> GetRandomCoeff(const vnl_vector<double> &xInit, vnl_random &randy, double sigma_angle, double sigma_xyz,
-                                   const Vec &C_fixed, const Vec &C_moving);
+  // Generate a random rotation matrix with rotation angle alpha (radians)
+  static Mat GetRandomRotation(vnl_random &randy, double alpha);
 
 protected:
 
-  Mat GetRotationMatrix(double theta);
-  double GetRotationAngle(const Mat &R);
+  static Mat GetRotationMatrix(double theta);
+  static double GetRotationAngle(const Mat &R);
 
   // We wrap around a physical space affine function, since rigid in physical space is not
   // the same as rigid in voxel space

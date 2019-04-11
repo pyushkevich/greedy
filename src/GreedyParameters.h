@@ -49,14 +49,22 @@ struct SmoothingParameters
   SmoothingParameters() : sigma(0.0), physical_units(true) {}
 };
 
+enum RigidSearchRotationMode
+{
+  RANDOM_NORMAL_ROTATION,
+  ANY_ROTATION,
+  ANY_ROTATION_AND_FLIP
+};
+
 struct RigidSearchSpec
 {
+  RigidSearchRotationMode mode;
   int iterations;
   double sigma_xyz;
   double sigma_angle;
-  bool flips;
 
-  RigidSearchSpec() : iterations(0), sigma_xyz(0.0), sigma_angle(0.0), flips(false) {}
+  RigidSearchSpec() : mode(RANDOM_NORMAL_ROTATION),
+    iterations(0), sigma_xyz(0.0), sigma_angle(0.0) {}
 };
 
 struct InterpSpec

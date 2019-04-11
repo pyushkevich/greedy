@@ -159,8 +159,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
           }
 
         // Compute the gradient of the moving image
-        typename VectorImageType::Pointer gradMoving = VectorImageType::New();
-        LDDMMType::alloc_vimg(gradMoving, lMoving);
+        typename VectorImageType::Pointer gradMoving = LDDMMType::new_vimg(lMoving);
         LDDMMType::image_gradient(lMoving, gradMoving);
 
         // Allocate the composite images if they have not been allocated

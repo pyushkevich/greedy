@@ -63,6 +63,17 @@ public:
   }
 
   /**
+   * Peek at the next argument, without treating it as 'read'. Useful when arguments
+   * of different type are possible
+   */
+  const char *peek_arg()
+  {
+    if(i >= argc)
+      throw GreedyException("Unexpected end of command line arguments.");
+    return argv[i];
+  }
+
+  /**
    * Read a command (something that starts with a '-')
    */
   std::string read_command()

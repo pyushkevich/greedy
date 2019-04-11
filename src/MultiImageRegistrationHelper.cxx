@@ -154,8 +154,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       LDDMMType::img_threshold_in_place(m_GradientMaskComposite[level], 0.5, 1e100, 0.5, 0);
 
       // Make a copy of the mask
-      typename FloatImageType::Pointer mask_copy;
-      LDDMMType::alloc_img(mask_copy, m_GradientMaskComposite[level]);
+      typename FloatImageType::Pointer mask_copy = LDDMMType::new_img(m_GradientMaskComposite[level]);
       LDDMMType::img_copy(m_GradientMaskComposite[level], mask_copy);
 
       // Run the accumulation filter on the mask
@@ -268,8 +267,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
           }
 
         // Compute the gradient of the moving image
-        //typename VectorImageType::Pointer gradMoving = VectorImageType::New();
-        //LDDMMType::alloc_vimg(gradMoving, lMoving);
+        //typename VectorImageType::Pointer gradMoving = LDDMMType::new_vimg(lMoving);
         //LDDMMType::image_gradient(lMoving, gradMoving);
 
         // Allocate the composite images if they have not been allocated
@@ -326,7 +324,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     for(int i = 0; i < m_PyramidFactors.size(); i++)
       {
       // Allocate the image
-      LDDMMType::alloc_img(m_GradientMaskComposite[i], m_FixedComposite[i]);
+      m_GradientMaskComposite[i] = LDDMMType::new_img(m_FixedComposite[i]);
 
       // Fill out the image
       itk::Size<VDim> sz = m_GradientMaskComposite[i]->GetBufferedRegion().GetSize();
@@ -1294,20 +1292,17 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 
   // Create the current root and the next root
-  VectorImagePointer u = VectorImageType::New();
-  LDDMMType::alloc_vimg(u, warp);
+  VectorImagePointer u = LDDMMType::new_vimg(warp);
   LDDMMType::vimg_copy(warp, u);
 
   // Create a working image
-  VectorImagePointer work = VectorImageType::New();
-  LDDMMType::alloc_vimg(work, warp);
+  VectorImagePointer work = LDDMMType::new_vimg(warp);
 
   // If there is tolerance, create an error norm image
   FloatImagePointer error_norm;
   if(tol > 0.0)
     {
-    error_norm = FloatImageType::New();
-    LDDMMType::alloc_img(error_norm, warp);
+    error_norm = LDDMMType::new_img(warp);
     }
     
   // Compute the square root 'exponent' times
@@ -1333,13 +1328,11 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   typedef LDDMMData<TFloat, VDim> LDDMMType;
 
   // Create a copy of the forward warp
-  VectorImagePointer uForward = VectorImageType::New();
-  LDDMMType::alloc_vimg(uForward, warp);
+  VectorImagePointer uForward = LDDMMType::new_vimg(warp);
   LDDMMType::vimg_copy(warp, uForward);
 
   // Create a working image 
-  VectorImagePointer uWork = VectorImageType::New();
-  LDDMMType::alloc_vimg(uWork, warp);
+  VectorImagePointer uWork = LDDMMType::new_vimg(warp);
 
   // Take the desired square root of the input warp and place into uForward
   ComputeWarpRoot(warp, uForward, n_sqrt);
@@ -1372,8 +1365,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   // If verbose, compute the maximum error
   if(verbose)
     {
-    FloatImagePointer iNorm = FloatImageType::New();
-    LDDMMType::alloc_img(iNorm, uWork);
+    FloatImagePointer iNorm = LDDMMType::new_img(uWork);
     LDDMMType::interp_vimg(uInverse, uForward, 1.0, uWork);
     LDDMMType::vimg_add_in_place(uWork, uForward);
     TFloat norm_min, norm_max;
