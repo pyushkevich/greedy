@@ -38,6 +38,7 @@
 #include "itkMatrixOffsetTransformBase.h"
 #include "itkImageAlgorithm.h"
 #include "itkZeroFluxNeumannPadImageFilter.h"
+#include "itkImageFileReader.h"
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"
@@ -65,7 +66,7 @@ struct SliceData
 
 enum FileIntent {
   AFFINE_MATRIX = 0, METRIC_VALUE, ACCUM_MATRIX, ACCUM_RESLICE,
-  VOL_INIT_MATRIX, VOL_SLIDE
+  VOL_INIT_MATRIX, VOL_SLIDE, VOL_MEDIAN_INIT_MATRIX
 };
 
 std::string GetFilenameForSlicePair(
@@ -113,11 +114,127 @@ std::string GetFilenameForSlice(
       sprintf(filename, "%s/vol_slide_%s.%s", dir, sid, ext);
       break;
     default:
-      throw GreedyException("Wrong intent in GetFilenameForSlicePair");
+      throw GreedyException("Wrong intent in GetFilenameForSlice");
     }
 
   return filename;
 }
+
+std::string GetFilenameForGlobal(
+    const StackParameters &param, FileIntent intent)
+{
+  char filename[1024];
+  const char *dir = param.output_dir.c_str(), *ext = param.image_extension.c_str();
+
+  switch(intent)
+    {
+    case VOL_MEDIAN_INIT_MATRIX:
+      sprintf(filename, "%s/affine_refvol_median.mat", dir);
+      break;
+    default:
+      throw GreedyException("Wrong intent in GetFilenameForGlobal");
+    }
+
+  return filename;
+}
+
+/**
+ * This class represents a reference to an image that may exist on disk, or may be
+ * stored in memory. There is a limit on the amount of memory that can be used by
+ * all the image refs, and images are rotated in and out of memory based on when
+ * they were last accessed
+ */
+class ImageCache
+{
+public:
+
+  ImageCache(unsigned long max_memory = 0l, unsigned int max_images = 0)
+    : m_MaxMemory(max_memory), m_MaxImages(max_images), m_Counter(0l) {}
+
+  template <typename TImage> typename TImage::Pointer GetImage(const std::string &filename)
+  {
+    // Check the cache for the image
+    auto it = m_Cache.find(filename);
+    if(it != m_Cache.end())
+      {
+      TImage *image = dynamic_cast<TImage *>(std::get<2>(it->second).GetPointer());
+      if(!image)
+        throw GreedyException("Type mismatch in image cache");
+      typename TImage::Pointer image_ptr = image;
+      return image_ptr;
+      }
+
+    // Image does not exist in cache, load it
+    typedef itk::ImageFileReader<TImage> ReaderType;
+    typename ReaderType::Pointer reader = ReaderType::New();
+    reader->SetFileName(filename.c_str());
+    reader->Update();
+    typename TImage::Pointer image_ptr = reader->GetOutput();
+
+    // Get the size of the image in bytes
+    unsigned long img_size = image_ptr->GetPixelContainer()->Size()
+                             * sizeof (typename TImage::PixelContainer::Element);
+
+    // If the size of the image is too large, we need to reduce the size of the cache
+    this->ShrinkCache(img_size, 1);
+
+    // Add the new image
+    m_Cache[filename] = std::make_tuple(m_Counter++, img_size, image_ptr);
+    m_UsedMemory += img_size;
+
+    // Return the image
+    return image_ptr;
+  }
+
+  void ShrinkCache(unsigned long new_bytes, unsigned int new_images)
+  {
+    // Remove something from the cache until it's not empty and the constraints of the
+    // cache are satisfied
+    while(IsCacheFull(new_bytes, new_images) && m_Cache.size() > 0)
+      {
+      // Find the oldest entry in the cache
+      std::map<unsigned long, std::string> sort_map;
+      for(auto it : m_Cache)
+        sort_map[std::get<0>(it.second)] = it.first;
+
+      // Remove the first (oldest) entry
+      auto it_erase = m_Cache.find(sort_map.begin()->second);
+      m_UsedMemory -= std::get<1>(it_erase->second);
+      m_Cache.erase(it_erase);
+      }
+  }
+
+  bool IsCacheFull(unsigned long new_bytes, unsigned int new_images)
+  {
+    if(m_MaxMemory > 0 && m_UsedMemory + new_bytes > m_MaxMemory)
+      return true;
+
+    if(m_MaxImages > 0 && m_Cache.size() + new_images > m_MaxImages)
+      return true;
+
+    return false;
+  }
+
+  void PurgeCache()
+  {
+    m_Cache.clear();
+    m_UsedMemory = 0;
+  }
+
+protected:
+
+  // Cache entry (age, size, pointer)
+  typedef std::tuple<unsigned long, unsigned long, itk::Object::Pointer> CacheEntry;
+  typedef std::map<std::string, CacheEntry> CacheType;
+
+  // Cache for images
+  CacheType m_Cache;
+
+  unsigned long m_MaxMemory, m_UsedMemory;
+  unsigned int m_MaxImages;
+  unsigned long m_Counter;
+};
+
 
 // How to specify how many neighbors a slice will be registered to?
 // - minimum of one neighbor
@@ -173,7 +290,7 @@ int main(int argc, char *argv[])
 
   // List of greedy commands that are recognized by this code
   std::set<std::string> greedy_cmd {
-    "-m", "-n", "-threads", "-gm-trim", "-search", "-dof"
+    "-m", "-n", "-threads", "-gm-trim", "-search"
   };
 
   try
@@ -298,8 +415,9 @@ int main(int argc, char *argv[])
       }
     }
 
-  // Keep a list of loaded images
-  std::map<slice_ref, SlideImagePointer> loaded_slices;
+  // Set up a cache for loaded images. These images can be cycled in and out of memory
+  // depending on need. TODO: let user configure cache sizes
+  ImageCache slice_cache(0, 20);
 
   // At this point we can create a rigid adjacency structure for the graph-theoretic algorithm,
   vnl_vector<unsigned int> G_adjidx(z_sort.size()+1, 0u);
@@ -327,41 +445,16 @@ int main(int argc, char *argv[])
     {
     const auto &nbr = slice_nbr[it->second];
 
-    // Prune images no longer required from the loaded slices list
-    for(auto it_l = loaded_slices.begin(); it_l != loaded_slices.end(); )
-      {
-      if(nbr.find(it_l->first) == nbr.end() && it_l->first != *it)
-        loaded_slices.erase(it_l++);
-      else
-        ++it_l;
-      }
-
-    // Make sure the reference image itself is loaded
-    SlideImagePointer i_ref;
-    if(loaded_slices.find(*it) == loaded_slices.end())
-      {
-      LDDMMType::cimg_read(slices[it->second].raw_filename.c_str(), i_ref);
-      loaded_slices[*it] = i_ref;
-      }
-    else
-      {
-      i_ref = loaded_slices[*it];
-      }
+    // Read the reference slide from the cache
+    SlideImagePointer i_ref =
+        slice_cache.GetImage<SlideImageType>(slices[it->second].raw_filename);
 
     // Iterate over the neighbor slices
     for(auto it_n = nbr.begin(); it_n != nbr.end(); ++it_n)
       {
       // Load or retrieve the corresponding image
-      SlideImagePointer i_mov;
-      if(loaded_slices.find(*it_n) == loaded_slices.end())
-        {
-        LDDMMType::cimg_read(slices[it_n->second].raw_filename.c_str(), i_mov);
-        loaded_slices[*it_n] = i_mov;
-        }
-      else
-        {
-        i_mov = loaded_slices[*it_n];
-        }
+      SlideImagePointer i_mov =
+          slice_cache.GetImage<SlideImageType>(slices[it_n->second].raw_filename);
 
       // Get the filenames that will be generated by registration
       std::string fn_matrix = GetFilenameForSlicePair(param, slices[it->second], slices[it_n->second], AFFINE_MATRIX);
@@ -392,6 +485,7 @@ int main(int argc, char *argv[])
         my_param.inputs.push_back(img_pair);
 
         // Set other parameters
+        my_param.affine_dof = GreedyParameters::DOF_RIGID;
         my_param.affine_init_mode = IMG_CENTERS;
 
         // Set up the output of the affine
@@ -466,6 +560,12 @@ int main(int argc, char *argv[])
   // Store the result
   LDDMMType::ImagePointer img_root_padded = fltPad->GetOutput();
 
+  // The padded image has a non-zero index, which causes problems downstream for GreedyAPI.
+  // To account for this, we save and load the image
+  // TODO: handle this internally using a filter!
+  LDDMMType::img_write(img_root_padded, "/tmp/padded.nii.gz");
+  img_root_padded = LDDMMType::img_read("/tmp/padded.nii.gz");
+
   // Also read the 3D volume into memory if we have it
   typedef LDDMMData<double, 3> LDDMMType3D;
   LDDMMType3D::CompositeImagePointer vol;
@@ -530,6 +630,8 @@ int main(int argc, char *argv[])
       my_param.reslice_param.images.push_back(ResliceSpec(slices[i].raw_filename, fn_accum_reslice));
       my_param.reslice_param.transforms.push_back(TransformSpec(fn_accum_matrix));
       greedy_api.AddCachedInputObject("root_slice_padded", img_root_padded.GetPointer());
+      greedy_api.AddCachedInputObject(slices[i].raw_filename,
+                                      slice_cache.GetImage<SlideImageType>(slices[i].raw_filename));
       greedy_api.AddCachedOutputObject(fn_accum_reslice, img_reslice.GetPointer(), true);
       greedy_api.RunReslice(my_param);
       }
@@ -542,88 +644,135 @@ int main(int argc, char *argv[])
     // If there is a 3D image volume, do that registration
     if(vol)
       {
-      LDDMMType3D::CompositeImagePointer vol_slice = LDDMMType3D::CompositeImageType::New();
-      typename LDDMMType3D::RegionType reg_slice = vol->GetBufferedRegion();
-      reg_slice.GetModifiableSize()[2] = 1;
-      vol_slice->CopyInformation(vol);
-      vol_slice->SetRegions(reg_slice);
-      vol_slice->Allocate();
-
-      // Adjust the origin of the slice
-      auto origin_slice = vol_slice->GetOrigin();
-      origin_slice[2] = slices[i].z_pos;
-      vol_slice->SetOrigin(origin_slice);
-
-      // Generate a blank deformation field
-      LDDMMType3D::VectorImagePointer zero_warp = LDDMMType3D::new_vimg(vol_slice);
-
-      // Sample the slice from the volume
-      LDDMMType3D::interp_cimg(vol, zero_warp, vol_slice, false, true, 0.0);
-
-      // Now drop the dimension of the slice to 2D
-      LDDMMType::RegionType reg_slice_2d;
-      LDDMMType::CompositeImageType::PointType origin_2d;
-      LDDMMType::CompositeImageType::SpacingType spacing_2d;
-      LDDMMType::CompositeImageType::DirectionType dir_2d;
-
-      for(unsigned int a = 0; a < 2; a++)
-        {
-        reg_slice_2d.SetIndex(a, reg_slice.GetIndex(a));
-        reg_slice_2d.SetSize(a, reg_slice.GetSize(a));
-        origin_2d[a] = vol_slice->GetOrigin()[a];
-        spacing_2d[a] = vol_slice->GetSpacing()[a];
-        dir_2d(a,0) = vol_slice->GetDirection()(a,0);
-        dir_2d(a,1) = vol_slice->GetDirection()(a,1);
-        }
-
-      LDDMMType::CompositeImagePointer vol_slice_2d = LDDMMType::CompositeImageType::New();
-      vol_slice_2d->SetRegions(reg_slice_2d);
-      vol_slice_2d->SetOrigin(origin_2d);
-      vol_slice_2d->SetDirection(dir_2d);
-      vol_slice_2d->SetSpacing(spacing_2d);
-      vol_slice_2d->SetNumberOfComponentsPerPixel(vol_slice->GetNumberOfComponentsPerPixel());
-      vol_slice_2d->Allocate();
-
-      // Copy data between the pixel containers
-      itk::ImageAlgorithm::Copy(vol_slice.GetPointer(), vol_slice_2d.GetPointer(),
-                                vol_slice->GetBufferedRegion(), vol_slice_2d->GetBufferedRegion());
-
-      // Write the 2d slice
+      // Filename for the volume slice corresponding to current slide
       std::string fn_vol_slide = GetFilenameForSlice(param, slices[i], VOL_SLIDE);
-      LDDMMType::cimg_write(vol_slice_2d, fn_vol_slide.c_str());
-
-      // Try registration between resliced slide and corresponding volume slice with
-      // a brute force search. This will be used to create a median transformation
-      // between slide space and volume space. Since the volume may come with a mask,
-      // we use volume slice as fixed, and the slide image as moving
-      GreedyAPI greedy_api;
-
-      // TODO: we need separate parameters for the multi-modality registrations!
-      GreedyParameters my_param = gparam;
-
-      // Set up the image pair for registration
-      // TODO: have moving image in memory
-      ImagePairSpec img_pair;
-      img_pair.weight = 1.0;
-      img_pair.fixed = "vol_slice";
-      img_pair.moving = "resliced_slide";
-      greedy_api.AddCachedInputObject("vol_slice", vol_slice_2d.GetPointer());
-      greedy_api.AddCachedInputObject("resliced_slide", img_reslice.GetPointer());
-      my_param.inputs.push_back(img_pair);
-
-      // Set other parameters
-      my_param.affine_init_mode = IMG_CENTERS;
 
       // Output matrix for this registration
       std::string fn_vol_init_matrix = GetFilenameForSlice(param, slices[i], VOL_INIT_MATRIX);
 
-      // Set up the output of the affine
-      my_param.output = fn_vol_init_matrix;
+      if(!param.reuse || !itksys::SystemTools::FileExists(fn_vol_slide)
+          || !itksys::SystemTools::FileExists(fn_vol_init_matrix))
+        {
+        LDDMMType3D::CompositeImagePointer vol_slice = LDDMMType3D::CompositeImageType::New();
+        typename LDDMMType3D::RegionType reg_slice = vol->GetBufferedRegion();
+        reg_slice.GetModifiableSize()[2] = 1;
+        vol_slice->CopyInformation(vol);
+        vol_slice->SetRegions(reg_slice);
+        vol_slice->Allocate();
 
-      // Run the affine registration
-      greedy_api.RunAffine(my_param);
+        // Adjust the origin of the slice
+        auto origin_slice = vol_slice->GetOrigin();
+        origin_slice[2] = slices[i].z_pos;
+        vol_slice->SetOrigin(origin_slice);
+
+        // Generate a blank deformation field
+        LDDMMType3D::VectorImagePointer zero_warp = LDDMMType3D::new_vimg(vol_slice);
+
+        // Sample the slice from the volume
+        LDDMMType3D::interp_cimg(vol, zero_warp, vol_slice, false, true, 0.0);
+
+        // Now drop the dimension of the slice to 2D
+        LDDMMType::RegionType reg_slice_2d;
+        LDDMMType::CompositeImageType::PointType origin_2d;
+        LDDMMType::CompositeImageType::SpacingType spacing_2d;
+        LDDMMType::CompositeImageType::DirectionType dir_2d;
+
+        for(unsigned int a = 0; a < 2; a++)
+          {
+          reg_slice_2d.SetIndex(a, reg_slice.GetIndex(a));
+          reg_slice_2d.SetSize(a, reg_slice.GetSize(a));
+          origin_2d[a] = vol_slice->GetOrigin()[a];
+          spacing_2d[a] = vol_slice->GetSpacing()[a];
+          dir_2d(a,0) = vol_slice->GetDirection()(a,0);
+          dir_2d(a,1) = vol_slice->GetDirection()(a,1);
+          }
+
+        LDDMMType::CompositeImagePointer vol_slice_2d = LDDMMType::CompositeImageType::New();
+        vol_slice_2d->SetRegions(reg_slice_2d);
+        vol_slice_2d->SetOrigin(origin_2d);
+        vol_slice_2d->SetDirection(dir_2d);
+        vol_slice_2d->SetSpacing(spacing_2d);
+        vol_slice_2d->SetNumberOfComponentsPerPixel(vol_slice->GetNumberOfComponentsPerPixel());
+        vol_slice_2d->Allocate();
+
+        // Copy data between the pixel containers
+        itk::ImageAlgorithm::Copy(vol_slice.GetPointer(), vol_slice_2d.GetPointer(),
+                                  vol_slice->GetBufferedRegion(), vol_slice_2d->GetBufferedRegion());
+
+        // Write the 2d slice
+        LDDMMType::cimg_write(vol_slice_2d, fn_vol_slide.c_str());
+
+        // Try registration between resliced slide and corresponding volume slice with
+        // a brute force search. This will be used to create a median transformation
+        // between slide space and volume space. Since the volume may come with a mask,
+        // we use volume slice as fixed, and the slide image as moving
+        GreedyAPI greedy_api;
+
+        // TODO: we need separate parameters for the multi-modality registrations!
+        GreedyParameters my_param = gparam;
+
+        // Set up the image pair for registration
+        // TODO: have moving image in memory
+        ImagePairSpec img_pair;
+        img_pair.weight = 1.0;
+        img_pair.fixed = "vol_slice";
+        img_pair.moving = "resliced_slide";
+        greedy_api.AddCachedInputObject("vol_slice", vol_slice_2d.GetPointer());
+        greedy_api.AddCachedInputObject("resliced_slide", img_reslice.GetPointer());
+        my_param.inputs.push_back(img_pair);
+
+        // Set other parameters
+        my_param.affine_dof = GreedyParameters::DOF_AFFINE;
+        my_param.affine_init_mode = IMG_CENTERS;
+
+        // Set up the output of the affine
+        my_param.output = fn_vol_init_matrix;
+
+        // Run the affine registration
+        greedy_api.RunAffine(my_param);
+        }
       }
     }
+
+  // If volume supplied, we can not compute the median affine transformation to the
+  // volume, which we will be able to use to initialize all iterative registrations
+  if(vol)
+    {
+    // List of affine matrices to the volume slice
+    typedef vnl_matrix_fixed<double, 3, 3> Mat3;
+    std::vector<Mat3> vol_affine(slices.size());
+    for(unsigned int i = 0; i < slices.size(); i++)
+      {
+      std::string fn_vol_init_matrix = GetFilenameForSlice(param, slices[i], VOL_INIT_MATRIX);
+      vol_affine[i] = GreedyAPI::ReadAffineMatrix(TransformSpec(fn_vol_init_matrix));
+      }
+
+    // Compute distances between all pairs of affine matrices
+    vnl_matrix<double> aff_dist(slices.size(), slices.size()); aff_dist.fill(0.0);
+    for(unsigned int i = 0; i < slices.size(); i++)
+      {
+      for(unsigned int j = 0; j < i; j++)
+        {
+        aff_dist(i,j) = (vol_affine[i] - vol_affine[j]).array_one_norm();
+        aff_dist(j,i) = aff_dist(i,j);
+        }
+      }
+
+    // Compute the sum of distances from each matrix to the rest
+    vnl_vector<double> row_sums = aff_dist * vnl_vector<double>(slices.size(), 1.0);
+
+    // Find the index of the smallest element
+    unsigned int idx_best =
+        std::find(row_sums.begin(), row_sums.end(), row_sums.min_value()) -
+        row_sums.begin();
+
+    // The median affine
+    Mat3 median_affine = vol_affine[idx_best];
+
+    // Write the median affine to a file
+    GreedyAPI::WriteAffineMatrix(GetFilenameForGlobal(param, VOL_MEDIAN_INIT_MATRIX), median_affine);
+    }
+
 
   // The following step is to perform rigid/affine registration of the 3D volume
   // relative to the 2D slices. The unknown here is a 3D matrix, but it must be applied
