@@ -205,18 +205,8 @@ int main(int argc, char *argv[])
       }
 
     // Some parameters may be specified as either vector or scalar, and need to be verified
-    if(param.epsilon_per_level.size() != param.iter_per_level.size())
-      {
-      if(param.epsilon_per_level.size() == 1)
-        {
-        param.epsilon_per_level = 
-          std::vector<double>(param.iter_per_level.size(), param.epsilon_per_level.back());
-        }
-      else
-        {
-        throw GreedyException("Mismatch in size of vectors supplied with -n and -e options");
-        }
-      }
+    if(!param.epsilon_per_level.CheckSize(param.iter_per_level.size()))
+       throw GreedyException("Mismatch in size of vectors supplied with -n and -e options");
 
     // Run the main code
     if(param.flag_float_math)

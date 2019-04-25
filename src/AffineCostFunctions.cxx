@@ -76,6 +76,9 @@ PureAffineCostFunction<VDim, TReal>
   // Set the components of the transform
   unflatten_affine_transform(x.data_block(), tran.GetPointer());
 
+  // Allocate a vector to hold the per-component metric values
+  vnl_vector<double> comp_metric;
+
   // Allocate the memory if needed
   if(!m_Allocated)
     {
@@ -89,77 +92,65 @@ PureAffineCostFunction<VDim, TReal>
 
   // Compute the gradient
   double val = 0.0;
+
+  // The scaling of the metric. For some metrics, we need to change sign (to minimize) and also
+  // it is more readable if it is scaled by some large factor
+  double metric_scale =
+      (m_Param->metric == GreedyParameters::NCC
+       || m_Param->metric == GreedyParameters::MI
+       || m_Param->metric == GreedyParameters::NMI)
+      ? -10000.0 : 1.0;
+
+  // The output metric report
+  MultiComponentMetricReport out_metric;
+
+  // Gradient output
+  typename LinearTransformType::Pointer grad;
+  if(g)
+    grad = LinearTransformType::New();
+
+  // Perform actual metric computation
+  if(m_Param->metric == GreedyParameters::SSD)
+    {
+    m_OFHelper->ComputeAffineMSDMatchAndGradient(
+          m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, out_metric, grad);
+
+    }
+  else if(m_Param->metric == GreedyParameters::NCC)
+    {
+    m_OFHelper->ComputeAffineNCCMatchAndGradient(
+          m_Level, tran, array_caster<VDim>::to_itkSize(m_Param->metric_radius),
+          m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, out_metric, grad);
+    }
+  else if(m_Param->metric == GreedyParameters::MI || m_Param->metric == GreedyParameters::NMI)
+    {
+    m_OFHelper->ComputeAffineMIMatchAndGradient(
+          m_Level, m_Param->metric == GreedyParameters::NMI,
+          tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, out_metric, grad);
+    }
+
+  // Handle the gradient
   if(g)
     {
-    typename LinearTransformType::Pointer grad = LinearTransformType::New();
-
-    if(m_Param->metric == GreedyParameters::SSD)
-      {
-      val = m_OFHelper->ComputeAffineMSDMatchAndGradient(
-              m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
-
-      flatten_affine_transform(grad.GetPointer(), g->data_block());
-      }
-    else if(m_Param->metric == GreedyParameters::NCC)
-      {
-
-      val = m_OFHelper->ComputeAffineNCCMatchAndGradient(
-              m_Level, tran, array_caster<VDim>::to_itkSize(m_Param->metric_radius),
-              m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
-
-      flatten_affine_transform(grad.GetPointer(), g->data_block());
-
-      // NCC should be maximized
-      (*g) *= -10000.0;
-      val *= -10000.0;
-      }
-    else if(m_Param->metric == GreedyParameters::MI || m_Param->metric == GreedyParameters::NMI)
-      {
-      val = m_OFHelper->ComputeAffineMIMatchAndGradient(
-              m_Level, m_Param->metric == GreedyParameters::NMI,
-              tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, grad);
-
-      flatten_affine_transform(grad.GetPointer(), g->data_block());
-
-      val *= -10000.0;
-      (*g) *= -10000.0;
-
-      }
+    flatten_affine_transform(grad.GetPointer(), g->data_block());
+    (*g) *= metric_scale;
     }
-  else
-    {
-    if(m_Param->metric == GreedyParameters::SSD)
-      {
-      val = m_OFHelper->ComputeAffineMSDMatchAndGradient(
-              m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
-      }
-    else if(m_Param->metric == GreedyParameters::NCC)
-      {
-      val = m_OFHelper->ComputeAffineNCCMatchAndGradient(
-              m_Level, tran, array_caster<VDim>::to_itkSize(m_Param->metric_radius)
-              , m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
 
-      // NCC should be maximized
-      val *= -10000.0;
-      }
-    else if(m_Param->metric == GreedyParameters::MI || m_Param->metric == GreedyParameters::NMI)
-      {
-      val = m_OFHelper->ComputeAffineMIMatchAndGradient(
-              m_Level, m_Param->metric == GreedyParameters::NMI,
-              tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, NULL);
+  // Scale the output metric
+  out_metric.Scale(metric_scale);
 
-      val *= -10000.0;
-      }
-    }
+  // Report the output values
+  if(f)
+    *f = out_metric.TotalMetric;
 
   // Has the metric improved?
   if(m_Parent->GetMetricLog().size())
     {
-    const std::vector<double> &log = m_Parent->GetMetricLog().back();
-    if(log.size() == 0 || log.back() > val)
+    const std::vector<MultiComponentMetricReport> &log = m_Parent->GetMetricLog().back();
+    if(log.size() == 0 || log.back().TotalMetric > out_metric.TotalMetric)
       {
       // Record the metric value
-      m_Parent->RecordMetricValue(val);
+      m_Parent->RecordMetricValue(out_metric);
 
       // Write out the current iteration transform
       if(m_Param->output_intermediate.length())
@@ -170,8 +161,6 @@ PureAffineCostFunction<VDim, TReal>
       }
     }
 
-  if(f)
-    *f = val;
 }
 
 template <unsigned int VDim, typename TReal>

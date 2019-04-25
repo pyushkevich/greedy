@@ -38,7 +38,7 @@ GreedyParameters
   param.flag_debug_deriv = false;
   param.flag_debug_aff_obj = false;
   param.dump_frequency = 1;
-  param.epsilon_per_level = std::vector<double>(1, 1.0);
+  param.epsilon_per_level = 1.0;
   param.sigma_pre.sigma = sqrt(3.0);
   param.sigma_pre.physical_units = false;
   param.sigma_post.sigma = sqrt(0.5);

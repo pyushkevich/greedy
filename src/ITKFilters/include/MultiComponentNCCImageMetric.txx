@@ -250,7 +250,9 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
 template <class TPixel, class TWeight, class TMetric, class TGradient>
 TPixel *
 MultiImageNNCPostComputeFunction(
-    TPixel *ptr, TPixel *ptr_end, int n_comp, TWeight *weights, TMetric *ptr_metric, TGradient *ptr_gradient, int ImageDimension)
+    TPixel *ptr, TPixel *ptr_end, int n_comp, TWeight *weights,
+    TMetric *ptr_metric, TMetric *ptr_comp_metrics,
+    TGradient *ptr_gradient, int ImageDimension)
 {
   // IMPORTANT: this code uses double precision because single precision float seems
   // to mess up and lead to unstable computations
@@ -323,8 +325,12 @@ MultiImageNNCPostComputeFunction(
         }
       }
 
+    // Store the componentwise metric
+    TMetric weighted_metric = (TMetric) (w * ncc_fix_mov);
+    (*ptr_comp_metrics++) += weighted_metric;
+
     // Accumulate the metric
-    *ptr_metric += (TPixel) (w * ncc_fix_mov);
+    *ptr_metric += weighted_metric;
     }
 
   return ptr;
@@ -335,7 +341,9 @@ MultiImageNNCPostComputeFunction(
 template <class TPixel, class TWeight, class TMetric, class TGradient>
 TPixel *
 MultiImageNNCPostComputeAffineGradientFunction(
-    TPixel *ptr, TPixel *ptr_end, int n_comp, TWeight *weights, TMetric *ptr_metric, TGradient *ptr_affine_gradient, int ImageDimension)
+    TPixel *ptr, TPixel *ptr_end, int n_comp, TWeight *weights,
+    TMetric *ptr_metric, TMetric *ptr_comp_metrics,
+    TGradient *ptr_affine_gradient, int ImageDimension)
 {
   // Get the size of the mean filter kernel
   TPixel n = *ptr++, one_over_n = 1.0 / n;
@@ -400,7 +408,9 @@ MultiImageNNCPostComputeAffineGradientFunction(
       }
 
     // Accumulate the metric
-    *ptr_metric += w * ncc_fix_mov;
+    TMetric weighted_metric = (TMetric) (w * ncc_fix_mov);
+    (*ptr_comp_metrics++) += weighted_metric;
+    *ptr_metric += weighted_metric;
     }
 
   return ptr;
@@ -518,6 +528,9 @@ MultiComponentNCCImageMetric<TMetricTraits>
   // Our thread data
   typename Superclass::ThreadData &td = this->m_ThreadData[threadId];
 
+  // Where to store the accumulated metric (gets copied to td, but should have TPixel type)
+  vnl_vector<InputComponentType> comp_metric(nc_img, 0.0);
+
   // Set up an iterator for the working image
   typedef itk::ImageLinearConstIteratorWithIndex<InputImageType> InputIteratorTypeBase;
   typedef IteratorExtender<InputIteratorTypeBase> InputIteratorType;
@@ -561,7 +574,7 @@ MultiComponentNCCImageMetric<TMetricTraits>
           if(!fixed_mask_line || fixed_mask_line[i] > 0.5)
             {
             p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, nc_img, this->m_Weights.data_block(),
-                                                       p_metric, p_grad_metric++, ImageDimension);
+                                                       p_metric, comp_metric.data_block(), p_grad_metric++, ImageDimension);
             }
           else
             {
@@ -586,7 +599,7 @@ MultiComponentNCCImageMetric<TMetricTraits>
           if(!fixed_mask_line || fixed_mask_line[i] > 0.5)
             {
             p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, nc_img, this->m_Weights.data_block(),
-                                                       p_metric, (GradientPixelType *)(NULL), ImageDimension);
+                                                       p_metric, comp_metric.data_block(), (GradientPixelType *)(NULL), ImageDimension);
             }
           else
             {
@@ -621,7 +634,7 @@ MultiComponentNCCImageMetric<TMetricTraits>
           // Apply the post computation
           p_input = MultiImageNNCPostComputeAffineGradientFunction(
                       p_input, p_input + nc, nc_img, this->m_Weights.data_block(),
-                      p_metric, p_grad, ImageDimension);
+                      p_metric, comp_metric.data_block(), p_grad, ImageDimension);
 
           // Accumulate the total metric
           td.metric += *p_metric;
@@ -634,6 +647,10 @@ MultiComponentNCCImageMetric<TMetricTraits>
         }
       }
     }
+
+  // Typecast the per-component metrics
+  for(unsigned int a = 0; a < nc_img; a++)
+    td.comp_metric[a] = comp_metric[a];
 }
 
 

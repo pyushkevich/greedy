@@ -273,7 +273,8 @@ GreedyApproach<VDim, TReal>
   typename ImageCache::const_iterator it = m_ImageCache.find(filename);
   if(it != m_ImageCache.end())
     {
-    TImage *image = dynamic_cast<TImage *>(it->second.target);
+    itk::Object *cached_object = it->second.target;
+    TImage *image = dynamic_cast<TImage *>(cached_object);
     if(!image)
       throw GreedyException("Cached image %s cannot be cast to type %s",
                             filename.c_str(), typeid(TImage).name());
@@ -291,6 +292,34 @@ GreedyApproach<VDim, TReal>
   itk::SmartPointer<TImage> pointer = reader->GetOutput();
   return pointer;
 }
+
+template <unsigned int VDim, typename TReal>
+typename GreedyApproach<VDim, TReal>::ImageBaseType::Pointer
+GreedyApproach<VDim, TReal>
+::ReadImageBaseViaCache(const std::string &filename)
+{
+  // Check the cache for the presence of the image
+  typename ImageCache::const_iterator it = m_ImageCache.find(filename);
+  if(it != m_ImageCache.end())
+    {
+    ImageBaseType *image_base = dynamic_cast<ImageBaseType *>(it->second.target);
+    if(!image_base)
+      throw GreedyException("Cached image %s cannot be cast to type %s",
+                            filename.c_str(), typeid(ImageBaseType).name());
+    typename ImageBaseType::Pointer pointer = image_base;
+    return pointer;
+    }
+
+  // Read the image using ITK reader
+  typedef itk::ImageFileReader<ImageType> ReaderType;
+  typename ReaderType::Pointer reader = ReaderType::New();
+  reader->SetFileName(filename.c_str());
+  reader->Update();
+
+  typename ImageBaseType::Pointer pointer = reader->GetOutput();
+  return pointer;
+}
+
 
 template <unsigned int VDim, typename TReal>
 template <class TImage>
@@ -545,10 +574,10 @@ GreedyApproach<VDim, TReal>
 template <unsigned int VDim, typename TReal>
 void
 GreedyApproach<VDim, TReal>
-::RecordMetricValue(double val)
+::RecordMetricValue(const MultiComponentMetricReport &metric)
 {
   if(m_MetricLog.size())
-    m_MetricLog.back().push_back(val);
+    m_MetricLog.back().push_back(metric);
 }
 
 /**
@@ -654,7 +683,7 @@ int GreedyApproach<VDim, TReal>
   for(unsigned int level = 0; level < nlevels; ++level)
     {
     // Add stage to metric log
-    m_MetricLog.push_back(std::vector<double>());
+    m_MetricLog.push_back(std::vector<MultiComponentMetricReport>());
 
     // Define the affine cost function
     AbstractAffineCostFunction *pure_acf, *acf;
@@ -967,9 +996,26 @@ int GreedyApproach<VDim, TReal>
         // Use the pre-initialization transform parameters
         Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
         }
+
+      // End of level report
+      printf("END OF LEVEL %3d\n", level);
+
+      // Print final metric report
+      MultiComponentMetricReport metric_report = this->GetMetricLog()[level].back();
+      printf("Level %3d  LastIter   Metrics", level);
+      for (unsigned i = 0; i < metric_report.ComponentMetrics.size(); i++)
+        printf("  %8.6f", metric_report.ComponentMetrics[i]);
+      printf("  Energy = %8.6f\n", metric_report.TotalMetric);
+      fflush(stdout);
       }
 
-    std::cout << "Final RAS Transform: " << std::endl << Q_physical << std::endl;
+    // Print the final RAS transform for this level (even if no iter)
+    printf("Level %3d  Final RAS Transform:\n", level);
+    for(unsigned int a = 0; a < VDim+1; a++)
+      {
+      for(unsigned int b = 0; b < VDim+1; b++)
+        printf("%8.4f%c", Q_physical(a,b), b < VDim ? ' ' : '\n');
+      }
 
     delete acf;
     delete pure_acf;
@@ -983,6 +1029,82 @@ int GreedyApproach<VDim, TReal>
 
 #include "itkStatisticsImageFilter.h"
 
+/** My own time probe because itk's use of fork is messing up my debugging */
+class GreedyTimeProbe
+{
+public:
+  GreedyTimeProbe();
+  void Start();
+  void Stop();
+  double GetMean() const;
+protected:
+  double m_TotalTime;
+  double m_StartTime;
+  unsigned long m_Runs;
+};
+
+GreedyTimeProbe::GreedyTimeProbe()
+{
+  m_TotalTime = 0.0;
+  m_StartTime = 0.0;
+  m_Runs = 0.0;
+}
+
+void GreedyTimeProbe::Start()
+{
+  m_StartTime = clock();
+}
+
+void GreedyTimeProbe::Stop()
+{
+  if(m_StartTime == 0.0)
+    throw GreedyException("Timer stop without start");
+  m_TotalTime += clock() - m_StartTime;
+  m_StartTime = 0.0;
+  m_Runs++;
+}
+
+double GreedyTimeProbe::GetMean() const
+{
+  if(m_Runs == 0)
+    return 0.0;
+  else
+    return m_TotalTime / (CLOCKS_PER_SEC * m_Runs);
+}
+
+
+template <unsigned int VDim, typename TReal>
+std::string
+GreedyApproach<VDim, TReal>
+::PrintIter(int level, int iter, const MultiComponentMetricReport &metric) const
+{
+  // Start with a buffer
+  char b_level[64], b_iter[64], b_metrics[512], b_line[1024];
+
+  if(level < 0)
+    sprintf(b_level, "LastLevel");
+  else
+    sprintf(b_level, "Level %03d", level);
+
+  if(iter < 0)
+    sprintf(b_iter, "LastIter");
+  else
+    sprintf(b_iter, "Iter %05d", iter);
+
+  if(metric.ComponentMetrics.size() > 1)
+    {
+    int pos = sprintf(b_metrics, "Metrics");
+    for (unsigned i = 0; i < metric.ComponentMetrics.size(); i++)
+      pos += sprintf(b_metrics + pos, "  %8.6f", metric.ComponentMetrics[i]);
+    }
+  else
+    sprintf(b_metrics, "");
+
+  sprintf(b_line, "%s  %s  %s  Energy = %8.6f", b_level, b_iter, b_metrics, metric.TotalMetric);
+  std::string result = b_line;
+
+  return b_line;
+}
 
 /**
  * This is the main function of the GreedyApproach algorithm
@@ -1010,9 +1132,15 @@ int GreedyApproach<VDim, TReal>
   // The number of resolution levels
   unsigned nlevels = param.iter_per_level.size();
 
+  // Clear the metric log
+  m_MetricLog.clear();
+
   // Iterate over the resolution levels
   for(unsigned int level = 0; level < nlevels; ++level)
     {
+    // Add stage to metric log
+    m_MetricLog.push_back(std::vector<MultiComponentMetricReport>());
+
     // Reference space
     ImageBaseType *refspace = of_helper.GetReferenceSpace(level);
 
@@ -1030,7 +1158,7 @@ int GreedyApproach<VDim, TReal>
     std::cout << "  Smoothing sigmas: " << sigma_pre_phys << ", " << sigma_post_phys << std::endl;
 
     // Set up timers for different critical components of the optimization
-    itk::TimeProbe tm_Gradient, tm_Gaussian1, tm_Gaussian2, tm_Iteration, 
+    GreedyTimeProbe tm_Gradient, tm_Gaussian1, tm_Gaussian2, tm_Iteration,
       tm_Integration, tm_Update;
 
     // Intermediate images
@@ -1121,6 +1249,9 @@ int GreedyApproach<VDim, TReal>
       std::cout << "Index 24x24x24 maps to " << uk->GetPixel(test) << std::endl;
       }
 
+    if(uLevel.IsNotNull())
+      LDDMMType::vimg_write(uLevel, "/tmp/ulevel.nii.gz");
+
     // Iterate for this level
     for(unsigned int iter = 0; iter < param.iter_per_level[level]; iter++)
       {
@@ -1129,9 +1260,6 @@ int GreedyApproach<VDim, TReal>
 
       // The epsilon for this level
       double eps= param.epsilon_per_level[level];
-
-      // Compute the gradient of objective
-      double total_energy;
 
       // Integrate the total deformation field for this iteration
       if(param.flag_stationary_velocity_mode)
@@ -1150,143 +1278,54 @@ int GreedyApproach<VDim, TReal>
         uFull = uk;
         }
 
+      // Create a metric report that will be returned by all metrics
+      MultiComponentMetricReport metric_report;
+
+      // Begin gradient computation
+      tm_Gradient.Start();
+
+      // Switch based on the metric
       if(param.metric == GreedyParameters::SSD)
         {
-        // Begin gradient computation
-        tm_Gradient.Start();
-
-        vnl_vector<double> all_metrics =
-            of_helper.ComputeOpticalFlowField(level, uFull, iTemp, uk1, eps)  / eps;
+        of_helper.ComputeOpticalFlowField(level, uFull, iTemp, metric_report, uk1, eps);
+        metric_report.Scale(1.0 / eps);
 
         // If there is a mask, multiply the gradient by the mask
         if(param.gradient_mask.size())
           LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask(level));
-
-        // End gradient computation
-        tm_Gradient.Stop();
-
-        printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
-        total_energy = 0.0;
-        for (unsigned i = 0; i < all_metrics.size(); i++)
-          {
-          printf("  %8.6f", all_metrics[i]);
-          total_energy += all_metrics[i];
-          }
-        printf("]  Tot: %8.6f\n", total_energy);
         }
 
       else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
         {
-        // Begin gradient computation
-        tm_Gradient.Start();
-
-        vnl_vector<double> all_metrics =
-            of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, uFull, iTemp, uk1, eps);
+        of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, uFull, iTemp, metric_report, uk1, eps);
 
         // If there is a mask, multiply the gradient by the mask
         if(param.gradient_mask.size())
           LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask(level));
-
-        // End gradient computation
-        tm_Gradient.Stop();
-
-        printf("Lev:%2d  Itr:%5d  Met:[", level, iter);
-        total_energy = 0.0;
-        for (unsigned i = 0; i < all_metrics.size(); i++)
-          {
-          printf("  %8.6f", all_metrics[i]);
-          total_energy += all_metrics[i];
-          }
-        printf("]  Tot: %8.6f\n", total_energy);
         }
 
       else if(param.metric == GreedyParameters::NCC)
         {
         itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
 
-        // Test derivative
-        // total_energy = of_helper.ComputeNCCMetricAndGradient(level, uk, uk1, radius, param.epsilon);
-
-        /*
-        if(iter == 0)
-          {
-
-          // Perform a derivative check!
-
-          itk::Index<VDim> test; test.Fill(24);
-          typename VectorImageType::PixelType vtest = uk->GetPixel(test), vv;
-
-          itk::ImageRegion<VDim> region = uk1->GetBufferedRegion();
-          // region.ShrinkByRadius(1);
-
-          double eps = param.epsilon;
-          for(int d = 0; d < VDim; d++)
-            {
-            vv.Fill(0.5); vv[d] -= eps; uk->FillBuffer(vv);
-            of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, 1.0);
-
-            double a1 = 0.0;
-            typedef itk::ImageRegionConstIterator<ImageType> Iter;
-            for(Iter it(iTemp, region); !it.IsAtEnd(); ++it)
-              {
-              a1 += it.Get();
-              }
-
-
-            vv.Fill(0.5); vv[d] += eps; uk->FillBuffer(vv);
-            of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, 1.0);
-
-            double a2 = 0.0;
-            typedef itk::ImageRegionConstIterator<ImageType> Iter;
-            for(Iter it(iTemp, region); !it.IsAtEnd(); ++it)
-              {
-              a2 += it.Get();
-              }
-
-            std::cout << "NUM:" << (a2 - a1) / (2*eps) << std::endl;
-
-            }
-
-          vv.Fill(0.5); uk->FillBuffer(vv);
-          total_energy = of_helper.ComputeNCCMetricImage(level, uk, radius, iTemp, uk1, 1.0);
-          for(int d = 0; d < VDim; d++)
-            {
-
-            double ader = 0.0;
-            typedef itk::ImageRegionConstIterator<VectorImageType> Iter;
-            for(Iter it(uk1, region); !it.IsAtEnd(); ++it)
-              {
-              ader += it.Get()[d];
-              }
-
-            // itk::Index<VDim> test; test.Fill(24);
-            // std::cout << "ANA:" << uk1->GetPixel(test) << std::endl;
-
-            std::cout << "ANA:" << ader << std::endl;
-            }
-          }
-          */
-
-        // Begin gradient computation
-        tm_Gradient.Start();
-
         // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
-        total_energy = of_helper.ComputeNCCMetricImage(level, uFull, radius, iTemp, uk1, eps) / eps;
-
-        // End gradient computation
-        tm_Gradient.Stop();
-
-        printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
-        fflush(stdout);
+        of_helper.ComputeNCCMetricImage(level, uFull, radius, iTemp, metric_report, uk1, eps);
+        metric_report.Scale(1.0 / eps);
         }
       else if(param.metric == GreedyParameters::MAHALANOBIS)
         {
-        tm_Gradient.Start();
-        double total_energy = of_helper.ComputeMahalanobisMetricImage(level, uFull, iTemp, uk1);
-        tm_Gradient.Stop();
-        printf("Level %5d,  Iter %5d:    Energy = %8.4f\n", level, iter, total_energy);
-        fflush(stdout);
+        of_helper.ComputeMahalanobisMetricImage(level, uFull, iTemp, metric_report, uk1);
         }
+
+      // End gradient computation
+      tm_Gradient.Stop();
+
+      // Print a report for this iteration
+      std::cout << this->PrintIter(level, iter, metric_report) << std::endl;
+      fflush(stdout);
+
+      // Record the metric value in the log
+      this->RecordMetricValue(metric_report);
 
       // Dump the gradient image if requested
       if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
@@ -1379,7 +1418,12 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::field_jacobian_det(uk, iTemp);
       TReal jac_min, jac_max;
       LDDMMType::img_min_max(iTemp, jac_min, jac_max);
-      printf("END OF LEVEL %5d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
+      printf("END OF LEVEL %3d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
+
+      // Print final metric report
+      MultiComponentMetricReport metric_report = this->GetMetricLog()[level].back();
+      std::cout << this->PrintIter(level, -1, metric_report) << std::endl;
+      fflush(stdout);
 
       // Print timing information
       printf("  Avg. Gradient Time  : %6.4fs  %5.2f%% \n", tm_Gradient.GetMean(), 
@@ -1507,7 +1551,8 @@ int GreedyApproach<VDim, TReal>
     u_curr->FillBuffer(vec_offset);
 
     // Perform interpolation and metric computation
-    of_helper.ComputeNCCMetricImage(0, u_curr, metric_rad, m_curr);
+    MultiComponentMetricReport metric_report;
+    of_helper.ComputeNCCMetricImage(0, u_curr, metric_rad, m_curr, metric_report);
 
     // Temp: keep track of number of updates
     unsigned long n_updates = 0;
@@ -1901,12 +1946,11 @@ int GreedyApproach<VDim, TReal>
                           "Use one of -rm, -rs or -rc commands.");
 
   // Read the fixed as a plain image (we don't care if it's composite)
-  ImagePointer ref = ReadImageViaCache<ImageType>(r_param.ref_image);
-  itk::ImageBase<VDim> *ref_space = ref;
+  typename ImageBaseType::Pointer ref = ReadImageBaseViaCache(r_param.ref_image);
 
   // Read the transform chain
   VectorImagePointer warp;
-  ReadTransformChain(param.reslice_param.transforms, ref_space, warp);
+  ReadTransformChain(param.reslice_param.transforms, ref, warp);
 
   // Write the composite warp if requested
   if(r_param.out_composed_warp.size())
@@ -2031,7 +2075,7 @@ int GreedyApproach<VDim, TReal>
       itk::ImageIOBase::IOComponentType comp = LDDMMType::cimg_read(filename, moving);
 
       // Allocate the warped image
-      LDDMMType::alloc_cimg(warped, ref_space, moving->GetNumberOfComponentsPerPixel());
+      LDDMMType::alloc_cimg(warped, ref, moving->GetNumberOfComponentsPerPixel());
 
       // Perform the warp
       LDDMMType::interp_cimg(moving, warp, warped,
@@ -2348,8 +2392,8 @@ GreedyApproach<VDim,TReal>
 }
 
 template<unsigned int VDim, typename TReal>
-double GreedyApproach<VDim, TReal>
-::GetLastMetricValue() const
+MultiComponentMetricReport GreedyApproach<VDim, TReal>
+::GetLastMetricReport() const
 {
   // Find last non-empty result
   for(int k = m_MetricLog.size()-1; k >= 0; --k)
@@ -2360,7 +2404,7 @@ double GreedyApproach<VDim, TReal>
 
   // If empty, throw exception
   throw GreedyException("Metric log is empty in GetLastMetricValue()");
-  return 0;
+  return MultiComponentMetricReport();
 }
 
 template <unsigned int VDim, typename TReal>

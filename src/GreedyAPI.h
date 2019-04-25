@@ -29,11 +29,11 @@
 
 #include "GreedyParameters.h"
 #include "GreedyException.h"
+#include "MultiComponentMetricReport.h"
 #include "lddmm_data.h"
 #include "AffineCostFunctions.h"
 #include <vnl/vnl_random.h>
 #include <map>
-
 #include "itkCommand.h"
 
 template <typename T, unsigned int V> class MultiImageOpticalFlowHelper;
@@ -66,7 +66,7 @@ public:
   typedef vnl_vector_fixed<TReal, VDim> VecFx;
   typedef vnl_matrix_fixed<TReal, VDim, VDim> MatFx;
 
-  typedef std::vector<std::vector<double> > MetricLogType;
+  typedef std::vector< std::vector<MultiComponentMetricReport> > MetricLogType;
 
   typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
 
@@ -143,7 +143,7 @@ public:
   const MetricLogType &GetMetricLog() const;
 
   /** Get the last value of the metric recorded */
-  double GetLastMetricValue() const;
+  MultiComponentMetricReport GetLastMetricReport() const;
 
   vnl_matrix<double> ReadAffineMatrixViaCache(const TransformSpec &ts);
 
@@ -162,7 +162,10 @@ public:
       vnl_matrix<double> &Qp,
       LinearTransformType *tran);
 
-  void RecordMetricValue(double val);
+  void RecordMetricValue(const MultiComponentMetricReport &metric);
+
+  // Helper method to print iteration reports
+  std::string PrintIter(int level, int iter, const MultiComponentMetricReport &metric) const;
 
 protected:
 
@@ -176,13 +179,18 @@ protected:
 
   // A log of metric values used during registration - so metric can be looked up
   // in the callbacks to RunAffine, etc.
-  std::vector< std::vector<double> > m_MetricLog;
+  MetricLogType m_MetricLog;
 
   // This function reads the image from disk, or from a memory location mapped to a
   // string. The first approach is used by the command-line interface, and the second
   // approach is used by the API, allowing images to be passed from other software
   template <class TImage>
   itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename);
+
+  // This function reads an image base object via cache. It is more permissive than using
+  // ReadImageViaCache.
+  typename ImageBaseType::Pointer ReadImageBaseViaCache(const std::string &filename);
+
 
   // Write an image using the cache
   template <class TImage>

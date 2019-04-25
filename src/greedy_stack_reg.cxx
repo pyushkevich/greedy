@@ -33,6 +33,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <numeric>
 #include <cerrno>
 
 #include "itkMatrixOffsetTransformBase.h"
@@ -50,10 +51,12 @@ struct StackParameters
   double z_epsilon;
   bool reuse;
 
+  unsigned int iter_affine, iter_deformable;
+
   StackParameters()
     : image_extension("nii.gz"),
       z_range(0.0), z_epsilon(0.1),
-      reuse(false) {}
+      reuse(false), iter_affine(5), iter_deformable(5) {}
 
 };
 
@@ -66,7 +69,8 @@ struct SliceData
 
 enum FileIntent {
   AFFINE_MATRIX = 0, METRIC_VALUE, ACCUM_MATRIX, ACCUM_RESLICE,
-  VOL_INIT_MATRIX, VOL_SLIDE, VOL_MEDIAN_INIT_MATRIX
+  VOL_INIT_MATRIX, VOL_SLIDE, VOL_MEDIAN_INIT_MATRIX,
+  VOL_ITER_MATRIX, VOL_ITER_WARP, ITER_METRIC_DUMP
 };
 
 std::string GetFilenameForSlicePair(
@@ -99,11 +103,14 @@ std::string GetFilenameForSlicePair(
 }
 
 std::string GetFilenameForSlice(
-    const StackParameters &param, const SliceData &slice, FileIntent intent)
+    const StackParameters &param, const SliceData &slice, int intent, ...)
 {
   char filename[1024];
   const char *dir = param.output_dir.c_str(), *ext = param.image_extension.c_str();
   const char *sid = slice.unique_id.c_str();
+
+  va_list args;
+  va_start(args, intent);
 
   switch(intent)
     {
@@ -113,9 +120,20 @@ std::string GetFilenameForSlice(
     case VOL_SLIDE:
       sprintf(filename, "%s/vol_slide_%s.%s", dir, sid, ext);
       break;
+    case VOL_ITER_MATRIX:
+      sprintf(filename, "%s/affine_refvol_mov_%s_iter%02d.mat", dir, sid, va_arg(args, int));
+      break;
+    case VOL_ITER_WARP:
+      sprintf(filename, "%s/warp_refvol_mov_%s_iter%02d.%s", dir, sid, va_arg(args, int), ext);
+      break;
+    case ITER_METRIC_DUMP:
+      sprintf(filename, "%s/metric_refvol_mov_%s_iter%02d.txt", dir, sid, va_arg(args, int));
+      break;
     default:
       throw GreedyException("Wrong intent in GetFilenameForSlice");
     }
+
+  va_end(args);
 
   return filename;
 }
@@ -270,6 +288,77 @@ int usage()
   printf("  -search N s_ang s_xyz  : Random search over rigid transforms (see Greedy docs)\n");
   return -1;
 }
+
+/** Helper methods for stack registration */
+class GreedyStackHelper
+{
+public:
+  typedef LDDMMData<double, 2> LDDMMType;
+  typedef GreedyApproach<2, double> GreedyAPI;
+  typedef LDDMMType::CompositeImageType SlideImageType;
+  typedef LDDMMType::CompositeImagePointer SlideImagePointer;
+
+  typedef LDDMMData<double, 3> LDDMMType3D;
+  typedef LDDMMType3D::CompositeImageType VolumeImage;
+  typedef LDDMMType3D::CompositeImagePointer VolumePointer;
+
+  static SlideImagePointer ExtractSliceFromVolume(VolumePointer vol, double z_pos)
+  {
+    VolumePointer vol_slice = LDDMMType3D::CompositeImageType::New();
+    typename LDDMMType3D::RegionType reg_slice = vol->GetBufferedRegion();
+    reg_slice.GetModifiableSize()[2] = 1;
+    vol_slice->CopyInformation(vol);
+    vol_slice->SetRegions(reg_slice);
+    vol_slice->Allocate();
+
+    // Adjust the origin of the slice
+    auto origin_slice = vol_slice->GetOrigin();
+    origin_slice[2] = z_pos;
+    vol_slice->SetOrigin(origin_slice);
+
+    // Generate a blank deformation field
+    LDDMMType3D::VectorImagePointer zero_warp = LDDMMType3D::new_vimg(vol_slice);
+
+    // Sample the slice from the volume
+    LDDMMType3D::interp_cimg(vol, zero_warp, vol_slice, false, true, 0.0);
+
+    // Now drop the dimension of the slice to 2D
+    LDDMMType::RegionType reg_slice_2d;
+    LDDMMType::CompositeImageType::PointType origin_2d;
+    LDDMMType::CompositeImageType::SpacingType spacing_2d;
+    LDDMMType::CompositeImageType::DirectionType dir_2d;
+
+    for(unsigned int a = 0; a < 2; a++)
+      {
+      reg_slice_2d.SetIndex(a, reg_slice.GetIndex(a));
+      reg_slice_2d.SetSize(a, reg_slice.GetSize(a));
+      origin_2d[a] = vol_slice->GetOrigin()[a];
+      spacing_2d[a] = vol_slice->GetSpacing()[a];
+      dir_2d(a,0) = vol_slice->GetDirection()(a,0);
+      dir_2d(a,1) = vol_slice->GetDirection()(a,1);
+      }
+
+    SlideImagePointer vol_slice_2d = SlideImageType::New();
+    vol_slice_2d->SetRegions(reg_slice_2d);
+    vol_slice_2d->SetOrigin(origin_2d);
+    vol_slice_2d->SetDirection(dir_2d);
+    vol_slice_2d->SetSpacing(spacing_2d);
+    vol_slice_2d->SetNumberOfComponentsPerPixel(vol_slice->GetNumberOfComponentsPerPixel());
+    vol_slice_2d->Allocate();
+
+    // Copy data between the pixel containers
+    itk::ImageAlgorithm::Copy(vol_slice.GetPointer(), vol_slice_2d.GetPointer(),
+                              vol_slice->GetBufferedRegion(), vol_slice_2d->GetBufferedRegion());
+
+    return vol_slice_2d;
+  }
+};
+
+/**
+ * This method extracts a slice from a volumetric image for specified z-index
+ */
+
+
 
 int main(int argc, char *argv[])
 {
@@ -476,10 +565,7 @@ int main(int argc, char *argv[])
         GreedyParameters my_param = gparam;
 
         // Set up the image pair for registration
-        ImagePairSpec img_pair;
-        img_pair.weight = 1.0;
-        img_pair.fixed = slices[it->second].raw_filename;
-        img_pair.moving = slices[it_n->second].raw_filename;
+        ImagePairSpec img_pair(slices[it->second].raw_filename, slices[it_n->second].raw_filename);
         greedy_api.AddCachedInputObject(slices[it->second].raw_filename, i_ref.GetPointer());
         greedy_api.AddCachedInputObject(slices[it_n->second].raw_filename, i_mov.GetPointer());
         my_param.inputs.push_back(img_pair);
@@ -498,7 +584,7 @@ int main(int argc, char *argv[])
         greedy_api.RunAffine(my_param);
 
         // Get the metric for the affine registration
-        pair_metric = greedy_api.GetLastMetricValue();
+        pair_metric = greedy_api.GetLastMetricReport().TotalMetric;
         std::cout << "Last metric value: " << pair_metric << std::endl;
 
         // Normalize the metric to give the actual mean NCC
@@ -653,51 +739,9 @@ int main(int argc, char *argv[])
       if(!param.reuse || !itksys::SystemTools::FileExists(fn_vol_slide)
           || !itksys::SystemTools::FileExists(fn_vol_init_matrix))
         {
-        LDDMMType3D::CompositeImagePointer vol_slice = LDDMMType3D::CompositeImageType::New();
-        typename LDDMMType3D::RegionType reg_slice = vol->GetBufferedRegion();
-        reg_slice.GetModifiableSize()[2] = 1;
-        vol_slice->CopyInformation(vol);
-        vol_slice->SetRegions(reg_slice);
-        vol_slice->Allocate();
-
-        // Adjust the origin of the slice
-        auto origin_slice = vol_slice->GetOrigin();
-        origin_slice[2] = slices[i].z_pos;
-        vol_slice->SetOrigin(origin_slice);
-
-        // Generate a blank deformation field
-        LDDMMType3D::VectorImagePointer zero_warp = LDDMMType3D::new_vimg(vol_slice);
-
-        // Sample the slice from the volume
-        LDDMMType3D::interp_cimg(vol, zero_warp, vol_slice, false, true, 0.0);
-
-        // Now drop the dimension of the slice to 2D
-        LDDMMType::RegionType reg_slice_2d;
-        LDDMMType::CompositeImageType::PointType origin_2d;
-        LDDMMType::CompositeImageType::SpacingType spacing_2d;
-        LDDMMType::CompositeImageType::DirectionType dir_2d;
-
-        for(unsigned int a = 0; a < 2; a++)
-          {
-          reg_slice_2d.SetIndex(a, reg_slice.GetIndex(a));
-          reg_slice_2d.SetSize(a, reg_slice.GetSize(a));
-          origin_2d[a] = vol_slice->GetOrigin()[a];
-          spacing_2d[a] = vol_slice->GetSpacing()[a];
-          dir_2d(a,0) = vol_slice->GetDirection()(a,0);
-          dir_2d(a,1) = vol_slice->GetDirection()(a,1);
-          }
-
-        LDDMMType::CompositeImagePointer vol_slice_2d = LDDMMType::CompositeImageType::New();
-        vol_slice_2d->SetRegions(reg_slice_2d);
-        vol_slice_2d->SetOrigin(origin_2d);
-        vol_slice_2d->SetDirection(dir_2d);
-        vol_slice_2d->SetSpacing(spacing_2d);
-        vol_slice_2d->SetNumberOfComponentsPerPixel(vol_slice->GetNumberOfComponentsPerPixel());
-        vol_slice_2d->Allocate();
-
-        // Copy data between the pixel containers
-        itk::ImageAlgorithm::Copy(vol_slice.GetPointer(), vol_slice_2d.GetPointer(),
-                                  vol_slice->GetBufferedRegion(), vol_slice_2d->GetBufferedRegion());
+        // Extract the slice from the 3D image
+        SlideImagePointer vol_slice_2d =
+            GreedyStackHelper::ExtractSliceFromVolume(vol, slices[i].z_pos);
 
         // Write the 2d slice
         LDDMMType::cimg_write(vol_slice_2d, fn_vol_slide.c_str());
@@ -713,10 +757,7 @@ int main(int argc, char *argv[])
 
         // Set up the image pair for registration
         // TODO: have moving image in memory
-        ImagePairSpec img_pair;
-        img_pair.weight = 1.0;
-        img_pair.fixed = "vol_slice";
-        img_pair.moving = "resliced_slide";
+        ImagePairSpec img_pair("vol_slice", "resliced_slide", 1.0);
         greedy_api.AddCachedInputObject("vol_slice", vol_slice_2d.GetPointer());
         greedy_api.AddCachedInputObject("resliced_slide", img_reslice.GetPointer());
         my_param.inputs.push_back(img_pair);
@@ -771,8 +812,210 @@ int main(int argc, char *argv[])
 
     // Write the median affine to a file
     GreedyAPI::WriteAffineMatrix(GetFilenameForGlobal(param, VOL_MEDIAN_INIT_MATRIX), median_affine);
+
+    // Now write the complete initial to-volume transform for each slide
+    for(unsigned int i = 0; i < slices.size(); i++)
+      {
+      vnl_matrix<double> M_root =
+          GreedyAPI::ReadAffineMatrix(
+            GetFilenameForSlicePair(param, slices[i_root], slices[i], ACCUM_MATRIX));
+
+      vnl_matrix<double> M_vol = M_root * median_affine;
+
+      GreedyAPI::WriteAffineMatrix(
+            GetFilenameForSlice(param, slices[i], VOL_ITER_MATRIX, 0), M_vol);
+      }
     }
 
+
+  // Now that we have the affine initialization from the histology space to the volume space, we can
+  // perform iterative optimization, where each slice is matched to its neighbors and to the
+  // corresponding MRI slice. The only issue here is how do we want to use the graph in this
+  // process: we don't want the bad neighbors to pull the registration away from the good
+  // solution. On the other hand, we can expect the bad slices to eventually auto-correct. It seems
+  // that the proper approach would be to down-weigh certain slices by their metric, but then
+  // again, do we want to do this based on initial metric or current metric. For now, we can start
+  // by just using same weights.
+
+  // This is an iterative process, so we need to keep track of the iteration.
+  for(unsigned int iter = 1; iter <= param.iter_affine + param.iter_deformable; iter++)
+    {
+    // Randomly shuffle the order in which slices are considered
+    std::vector<unsigned int> ordering(slices.size());
+    std::iota(ordering.begin(), ordering.end(), 0);
+    std::random_shuffle(ordering.begin(), ordering.end());
+
+    // Keep track of the total neighbor metric and total volume metric
+    double total_to_nbr_metric = 0.0;
+    double total_to_vol_metric = 0.0;
+
+    // Iterate over the ordering
+    for(unsigned int k : ordering)
+      {
+      // The output filename for this affine registration
+      std::string fn_result =
+          iter <= param.iter_affine
+          ? GetFilenameForSlice(param, slices[k], VOL_ITER_MATRIX, iter)
+          : GetFilenameForSlice(param, slices[k], VOL_ITER_WARP, iter);
+
+      // Has this already been done? Then on to the next!
+      if(param.reuse && itksys::SystemTools::FileExists(fn_result))
+        continue;
+
+      // Get the pointer to the current slide (used as moving image)
+      SlideImagePointer img_slide = slice_cache.GetImage<SlideImageType>(slices[k].raw_filename);
+
+      // Get the corresponding slice from the 3D volume
+      SlideImagePointer vol_slice_2d =
+          GreedyStackHelper::ExtractSliceFromVolume(vol, slices[k].z_pos);
+
+      // Set up the registration. We are registering to the volume and to the transformed
+      // adjacent slices. We should do everything in the space of the MRI volume because
+      // (a) it should be large enough to cover the histology and (b) there might be a mask
+      // in this space, while we cannot expect there to be a mask in the other space.
+
+      // Find the adjacent slices. TODO: there is all kinds of stuff that could be done here,
+      // like allowing a z-range for adjacent slices registration, modulating weight by the
+      // distance, and detecting and down-weighting 'bad' slices. For now just pick the slices
+      // immediately below and above the current slice
+      auto itf = z_sort.find(std::make_pair(slices[k].z_pos, k));
+      if(itf == z_sort.end())
+        throw GreedyException("Slice not found in sorted list (%d, z = %f)", k, slices[k].z_pos);
+
+      // Go backward and forward one slice
+      slice_ref_set k_nbr;
+      auto itf_back = itf, itf_fore = itf;
+      if(itf != z_sort.begin())
+        k_nbr.insert(*(--itf_back));
+      if((++itf_fore) != z_sort.end())
+        k_nbr.insert(*itf_fore);
+
+      // Create the greedy API for the main registration task
+      GreedyAPI api_reg;
+      api_reg.AddCachedInputObject("moving", img_slide);
+      api_reg.AddCachedInputObject("volume_slice", vol_slice_2d);
+
+      // We need to hold on to the resliced image pointers, because otherwise they will be deallocated
+      std::vector<SlideImagePointer> resliced_neighbors(slices.size());
+
+      // TODO: erase!
+      LDDMMType::cimg_write(vol_slice_2d, "/tmp/fix.nii.gz");
+      LDDMMType::cimg_write(img_slide, "/tmp/mov.nii.gz");
+
+      // Set up the main registration pair
+      GreedyParameters param_reg = gparam;
+      // param_reg.inputs.push_back(ImagePairSpec("volume_slice", "moving", 1.0));
+      param_reg.inputs.push_back(ImagePairSpec("/tmp/fix.nii.gz", "/tmp/mov.nii.gz", 4.0));
+
+
+
+      // Handle each of the neighbors
+      for(auto nbr : k_nbr)
+        {
+        unsigned int j = nbr.second;
+
+        // Create an image pointer for the reslicing output
+        resliced_neighbors[j] = SlideImageType::New();
+
+        // Each of the neighbor slices needs to be resliced using last iteration's transform. We
+        // could cache these images, but then again, it does not take so much to do this on the
+        // fly. For now we will do this on the fly.
+        GreedyAPI api_reslice;
+        api_reslice.AddCachedInputObject("vol_slice", vol_slice_2d);
+        api_reslice.AddCachedOutputObject("output", resliced_neighbors[j], false);
+
+        GreedyParameters param_reslice = gparam;
+        param_reslice.reslice_param.ref_image = "vol_slice";
+        param_reslice.reslice_param.images.push_back(ResliceSpec(slices[j].raw_filename, "output"));
+
+        // Was the previous iteration a deformable iteration? If so, apply the warp
+        if(iter - 1 <= param.iter_affine)
+          {
+          param_reslice.reslice_param.transforms.push_back(
+                TransformSpec(GetFilenameForSlice(param, slices[j], VOL_ITER_MATRIX, iter-1)));
+          }
+        else
+          {
+          param_reslice.reslice_param.transforms.push_back(
+                TransformSpec(GetFilenameForSlice(param, slices[j], VOL_ITER_WARP, iter-1)));
+          param_reslice.reslice_param.transforms.push_back(
+                TransformSpec(GetFilenameForSlice(param, slices[j], VOL_ITER_MATRIX, param.iter_affine)));
+          }
+
+        // Perform the reslicing
+        api_reslice.RunReslice(param_reslice);
+
+        // Add the image pair to the registration
+        char fixed_fn[64];
+        sprintf(fixed_fn, "neighbor_%03d", j);
+        api_reg.AddCachedInputObject(fixed_fn, resliced_neighbors[j]);
+
+
+        char fff[256];
+        sprintf(fff, "/tmp/nr%03d.nii.gz", j);
+        LDDMMType::cimg_write(resliced_neighbors[j], fff);
+
+        // param_reg.inputs.push_back(ImagePairSpec(fixed_fn, "moving", 1.0));
+        param_reg.inputs.push_back(ImagePairSpec(fff, "/tmp/mov.nii.gz", 1.0));
+
+        }
+
+      printf("#############################\n");
+      printf("### Iter :%d   Slide %s ###\n", iter, slices[k].unique_id.c_str());
+      printf("#############################\n");
+
+      // What kind of registration are we doing at this iteration?
+      if(iter <= param.iter_affine)
+        {
+        // Specify the DOF, etc
+        param_reg.affine_dof = GreedyParameters::DOF_AFFINE;
+        param_reg.affine_init_mode = RAS_FILENAME;
+        param_reg.affine_init_transform =
+            TransformSpec(GetFilenameForSlice(param, slices[k], VOL_ITER_MATRIX, iter-1));
+        param_reg.rigid_search = RigidSearchSpec();
+
+        // Specify the output
+        std::string fn_result = GetFilenameForSlice(param, slices[k], VOL_ITER_MATRIX, iter);
+        param_reg.output = fn_result;
+
+        // Run this registration!
+        api_reg.RunAffine(param_reg);
+        }
+      else
+        {
+        // Apply the last affine transformation
+        param_reg.moving_pre_transforms.push_back(
+              TransformSpec(GetFilenameForSlice(param, slices[k], VOL_ITER_MATRIX,param.iter_affine)));
+
+        // Specify the output
+        param_reg.output = fn_result;
+        param_reg.affine_init_mode = VOX_IDENTITY;
+
+
+        param_reg.sigma_pre.sigma = 10.0;
+        param_reg.sigma_pre.physical_units = false;
+
+        param_reg.sigma_post.sigma = 2.0;
+        param_reg.sigma_post.physical_units = false;
+
+        // Run the registration
+        api_reg.RunDeformable(param_reg);
+        }
+
+      MultiComponentMetricReport last_metric_report = api_reg.GetLastMetricReport();
+      total_to_vol_metric += last_metric_report.ComponentMetrics[0];
+      for(unsigned int a = 1; a < last_metric_report.ComponentMetrics.size(); a++)
+        total_to_nbr_metric += last_metric_report.ComponentMetrics[a];
+
+      // Write the metric for this slide to file
+      std::string fn_metric = GetFilenameForSlice(param, slices[k], ITER_METRIC_DUMP, iter);
+      std::ofstream fout(fn_metric);
+      fout << api_reg.PrintIter(-1, -1, last_metric_report) << std::endl;
+      }
+
+    printf("ITER %3d  TOTAL_VOL_METRIC = %8.4f  TOTAL_NBR_METRIC = %8.4f\n",
+           iter, total_to_vol_metric, total_to_nbr_metric);
+    }
 
   // The following step is to perform rigid/affine registration of the 3D volume
   // relative to the 2D slices. The unknown here is a 3D matrix, but it must be applied

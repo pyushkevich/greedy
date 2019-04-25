@@ -39,6 +39,12 @@ struct ImagePairSpec
   std::string fixed;
   std::string moving;
   double weight;
+
+  ImagePairSpec(std::string in_fixed, std::string in_moving, double in_weight = 1.0)
+    : fixed(in_fixed), moving(in_moving), weight(in_weight) {}
+
+  ImagePairSpec()
+    : weight(1.0) {}
 };
 
 struct SmoothingParameters
@@ -157,6 +163,44 @@ struct GreedyWarpRootParameters
   std::string in_warp, out_warp;
 };
 
+template <class TAtomic>
+class PerLevelSpec
+{
+public:
+  PerLevelSpec() : m_UseCommon(false) {}
+  PerLevelSpec(TAtomic common_value) { *this = common_value; }
+  PerLevelSpec(std::vector<TAtomic> per_level_value) { *this = per_level_value; }
+
+  TAtomic operator [] (unsigned int pos) const
+  {
+    return m_UseCommon ? m_CommonValue : m_ValueArray.at(pos);
+  }
+
+  PerLevelSpec<TAtomic> & operator = (TAtomic value)
+  {
+    m_CommonValue = value; m_UseCommon = true;
+    return *this;
+  }
+
+  PerLevelSpec<TAtomic> & operator = (std::vector<TAtomic> per_level_value)
+  {
+    if(per_level_value.size() == 1)
+      return (*this = per_level_value[0]);
+
+    m_ValueArray = per_level_value; m_UseCommon = false;
+    return *this;
+  }
+
+  bool CheckSize(unsigned int n_Levels) const
+  {
+    return m_UseCommon || m_ValueArray.size() == n_Levels;
+  }
+
+protected:
+  TAtomic m_CommonValue;
+  std::vector<TAtomic> m_ValueArray;
+  bool m_UseCommon;
+};
 
 struct GreedyParameters
 {
@@ -204,7 +248,7 @@ struct GreedyParameters
   TimeStepMode time_step_mode;
 
   // Iterations per level (i.e., 40x40x100)
-  std::vector<double> epsilon_per_level;
+  PerLevelSpec<double> epsilon_per_level;
   
   std::vector<int> iter_per_level;
 

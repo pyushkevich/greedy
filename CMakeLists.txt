@@ -81,16 +81,17 @@ SET(HEADERS
   src/ITKFilters/include/FastWarpCompositeImageFilter.txx
   src/ITKFilters/include/JacobianDeterminantImageFilter.h
   src/ITKFilters/include/JacobianDeterminantImageFilter.txx
-  src/ITKFilters/include/MultiImageAffineMSDMetricFilter.h
-  src/ITKFilters/include/MultiImageAffineMSDMetricFilter.txx
   src/ITKFilters/include/MultiComponentImageMetricBase.h
   src/ITKFilters/include/MultiComponentImageMetricBase.txx
-  src/ITKFilters/include/MultiImageOpticalFlowImageFilter.h
-  src/ITKFilters/include/MultiImageOpticalFlowImageFilter.txx
+  src/ITKFilters/include/MultiComponentMetricReport.h
   src/ITKFilters/include/MultiComponentMutualInfoImageMetric.h
   src/ITKFilters/include/MultiComponentMutualInfoImageMetric.txx
   src/ITKFilters/include/MultiComponentNCCImageMetric.h
   src/ITKFilters/include/MultiComponentNCCImageMetric.txx
+  src/ITKFilters/include/MultiImageAffineMSDMetricFilter.h
+  src/ITKFilters/include/MultiImageAffineMSDMetricFilter.txx
+  src/ITKFilters/include/MultiImageOpticalFlowImageFilter.h
+  src/ITKFilters/include/MultiImageOpticalFlowImageFilter.txx
   src/ITKFilters/include/OneDimensionalInPlaceAccumulateFilter.h
   src/ITKFilters/include/OneDimensionalInPlaceAccumulateFilter.txx
   src/ITKFilters/include/SimpleWarpImageFilter.h
