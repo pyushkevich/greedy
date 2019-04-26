@@ -1001,13 +1001,6 @@ public:
           param_reg.output = fn_result;
           param_reg.affine_init_mode = VOX_IDENTITY;
 
-
-          param_reg.sigma_pre.sigma = 10.0;
-          param_reg.sigma_pre.physical_units = false;
-
-          param_reg.sigma_post.sigma = 2.0;
-          param_reg.sigma_post.physical_units = false;
-
           // Run the registration
           api_reg.RunDeformable(param_reg);
           }
@@ -1209,6 +1202,13 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
       }
     else
       throw GreedyException("Unknown parameter to 'voliter': %s", arg.c_str());
+    }
+
+  // Default is to run all iterations
+  if(i_first == 0 && i_last == 0)
+    {
+    i_first = 1;
+    i_last = n_affine + n_deform;
     }
 
   // Create the project
