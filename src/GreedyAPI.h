@@ -78,7 +78,7 @@ public:
     double weight;
   };
 
-  static void ConfigThreads(GreedyParameters &param);
+  static void ConfigThreads(const GreedyParameters &param);
 
   int Run(GreedyParameters &param);
 

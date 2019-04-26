@@ -316,6 +316,9 @@ struct GreedyParameters
 
   // Read parameters from the
   bool ParseCommandLine(const std::string &cmd, CommandLineHelper &cl);
+
+  // Constructor
+  GreedyParameters() { SetToDefaults(*this); }
 };
 
 

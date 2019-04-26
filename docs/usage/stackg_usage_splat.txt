@@ -1,0 +1,11 @@
+stack_greedy: Paul's histology stack to MRI registration implementation
+Usage:
+  stack_greedy splat [cmd_options] <project_dir>
+Required Command Options:
+  -o <filename>          : Destination filename 
+  -i <stage_spec> [iter] : Stage of project from which to splat (recon/volmatch/voliter)
+                           For voliter, iteration may be specified as second argument
+Additional Command Options:
+  -rf <filename>         : Reference volume for output image
+  -sp <vector>           : Spacing of output image (if -rf not specified)
+

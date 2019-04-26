@@ -2409,7 +2409,7 @@ MultiComponentMetricReport GreedyApproach<VDim, TReal>
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
-::ConfigThreads(GreedyParameters &param)
+::ConfigThreads(const GreedyParameters &param)
 {
   if(param.threads > 0)
     {

@@ -39,11 +39,11 @@
 class CommandLineHelper
 {
 public:
-  CommandLineHelper(int argc, char *argv[])
+  CommandLineHelper(int argc, char *argv[], int first_arg = 1)
   {
     this->argc = argc;
     this->argv = argv;
-    i = 1;
+    i = first_arg;
   }
 
   bool is_at_end()
@@ -82,6 +82,17 @@ public:
     if(current_command[0] != '-')
       throw GreedyException("Expected a command at position %d, instead got '%s'.", i, current_command.c_str());
     return current_command;
+  }
+
+  /**
+   * Read a command if available (there are arguments remaining)
+   */
+  bool read_command(std::string &cmd)
+  {
+    if(i >= argc || peek_arg()[0] != '-')
+      return false;
+    cmd = read_command();
+    return true;
   }
 
   /**
@@ -312,6 +323,16 @@ public:
                             current_command.c_str(), arg.c_str());
 
     return vector;
+  }
+
+  /** Remove the last k commands from the parser, and return a new parser for those commands */
+  CommandLineHelper take_end(int k)
+  {
+    if(k > argc)
+      throw GreedyException("Cannot take last %d commands from commandline", k);
+
+    argc -= k;
+    return CommandLineHelper(k, argv + argc, 0);
   }
 
 
