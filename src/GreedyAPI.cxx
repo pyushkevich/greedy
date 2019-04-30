@@ -2098,7 +2098,7 @@ int GreedyApproach<VDim, TReal>
       {
       mesh = MeshType::New();
 
-      std::ifstream fin(r_param.meshes[i].fixed);
+      std::ifstream fin(r_param.meshes[i].fixed.c_str());
       std::string f_line, f_token;
       unsigned int n_pts = 0;
       while(std::getline(fin, f_line))
@@ -2137,7 +2137,7 @@ int GreedyApproach<VDim, TReal>
 
     if(itksys::SystemTools::GetFilenameExtension(r_param.meshes[i].output) == ".csv")
       {
-      std::ofstream out(r_param.meshes[i].output);
+      std::ofstream out(r_param.meshes[i].output.c_str());
       for(unsigned int i = 0; i < mesh->GetNumberOfPoints(); i++)
         {
         itk::Point<TReal, VDim> pt = mesh->GetPoint(i);
