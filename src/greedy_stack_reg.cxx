@@ -40,6 +40,7 @@
 #include "itkImageAlgorithm.h"
 #include "itkZeroFluxNeumannPadImageFilter.h"
 #include "itkImageFileReader.h"
+#include "itkImageSliceIteratorWithIndex.h"
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"
@@ -52,11 +53,46 @@ struct StackParameters
     : reuse(false) {}
 };
 
-struct SliceData
+
+/** Parameters for splatting */
+struct SplatParameters
 {
-  std::string raw_filename;
-  std::string unique_id;
-  double z_pos;
+  // Reference volume
+  std::string reference;
+
+  // When reference volume is not specified, a z-range must be given
+  double z_first, z_last, z_step;
+
+  // Which set of results to splat
+  enum SplatSource {
+    RAW, RECON, VOL_MATCH, VOL_ITER
+  };
+
+  SplatSource source_stage;
+
+  // If relevant (VOL_ITER), the iteration
+  unsigned int source_iter;
+
+  // Splatting modes
+  enum SplatMode {
+    EXACT, NEAREST, LINEAR, PARZEN
+  };
+
+  SplatMode mode;
+
+  // Tolerance on z-matching for EXACT
+  double z_exact_tol;
+
+  // Splatting sigma (in units of z)
+  double sigma;
+
+  // Output volume
+  std::string fn_output;
+
+  SplatParameters()
+    : z_first(0.0), z_last(0.0), z_step(0.0),
+      source_stage(RAW), source_iter(0),
+      mode(EXACT), z_exact_tol(1e-6), sigma(0.0) {}
 };
 
 
@@ -260,109 +296,6 @@ public:
     m_DefaultImageExt = this->LoadConfigKey("DefaultImageExt", std::string(".nii.gz"));
   }
 
-  std::string GetFilenameForSlicePair(
-      const SliceData &ref, const SliceData &mov, FileIntent intent)
-  {
-    char filename[1024];
-    const char *dir = m_ProjectDir.c_str(), *ext = m_DefaultImageExt.c_str();
-    const char *rid = ref.unique_id.c_str(), *mid = mov.unique_id.c_str();
-
-    switch(intent)
-      {
-      case AFFINE_MATRIX:
-        sprintf(filename, "%s/recon/nbr/affine_ref_%s_mov_%s.mat", dir, rid, mid);
-        break;
-      case METRIC_VALUE:
-        sprintf(filename, "%s/recon/nbr/affine_ref_%s_mov_%s_metric.txt", dir, rid, mid);
-        break;
-      default:
-        throw GreedyException("Wrong intent in GetFilenameForSlicePair");
-      }
-
-    // Make sure the directory containing this exists
-    itksys::SystemTools::MakeDirectory(itksys::SystemTools::GetFilenamePath(filename));
-
-    return filename;
-  }
-
-  std::string GetFilenameForSlice(const SliceData &slice, int intent, ...)
-  {
-    char filename[1024];
-    const char *dir = m_ProjectDir.c_str(), *ext = m_DefaultImageExt.c_str();
-    const char *sid = slice.unique_id.c_str();
-
-    va_list args;
-    va_start(args, intent);
-
-    int iter =
-        (intent == VOL_ITER_MATRIX || intent == VOL_ITER_WARP || intent == ITER_METRIC_DUMP)
-        ? va_arg(args, int) : 0;
-
-    switch(intent)
-      {
-      case ACCUM_MATRIX:
-        sprintf(filename, "%s/recon/accum/accum_affine_%s.mat", dir, sid);
-        break;
-      case ACCUM_RESLICE:
-        sprintf(filename, "%s/recon/accum/accum_affine_%s_reslice.%s", dir, sid, ext);
-        break;
-      case VOL_INIT_MATRIX:
-        sprintf(filename, "%s/vol/match/affine_refvol_mov_%s.mat", dir, sid);
-        break;
-      case VOL_SLIDE:
-        sprintf(filename, "%s/vol/slides/vol_slide_%s.%s", dir, sid, ext);
-        break;
-      case VOL_ITER_MATRIX:
-        sprintf(filename, "%s/vol/iter%02d/affine_refvol_mov_%s_iter%02d.mat", dir, iter, sid, iter);
-        break;
-      case VOL_ITER_WARP:
-        sprintf(filename, "%s/vol/iter%02d/warp_refvol_mov_%s_iter%02d.%s", dir, iter, sid, iter, ext);
-        break;
-      case ITER_METRIC_DUMP:
-        sprintf(filename, "%s/vol/iter%02d/metric_refvol_mov_%s_iter%02d.txt", dir, iter, sid, iter);
-        break;
-      default:
-        throw GreedyException("Wrong intent in GetFilenameForSlice");
-      }
-
-    va_end(args);
-
-    // Make sure the directory containing this exists
-    itksys::SystemTools::MakeDirectory(itksys::SystemTools::GetFilenamePath(filename));
-
-    return filename;
-  }
-
-  std::string GetFilenameForGlobal(int intent, ...)
-  {
-    char filename[1024];
-    const char *dir = m_ProjectDir.c_str(), *ext = m_DefaultImageExt.c_str();
-
-    va_list args;
-    va_start(args, intent);
-
-    switch(intent)
-      {
-      case VOL_MEDIAN_INIT_MATRIX:
-        sprintf(filename, "%s/vol/match/affine_refvol_median.mat", dir);
-        break;
-      case MANIFEST_FILE:
-        sprintf(filename, "%s/config/manifest.txt", dir);
-        break;
-      case CONFIG_ENTRY:
-        sprintf(filename, "%s/config/dict/%s", dir, va_arg(args, char *));
-        break;
-      default:
-        throw GreedyException("Wrong intent in GetFilenameForGlobal");
-      }
-
-    va_end(args);
-
-    // Make sure the directory containing this exists
-    itksys::SystemTools::MakeDirectory(itksys::SystemTools::GetFilenamePath(filename));
-
-    return filename;
-  }
 
   template <typename T> void SaveConfigKey(const std::string &key, const T &value)
   {
@@ -592,6 +525,9 @@ public:
         best_root_dist = root_dist;
         }
       }
+
+    // Store the root for reference
+    SaveConfigKey("RootSlide", m_Slices[i_root].unique_id);
 
     // Compute the composed transformations between the root and each of the inputs
     dijkstra.ComputePathsFromSource(i_root);
@@ -849,9 +785,6 @@ public:
   void IterativeMatchToVolume(unsigned int n_affine, unsigned int n_deform, unsigned int i_first,
                               unsigned int i_last, double w_volume, const GreedyParameters &gparam)
   {
-    // Configure the threads
-    GreedyAPI::ConfigThreads(gparam);
-
     // Set up a cache for loaded images. These images can be cycled in and out of memory
     // depending on need. TODO: let user configure cache sizes
     ImageCache slice_cache(0, 20);
@@ -860,6 +793,10 @@ public:
     if(i_first > i_last || i_first == 0 || i_last > n_affine + n_deform)
       throw GreedyException("Iteration range (%d, %d) is out of range [1, %d]",
                             i_first, i_last, n_affine + n_deform);
+
+    // Set the iteration specs
+    SaveConfigKey("AffineIterations", n_affine);
+    SaveConfigKey("DeformableIterations", n_deform);
 
     // Iterate
     for(unsigned int iter = i_first; iter <= i_last; ++iter)
@@ -956,7 +893,7 @@ public:
             param_reslice.reslice_param.transforms.push_back(
                   TransformSpec(GetFilenameForSlice(m_Slices[j], VOL_ITER_WARP, iter-1)));
             param_reslice.reslice_param.transforms.push_back(
-                  TransformSpec(GetFilenameForSlice(m_Slices[j], VOL_ITER_MATRIX, n_affine)));
+                  TransformSpec(GetFilenameForSlice(m_Slices[j], VOL_ITER_MATRIX, iter-1)));
             }
 
           // Perform the reslicing
@@ -985,7 +922,6 @@ public:
           param_reg.rigid_search = RigidSearchSpec();
 
           // Specify the output
-          std::string fn_result = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter);
           param_reg.output = fn_result;
 
           // Run this registration!
@@ -994,12 +930,15 @@ public:
         else
           {
           // Apply the last affine transformation
+          param_reg.affine_init_mode = VOX_IDENTITY;
           param_reg.moving_pre_transforms.push_back(
-                TransformSpec(GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, n_affine)));
+                TransformSpec(GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter-1)));
 
           // Specify the output
           param_reg.output = fn_result;
-          param_reg.affine_init_mode = VOX_IDENTITY;
+
+          // Make sure the warps are not truncated, since histology is full-resolution
+          param_reg.warp_precision = 0.0;
 
           // Run the registration
           api_reg.RunDeformable(param_reg);
@@ -1014,6 +953,16 @@ public:
         std::string fn_metric = GetFilenameForSlice(m_Slices[k], ITER_METRIC_DUMP, iter);
         std::ofstream fout(fn_metric);
         fout << api_reg.PrintIter(-1, -1, last_metric_report) << std::endl;
+
+        // For deformable iterations, propagate the matrix from last iteration
+        if(iter > n_affine)
+          {
+          GreedyAPI::WriteAffineMatrix(
+                GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
+                GreedyAPI::ReadAffineMatrix(
+                  GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter-1)));
+          }
+
         }
 
       printf("ITER %3d  TOTAL_VOL_METRIC = %8.4f  TOTAL_NBR_METRIC = %8.4f\n",
@@ -1021,7 +970,226 @@ public:
       }
   }
 
+  void Splat(const SplatParameters &sparam, const GreedyParameters &gparam)
+  {
+    // The target volume into which we will be doing the splatting. It must either
+    // be read from file or generated based on the 2D slices in the project
+    LDDMMType3D::CompositeImagePointer target;
+
+    // Before allocating the target, we need to know how many components to use. For
+    // this we need to load the reference (root) slide
+    unsigned int i_root = GetRootSlide();
+    LDDMMType::CompositeImagePointer root_slide =
+        LDDMMType::cimg_read(m_Slices[i_root].raw_filename.c_str());
+
+    // Was a referene volume specified?
+    if(sparam.reference.length())
+      {
+      // If the reference volume is specified, use it
+      LDDMMType3D::CompositeImagePointer ref = LDDMMType3D::cimg_read(sparam.reference.c_str());
+
+      // Create a new reference volume
+      if(ref->GetNumberOfComponentsPerPixel() == root_slide->GetNumberOfComponentsPerPixel())
+        target = ref;
+      else
+        target = LDDMMType3D::new_cimg(ref, root_slide->GetNumberOfComponentsPerPixel());
+      }
+    else
+      {
+      // When the reference volume is not specified, we will use 2D
+      // slice metadata in the project as a reference for the x-y aspects of
+      // the image, and have the user specify the spacing and origin in z.
+      LDDMMType::ImageBaseType::Pointer ref_slide;
+
+      // Are we reconstructing into slide space or volume space?
+      if(sparam.source_stage == SplatParameters::RAW ||
+         sparam.source_stage == SplatParameters::RECON)
+        {
+        // Read the reference slide
+        ref_slide = root_slide;
+        }
+      else
+        {
+        // Read the reference volume slice
+        std::string fn_slide_ref = GetFilenameForSlice(m_Slices[i_root], VOL_SLIDE);
+        ref_slide = LDDMMType::img_read(fn_slide_ref.c_str());
+        }
+
+      // Create the 3D volume
+      target = LDDMMType3D::CompositeImageType::New();
+
+      // Set up the properties of the 3D volume
+      LDDMMType3D::RegionType region_3d;
+      LDDMMType3D::ImageType::PointType origin_3d;
+      LDDMMType3D::ImageType::SpacingType spacing_3d;
+      LDDMMType3D::ImageType::DirectionType dir_3d;
+
+      dir_3d.SetIdentity();
+      for(unsigned int a = 0; a < 2; a++)
+        {
+        region_3d.SetSize(a, ref_slide->GetBufferedRegion().GetSize(a));
+        origin_3d[a] = ref_slide->GetOrigin()[a];
+        spacing_3d[a] = ref_slide->GetSpacing()[a];
+        for(unsigned int b = 0; b < 2; b++)
+          dir_3d(a,b) = ref_slide->GetDirection()(a,b);
+        }
+
+      region_3d.SetSize(2, (unsigned long) ceil((sparam.z_last - sparam.z_first) / sparam.z_step));
+      origin_3d[2] = sparam.z_step;
+      spacing_3d[2] = sparam.z_first;
+
+      target->SetRegions(region_3d);
+      target->SetOrigin(origin_3d);
+      target->SetSpacing(spacing_3d);
+      target->SetDirection(dir_3d);
+      target->Allocate();
+      target->SetNumberOfComponentsPerPixel(root_slide->GetNumberOfComponentsPerPixel());
+
+      LDDMMType3D::CompositeImageType::PixelType cpix;
+      cpix.SetSize(target->GetNumberOfComponentsPerPixel());
+      cpix.Fill(0.0);
+      target->FillBuffer(cpix);
+      }
+
+
+    // In addition to the target, we need a 2D reference image, which we will use
+    // as the target for 2D reslice operations
+    LDDMMType::CompositeImagePointer ref_2d = ExtractSliceFromVolume(target, target->GetOrigin()[2]);
+
+    // In exact mode, we are not splatting, but rather just sampling along the z-axis.
+    if(sparam.mode == SplatParameters::EXACT)
+      {
+      // We will iterate over the slices in the 3D volume
+      itk::ImageSliceIteratorWithIndex<LDDMMType3D::CompositeImageType> it_slice;
+      it_slice.SetFirstDirection(0);
+      it_slice.SetSecondDirection(1);
+      for(; !it_slice.IsAtEnd(); it_slice.NextSlice())
+        {
+        // Get the z position of this slide
+        double z_pos = target->GetOrigin()[2] + target->GetSpacing()[2] * it_slice.GetIndex()[2];
+
+        // Find the slice with tolerance
+        int i_slice = FindSlideByZ(z_pos, sparam.z_exact_tol);
+        if(i_slice >= 0)
+          {
+          // Reslice into the target space
+          GreedyAPI reslice_api;
+          GreedyParameters my_param = gparam;
+
+          // Set the reslice specs
+          my_param.reslice_param.ref_image = "ref";
+          my_param.reslice_param.images.push_back(
+                ResliceSpec(m_Slices[i_slice].raw_filename, "out"));
+
+          // Create an image to hold the output
+          LDDMMType::CompositeImagePointer resliced = LDDMMType::CompositeImageType::New();
+
+          // Add the cached images
+          reslice_api.AddCachedInputObject("ref", ref_2d.GetPointer());
+          reslice_api.AddCachedOutputObject("out", resliced.GetPointer());
+
+          // Set up the transform chain
+          if(sparam.source_stage == SplatParameters::RECON)
+            {
+            my_param.reslice_param.transforms.push_back(
+                  TransformSpec(GetFilenameForSlice(m_Slices[i_slice], ACCUM_MATRIX)));
+            }
+          else if(sparam.source_stage == SplatParameters::VOL_MATCH)
+            {
+            my_param.reslice_param.transforms.push_back(
+                  TransformSpec(GetFilenameForSlice(m_Slices[i_slice], VOL_ITER_MATRIX, 0)));
+            }
+          else if(sparam.source_stage == SplatParameters::VOL_ITER)
+            {
+            unsigned int n_affine = LoadConfigKey("AffineIterations", 0u);
+            unsigned int n_deform = LoadConfigKey("DeformableIterations", 0u);
+
+            if(sparam.source_iter < 1 || sparam.source_iter > n_affine + n_deform)
+              throw GreedyException("Iteration parameter %d is out of range [1,%d]",
+                                    sparam.source_iter, n_affine + n_deform);
+
+            // Add the warp
+            if(sparam.source_iter > n_affine)
+              my_param.reslice_param.transforms.push_back(
+                    TransformSpec(
+                      GetFilenameForSlice(m_Slices[i_slice], VOL_ITER_WARP, sparam.source_iter)));
+
+            // Add the affine matrix
+            my_param.reslice_param.transforms.push_back(
+                  TransformSpec(
+                    GetFilenameForSlice(m_Slices[i_slice], VOL_ITER_MATRIX, sparam.source_iter)));
+            }
+
+          // Run the reslice operation
+          reslice_api.RunReslice(my_param);
+
+          // Get an iterator into the result
+          itk::ImageRegionConstIterator<LDDMMType::CompositeImageType> it(resliced, resliced->GetBufferedRegion());
+
+          // Copy the pixels to destination
+          for(; !it_slice.IsAtEndOfSlice(); it_slice.NextLine())
+            {
+            for(; !it_slice.IsAtEndOfLine(); ++it_slice, ++it)
+              {
+              // TODO: this is a very inefficient copy routine, better to directly copy memory!
+              it_slice.Set(it.Get());
+              }
+            }
+          }
+        }
+      }
+    else throw GreedyException("Only exact mode is implemented.");
+
+    // Write the image
+    LDDMMType3D::cimg_write(target, sparam.fn_output.c_str());
+  }
+
+  int FindSlideById(const std::string &id)
+  {
+    for (int i = 0; i < m_Slices.size(); i++)
+      {
+      if(m_Slices[i].unique_id == id)
+        return i;
+      }
+
+    return -1;
+  }
+
+  int FindSlideByZ(double z, double z_tol = 0.0)
+  {
+    for (int i = 0; i < m_Slices.size(); i++)
+      {
+      if(m_Slices[i].z_pos >= z - z_tol && m_Slices[i].z_pos <= z + z_tol)
+        return i;
+      }
+
+    return -1;
+  }
+
+  unsigned int GetRootSlide()
+  {
+    // Determine the root slide
+    std::string root_id = LoadConfigKey("RootSlide", std::string());
+    if(root_id.length() == 0)
+      throw GreedyException("Root slide has not been computed. Please run 'recon' first.");
+
+    // Find the slide with that id
+    int i_root = FindSlideById(root_id);
+    if(i_root < 0)
+      throw GreedyException("Root slide %s not found in manifest. Rerun 'recon'.", root_id.c_str());
+
+    return (unsigned int) i_root;
+  }
+
 private:
+
+  // Data associated with each slice, from the manifest
+  struct SliceData
+  {
+    std::string raw_filename;
+    std::string unique_id;
+    double z_pos;
+  };
 
   // Path to the project
   std::string m_ProjectDir;
@@ -1040,9 +1208,109 @@ private:
   typedef std::set<slice_ref> slice_ref_set;
   slice_ref_set m_SortedSlices;
 
+  std::string GetFilenameForSlicePair(
+      const SliceData &ref, const SliceData &mov, FileIntent intent)
+  {
+    char filename[1024];
+    const char *dir = m_ProjectDir.c_str(), *ext = m_DefaultImageExt.c_str();
+    const char *rid = ref.unique_id.c_str(), *mid = mov.unique_id.c_str();
 
+    switch(intent)
+      {
+      case AFFINE_MATRIX:
+        sprintf(filename, "%s/recon/nbr/affine_ref_%s_mov_%s.mat", dir, rid, mid);
+        break;
+      case METRIC_VALUE:
+        sprintf(filename, "%s/recon/nbr/affine_ref_%s_mov_%s_metric.txt", dir, rid, mid);
+        break;
+      default:
+        throw GreedyException("Wrong intent in GetFilenameForSlicePair");
+      }
 
+    // Make sure the directory containing this exists
+    itksys::SystemTools::MakeDirectory(itksys::SystemTools::GetFilenamePath(filename));
 
+    return filename;
+  }
+
+  std::string GetFilenameForSlice(const SliceData &slice, int intent, ...)
+  {
+    char filename[1024];
+    const char *dir = m_ProjectDir.c_str(), *ext = m_DefaultImageExt.c_str();
+    const char *sid = slice.unique_id.c_str();
+
+    va_list args;
+    va_start(args, intent);
+
+    int iter =
+        (intent == VOL_ITER_MATRIX || intent == VOL_ITER_WARP || intent == ITER_METRIC_DUMP)
+        ? va_arg(args, int) : 0;
+
+    switch(intent)
+      {
+      case ACCUM_MATRIX:
+        sprintf(filename, "%s/recon/accum/accum_affine_%s.mat", dir, sid);
+        break;
+      case ACCUM_RESLICE:
+        sprintf(filename, "%s/recon/accum/accum_affine_%s_reslice.%s", dir, sid, ext);
+        break;
+      case VOL_INIT_MATRIX:
+        sprintf(filename, "%s/vol/match/affine_refvol_mov_%s.mat", dir, sid);
+        break;
+      case VOL_SLIDE:
+        sprintf(filename, "%s/vol/slides/vol_slide_%s.%s", dir, sid, ext);
+        break;
+      case VOL_ITER_MATRIX:
+        sprintf(filename, "%s/vol/iter%02d/affine_refvol_mov_%s_iter%02d.mat", dir, iter, sid, iter);
+        break;
+      case VOL_ITER_WARP:
+        sprintf(filename, "%s/vol/iter%02d/warp_refvol_mov_%s_iter%02d.%s", dir, iter, sid, iter, ext);
+        break;
+      case ITER_METRIC_DUMP:
+        sprintf(filename, "%s/vol/iter%02d/metric_refvol_mov_%s_iter%02d.txt", dir, iter, sid, iter);
+        break;
+      default:
+        throw GreedyException("Wrong intent in GetFilenameForSlice");
+      }
+
+    va_end(args);
+
+    // Make sure the directory containing this exists
+    itksys::SystemTools::MakeDirectory(itksys::SystemTools::GetFilenamePath(filename));
+
+    return filename;
+  }
+
+  std::string GetFilenameForGlobal(int intent, ...)
+  {
+    char filename[1024];
+    const char *dir = m_ProjectDir.c_str(), *ext = m_DefaultImageExt.c_str();
+
+    va_list args;
+    va_start(args, intent);
+
+    switch(intent)
+      {
+      case VOL_MEDIAN_INIT_MATRIX:
+        sprintf(filename, "%s/vol/match/affine_refvol_median.mat", dir);
+        break;
+      case MANIFEST_FILE:
+        sprintf(filename, "%s/config/manifest.txt", dir);
+        break;
+      case CONFIG_ENTRY:
+        sprintf(filename, "%s/config/dict/%s", dir, va_arg(args, char *));
+        break;
+      default:
+        throw GreedyException("Wrong intent in GetFilenameForGlobal");
+      }
+
+    va_end(args);
+
+    // Make sure the directory containing this exists
+    itksys::SystemTools::MakeDirectory(itksys::SystemTools::GetFilenamePath(filename));
+
+    return filename;
+  }
 };
 
 
@@ -1110,6 +1378,9 @@ void recon(StackParameters &param, CommandLineHelper &cl)
       throw GreedyException("Unknown parameter to 'init': %s", arg.c_str());
     }
 
+  // Configure the threads
+  GreedyApproach<2,double>::ConfigThreads(gparam);
+
   // Create the project
   StackGreedyProject sgp(param.output_dir, param);
   sgp.RestoreProject();
@@ -1150,6 +1421,9 @@ void volmatch(StackParameters &param, CommandLineHelper &cl)
   // Check required parameters
   if(fn_volume.size() == 0)
     throw GreedyException("Missing volume file (-i) in 'volmatch'");
+
+  // Configure the threads
+  GreedyApproach<2,double>::ConfigThreads(gparam);
 
   // Create the project
   StackGreedyProject sgp(param.output_dir, param);
@@ -1211,10 +1485,94 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
     i_last = n_affine + n_deform;
     }
 
+  // Configure the threads
+  GreedyApproach<2,double>::ConfigThreads(gparam);
+
   // Create the project
   StackGreedyProject sgp(param.output_dir, param);
   sgp.RestoreProject();
   sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, w_volume, gparam);
+}
+
+
+/**
+ * Run the splatting module
+ */
+void splat(StackParameters &param, CommandLineHelper &cl)
+{
+  // List of greedy commands that are recognized by this mode
+  std::set<std::string> greedy_cmd {
+    "-threads"
+  };
+
+  // Greedy parameters for this mode
+  GreedyParameters gparam;
+
+  // Splatting parameters
+  SplatParameters sparam;
+
+  // Parse the parameters
+  std::string arg;
+  while(cl.read_command(arg))
+    {
+    if(arg == "-o")
+      {
+      sparam.fn_output = cl.read_output_filename();
+      }
+    if(arg == "-i")
+      {
+      std::string mode = cl.read_string();
+      if(mode == "raw")
+        sparam.source_stage = SplatParameters::RAW;
+      else if(mode == "recon")
+        sparam.source_stage = SplatParameters::RECON;
+      else if(mode == "volmatch")
+        sparam.source_stage = SplatParameters::VOL_MATCH;
+      else if(mode == "voliter")
+        {
+        sparam.source_stage = SplatParameters::VOL_ITER;
+        if(cl.command_arg_count() > 0)
+          sparam.source_iter = (unsigned int) cl.read_integer();
+        }
+      else throw GreedyException("Unknown stage specification %s", mode.c_str());
+      }
+    else if(arg == "-rf")
+      {
+      sparam.reference = cl.read_existing_filename();
+      }
+    else if(arg == "-z")
+      {
+      sparam.z_first = cl.read_double();
+      sparam.z_step = cl.read_double();
+      sparam.z_last = cl.read_double();
+      }
+    else if(arg == "-S")
+      {
+      std::string mode = cl.read_string();
+      if(mode == "exact")
+        sparam.mode = SplatParameters::EXACT;
+      else if(mode == "nearest")
+        sparam.mode = SplatParameters::NEAREST;
+      else if(mode == "linear")
+        sparam.mode = SplatParameters::LINEAR;
+      else if(mode == "parzen")
+        sparam.mode = SplatParameters::PARZEN;
+      }
+    else if(greedy_cmd.find(arg) != greedy_cmd.end())
+      {
+      gparam.ParseCommandLine(arg, cl);
+      }
+    else
+      throw GreedyException("Unknown parameter to 'splat': %s", arg.c_str());
+    }
+
+  // Configure the threads
+  GreedyApproach<2,double>::ConfigThreads(gparam);
+
+  // Create the project
+  StackGreedyProject sgp(param.output_dir, param);
+  sgp.RestoreProject();
+  sgp.Splat(sparam, gparam);
 }
 
 int main(int argc, char *argv[])

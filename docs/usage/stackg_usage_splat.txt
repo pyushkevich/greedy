@@ -3,9 +3,12 @@ Usage:
   stack_greedy splat [cmd_options] <project_dir>
 Required Command Options:
   -o <filename>          : Destination filename 
-  -i <stage_spec> [iter] : Stage of project from which to splat (recon/volmatch/voliter)
+  -i <stage_spec> [iter] : Stage of project from which to splat (raw/recon/volmatch/voliter)
                            For voliter, iteration may be specified as second argument
+  -rf <filename>         : Reference image for output volume (if -z not specified)
+  -z <z0> <z_step> <z1>  : Range of z-positions for the output volume (if -rf not specified)
+  -S <mode>              : Splatting mode. Currently supported modes are:
+                             exact   : a slide is splatted if it's z matches target (up to ztol)
 Additional Command Options:
-  -rf <filename>         : Reference volume for output image
-  -sp <vector>           : Spacing of output image (if -rf not specified)
+  -ztol                  : Tolerance for the exact splatting mode
 
