@@ -11,4 +11,15 @@ Required Command Options:
                              exact   : a slide is splatted if it's z matches target (up to ztol)
 Additional Command Options:
   -ztol                  : Tolerance for the exact splatting mode
+  -M                     : Alternative manifest file. Can be used to specify the list of ids to
+                           include in the splatting (column 1) and the alternative sources for the
+                           images (optional column 2). The can be used to splat derived data.
+  -H                     : When providing alternative sources with -M, ignore the header of the
+                           source images, stretching them to occupy the same physical space as the
+                           images in the main manifest. Useful when you have data covering the same
+                           slide extents but with headers that don't match.
+Options Shared with Greedy (see Greedy docs for more info):
+  -rb <value>            : Background value for 2D/3D interpolation
+  -ri <mode> [sigma]     : Interpolation mode (for 2D interpolation)
+
 

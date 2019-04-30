@@ -183,9 +183,13 @@ protected:
 
   // This function reads the image from disk, or from a memory location mapped to a
   // string. The first approach is used by the command-line interface, and the second
-  // approach is used by the API, allowing images to be passed from other software
+  // approach is used by the API, allowing images to be passed from other software.
+  // An optional second argument is used to store the component type, but only if
+  // the image is actually loaded from disk. For cached images, the component type
+  // will be unknown.
   template <class TImage>
-  itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename);
+  itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename,
+                                              itk::ImageIOBase::IOComponentType *comp_type = NULL);
 
   // This function reads an image base object via cache. It is more permissive than using
   // ReadImageViaCache.
