@@ -89,10 +89,20 @@ struct SplatParameters
   // Output volume
   std::string fn_output;
 
+  // Alternative manifest
+  std::string fn_manifest;
+
+  // Should alternative headers be ignored
+  bool ignore_alt_headers;
+
+  // Background values
+  std::vector<double> background;
+
   SplatParameters()
     : z_first(0.0), z_last(0.0), z_step(0.0),
       source_stage(RAW), source_iter(0),
-      mode(EXACT), z_exact_tol(1e-6), sigma(0.0) {}
+      mode(EXACT), z_exact_tol(1e-6), sigma(0.0),
+      ignore_alt_headers(false), background(1, 0.0) {}
 };
 
 
@@ -331,7 +341,7 @@ public:
       std::istringstream iss(f_line);
       SliceData slice;
       if(!(iss >> slice.unique_id >> slice.z_pos >> slice.raw_filename))
-        throw GreedyException("Error reading manifest file, line %s", f_line.c_str());
+        throw GreedyException("Error reading manifest file, line '%s'", f_line.c_str());
 
       // Check that the manifest points to a real file
       if(!itksys::SystemTools::FileExists(slice.raw_filename.c_str(), true))
@@ -976,11 +986,59 @@ public:
     // be read from file or generated based on the 2D slices in the project
     LDDMMType3D::CompositeImagePointer target;
 
+    // Use an image cache
+    ImageCache icache(0, 20);
+
     // Before allocating the target, we need to know how many components to use. For
     // this we need to load the reference (root) slide
     unsigned int i_root = GetRootSlide();
     LDDMMType::CompositeImagePointer root_slide =
-        LDDMMType::cimg_read(m_Slices[i_root].raw_filename.c_str());
+        icache.GetImage<LDDMMType::CompositeImageType>(m_Slices[i_root].raw_filename);
+
+    // Set the number of components to that from the root slide. However, when using
+    // an alternative manifest, we will get this from one of the input images instead
+    unsigned int n_comp_out = root_slide->GetNumberOfComponentsPerPixel();
+
+    // Determine which images and which ids to use for splatting.
+    std::map<std::string, std::string> alt_source;
+    if(sparam.fn_manifest.length())
+      {
+      std::ifstream fin(sparam.fn_manifest);
+      std::string f_line;
+      while(std::getline(fin, f_line))
+        {
+        std::istringstream iss(f_line);
+
+        // Read an id from the manifest
+        std::string id;
+        if(!(iss >> id))
+          throw GreedyException("Unable to read id from manifest file, line '%s'", f_line.c_str());
+
+        // Find that id
+        int index = FindSlideById(id);
+        if(index < 0)
+          throw GreedyException("Slide id '%s' is not in the project", id.c_str());
+
+        // The user may request an alternative image to load
+        std::string fn_alt_slice = m_Slices[index].raw_filename;
+        if(iss >> fn_alt_slice)
+          {
+          if(!itksys::SystemTools::FileExists(fn_alt_slice.c_str(), true))
+            throw GreedyException("File '%s' in manifest does not exist", fn_alt_slice.c_str());
+          }
+
+        // Insert the alternative slice source
+        alt_source[id] = fn_alt_slice;
+        }
+      }
+
+    // Check if the number of components should be updated
+    if(alt_source.size())
+      {
+      std::string fn_alt = alt_source.begin()->second;
+      n_comp_out = icache.GetImage<LDDMMType::CompositeImageType>(fn_alt)
+                   ->GetNumberOfComponentsPerPixel();
+      }
 
     // Was a referene volume specified?
     if(sparam.reference.length())
@@ -989,10 +1047,10 @@ public:
       LDDMMType3D::CompositeImagePointer ref = LDDMMType3D::cimg_read(sparam.reference.c_str());
 
       // Create a new reference volume
-      if(ref->GetNumberOfComponentsPerPixel() == root_slide->GetNumberOfComponentsPerPixel())
+      if(ref->GetNumberOfComponentsPerPixel() == n_comp_out)
         target = ref;
       else
-        target = LDDMMType3D::new_cimg(ref, root_slide->GetNumberOfComponentsPerPixel());
+        target = LDDMMType3D::new_cimg(ref, (int) n_comp_out);
       }
     else
       {
@@ -1035,19 +1093,19 @@ public:
         }
 
       region_3d.SetSize(2, (unsigned long) ceil((sparam.z_last - sparam.z_first) / sparam.z_step));
-      origin_3d[2] = sparam.z_step;
-      spacing_3d[2] = sparam.z_first;
+      origin_3d[2] = sparam.z_first;
+      spacing_3d[2] = sparam.z_step;
 
       target->SetRegions(region_3d);
       target->SetOrigin(origin_3d);
       target->SetSpacing(spacing_3d);
       target->SetDirection(dir_3d);
+      target->SetNumberOfComponentsPerPixel(n_comp_out);
       target->Allocate();
-      target->SetNumberOfComponentsPerPixel(root_slide->GetNumberOfComponentsPerPixel());
 
       LDDMMType3D::CompositeImageType::PixelType cpix;
-      cpix.SetSize(target->GetNumberOfComponentsPerPixel());
-      cpix.Fill(0.0);
+      cpix.SetSize(n_comp_out);
+      cpix.Fill(gparam.current_interp.outside_value);
       target->FillBuffer(cpix);
       }
 
@@ -1060,7 +1118,8 @@ public:
     if(sparam.mode == SplatParameters::EXACT)
       {
       // We will iterate over the slices in the 3D volume
-      itk::ImageSliceIteratorWithIndex<LDDMMType3D::CompositeImageType> it_slice;
+      typedef itk::ImageSliceIteratorWithIndex<LDDMMType3D::CompositeImageType> SliceIter;
+      SliceIter it_slice(target, target->GetBufferedRegion());
       it_slice.SetFirstDirection(0);
       it_slice.SetSecondDirection(1);
       for(; !it_slice.IsAtEnd(); it_slice.NextSlice())
@@ -1070,72 +1129,119 @@ public:
 
         // Find the slice with tolerance
         int i_slice = FindSlideByZ(z_pos, sparam.z_exact_tol);
-        if(i_slice >= 0)
+        if(i_slice < 0)
+          continue;
+
+        // Make sure the slice is included in the alternative manifest
+        if(alt_source.size() && alt_source.find(m_Slices[i_slice].unique_id) == alt_source.end())
+          continue;
+
+        // Get the filename to read
+        std::string fn_source = alt_source.size() == 0
+                                ? m_Slices[i_slice].raw_filename
+                                : alt_source[m_Slices[i_slice].unique_id];
+
+        // Read the source image
+        LDDMMType::CompositeImagePointer img_source =
+            icache.GetImage<LDDMMType::CompositeImageType>(fn_source);
+
+        // Should we override the image header?
+        if(fn_source != m_Slices[i_slice].raw_filename && sparam.ignore_alt_headers)
           {
-          // Reslice into the target space
-          GreedyAPI reslice_api;
-          GreedyParameters my_param = gparam;
+          // Read the raw image
+          LDDMMType::CompositeImagePointer img_raw =
+              icache.GetImage<LDDMMType::CompositeImageType>(m_Slices[i_slice].raw_filename);
 
-          // Set the reslice specs
-          my_param.reslice_param.ref_image = "ref";
-          my_param.reslice_param.images.push_back(
-                ResliceSpec(m_Slices[i_slice].raw_filename, "out"));
-
-          // Create an image to hold the output
-          LDDMMType::CompositeImagePointer resliced = LDDMMType::CompositeImageType::New();
-
-          // Add the cached images
-          reslice_api.AddCachedInputObject("ref", ref_2d.GetPointer());
-          reslice_api.AddCachedOutputObject("out", resliced.GetPointer());
-
-          // Set up the transform chain
-          if(sparam.source_stage == SplatParameters::RECON)
+          // Adjust the header so that everything matches up
+          LDDMMType::CompositeImageType::SpacingType spacing_adj;
+          LDDMMType::CompositeImageType::PointType origin_adj;
+          for(unsigned int a = 0; a < 2; a++)
             {
-            my_param.reslice_param.transforms.push_back(
-                  TransformSpec(GetFilenameForSlice(m_Slices[i_slice], ACCUM_MATRIX)));
+            double s1 = img_raw->GetSpacing()[a];
+            double o1 = img_raw->GetOrigin()[a];
+            unsigned long d1 = img_raw->GetBufferedRegion().GetSize()[a];
+            unsigned long d2 = img_source->GetBufferedRegion().GetSize()[a];
+            spacing_adj[a] = (d1 * s1) / d2;
+            origin_adj[a] = o1 + 0.5 * (spacing_adj[a] - s1);
             }
-          else if(sparam.source_stage == SplatParameters::VOL_MATCH)
-            {
-            my_param.reslice_param.transforms.push_back(
-                  TransformSpec(GetFilenameForSlice(m_Slices[i_slice], VOL_ITER_MATRIX, 0)));
-            }
-          else if(sparam.source_stage == SplatParameters::VOL_ITER)
-            {
-            unsigned int n_affine = LoadConfigKey("AffineIterations", 0u);
-            unsigned int n_deform = LoadConfigKey("DeformableIterations", 0u);
 
-            if(sparam.source_iter < 1 || sparam.source_iter > n_affine + n_deform)
-              throw GreedyException("Iteration parameter %d is out of range [1,%d]",
-                                    sparam.source_iter, n_affine + n_deform);
+          img_source->SetSpacing(spacing_adj);
+          img_source->SetOrigin(origin_adj);
+          img_source->SetDirection(img_raw->GetDirection());
+          }
 
-            // Add the warp
-            if(sparam.source_iter > n_affine)
-              my_param.reslice_param.transforms.push_back(
-                    TransformSpec(
-                      GetFilenameForSlice(m_Slices[i_slice], VOL_ITER_WARP, sparam.source_iter)));
+        // Check the number of components
+        if(img_source->GetNumberOfComponentsPerPixel() != n_comp_out)
+          throw GreedyException("Number of components in '%s' does not match %d",
+                                fn_source.c_str(), n_comp_out);
 
-            // Add the affine matrix
+        // Reslice into the target space
+        GreedyAPI reslice_api;
+        GreedyParameters my_param = gparam;
+
+        // Print some progress
+        printf("Splatting at z = %8.4f: %s\n", z_pos, fn_source.c_str());
+
+        // Set the reslice specs
+        my_param.reslice_param.ref_image = "ref";
+        my_param.reslice_param.images.push_back(ResliceSpec("src", "out", my_param.current_interp));
+
+        // Create an image to hold the output
+        LDDMMType::CompositeImagePointer resliced = LDDMMType::CompositeImageType::New();
+
+        // Add the cached images
+        reslice_api.AddCachedInputObject("src", img_source.GetPointer());
+        reslice_api.AddCachedInputObject("ref", ref_2d.GetPointer());
+        reslice_api.AddCachedOutputObject("out", resliced.GetPointer());
+
+        // Set up the transform chain
+        if(sparam.source_stage == SplatParameters::RECON)
+          {
+          my_param.reslice_param.transforms.push_back(
+                TransformSpec(GetFilenameForSlice(m_Slices[i_slice], ACCUM_MATRIX)));
+          }
+        else if(sparam.source_stage == SplatParameters::VOL_MATCH)
+          {
+          my_param.reslice_param.transforms.push_back(
+                TransformSpec(GetFilenameForSlice(m_Slices[i_slice], VOL_ITER_MATRIX, 0)));
+          }
+        else if(sparam.source_stage == SplatParameters::VOL_ITER)
+          {
+          unsigned int n_affine = LoadConfigKey("AffineIterations", 0u);
+          unsigned int n_deform = LoadConfigKey("DeformableIterations", 0u);
+
+          if(sparam.source_iter < 1 || sparam.source_iter > n_affine + n_deform)
+            throw GreedyException("Iteration parameter %d is out of range [1,%d]",
+                                  sparam.source_iter, n_affine + n_deform);
+
+          // Add the warp
+          if(sparam.source_iter > n_affine)
             my_param.reslice_param.transforms.push_back(
                   TransformSpec(
-                    GetFilenameForSlice(m_Slices[i_slice], VOL_ITER_MATRIX, sparam.source_iter)));
-            }
+                    GetFilenameForSlice(m_Slices[i_slice], VOL_ITER_WARP, sparam.source_iter)));
 
-          // Run the reslice operation
-          reslice_api.RunReslice(my_param);
-
-          // Get an iterator into the result
-          itk::ImageRegionConstIterator<LDDMMType::CompositeImageType> it(resliced, resliced->GetBufferedRegion());
-
-          // Copy the pixels to destination
-          for(; !it_slice.IsAtEndOfSlice(); it_slice.NextLine())
-            {
-            for(; !it_slice.IsAtEndOfLine(); ++it_slice, ++it)
-              {
-              // TODO: this is a very inefficient copy routine, better to directly copy memory!
-              it_slice.Set(it.Get());
-              }
-            }
+          // Add the affine matrix
+          my_param.reslice_param.transforms.push_back(
+                TransformSpec(
+                  GetFilenameForSlice(m_Slices[i_slice], VOL_ITER_MATRIX, sparam.source_iter)));
           }
+
+        // Run the reslice operation
+        reslice_api.RunReslice(my_param);
+
+        // Get an iterator into the result
+        itk::ImageRegionConstIterator<LDDMMType::CompositeImageType> it(resliced, resliced->GetBufferedRegion());
+
+        // Get the number of elements to copy
+        unsigned long n_elts = resliced->GetPixelContainer()->Size();
+
+        // Copy the pixels to destination. Some brute force pointer calculations here
+        LDDMMType::CompositeImageType::InternalPixelType *p_src = resliced->GetBufferPointer();
+        LDDMMType::CompositeImageType::InternalPixelType *p_trg =
+            target->GetBufferPointer() + it_slice.GetIndex()[2] * n_elts;
+
+        for(unsigned long i = 0; i < n_elts; i++)
+          p_trg[i] = p_src[i];
         }
       }
     else throw GreedyException("Only exact mode is implemented.");
@@ -1502,7 +1608,7 @@ void splat(StackParameters &param, CommandLineHelper &cl)
 {
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
-    "-threads"
+    "-threads", "-rb", "-ri"
   };
 
   // Greedy parameters for this mode
@@ -1519,7 +1625,7 @@ void splat(StackParameters &param, CommandLineHelper &cl)
       {
       sparam.fn_output = cl.read_output_filename();
       }
-    if(arg == "-i")
+    else if(arg == "-i")
       {
       std::string mode = cl.read_string();
       if(mode == "raw")
@@ -1557,6 +1663,14 @@ void splat(StackParameters &param, CommandLineHelper &cl)
         sparam.mode = SplatParameters::LINEAR;
       else if(mode == "parzen")
         sparam.mode = SplatParameters::PARZEN;
+      }
+    else if(arg == "-M")
+      {
+      sparam.fn_manifest = cl.read_existing_filename();
+      }
+    else if(arg == "-H")
+      {
+      sparam.ignore_alt_headers = true;
       }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
@@ -1641,6 +1755,10 @@ int main(int argc, char *argv[])
   else if(cmd == "voliter")
     {
     voliter(param, cl);
+    }
+  else if(cmd == "splat")
+    {
+    splat(param, cl);
     }
   else
     {

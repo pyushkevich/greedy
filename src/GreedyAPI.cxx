@@ -267,7 +267,8 @@ template <unsigned int VDim, typename TReal>
 template <class TImage>
 itk::SmartPointer<TImage>
 GreedyApproach<VDim, TReal>
-::ReadImageViaCache(const std::string &filename)
+::ReadImageViaCache(const std::string &filename,
+                    itk::ImageIOBase::IOComponentType *comp_type)
 {
   // Check the cache for the presence of the image
   typename ImageCache::const_iterator it = m_ImageCache.find(filename);
@@ -280,6 +281,9 @@ GreedyApproach<VDim, TReal>
                             filename.c_str(), typeid(TImage).name());
     itk::SmartPointer<TImage> pointer = image;
 
+    // The component type is unknown here
+    *comp_type = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE;
+
     return pointer;
     }
 
@@ -288,6 +292,10 @@ GreedyApproach<VDim, TReal>
   typename ReaderType::Pointer reader = ReaderType::New();
   reader->SetFileName(filename.c_str());
   reader->Update();
+
+  // Store the component type if requested
+  if(comp_type)
+    *comp_type = reader->GetImageIO()->GetComponentType();
 
   itk::SmartPointer<TImage> pointer = reader->GetOutput();
   return pointer;
@@ -1977,7 +1985,7 @@ int GreedyApproach<VDim, TReal>
     // Handle the special case of multi-label images
     if(r_param.images[i].interp.mode == InterpSpec::LABELWISE)
       {
-      // The label image assumed to be an image of shorts
+      // The label image assumed to be an image of shortsC
       typedef itk::Image<short, VDim> LabelImageType;
       typedef itk::ImageFileReader<LabelImageType> LabelReaderType;
 
@@ -2070,12 +2078,12 @@ int GreedyApproach<VDim, TReal>
       }
     else
       {
-      // Read the input image
-      CompositeImagePointer moving, warped = CompositeImageType::New();
-      itk::ImageIOBase::IOComponentType comp = LDDMMType::cimg_read(filename, moving);
+      // Read the input image and record its type
+      itk::ImageIOBase::IOComponentType comp;
+      CompositeImagePointer moving = ReadImageViaCache<CompositeImageType>(filename, &comp);
 
       // Allocate the warped image
-      LDDMMType::alloc_cimg(warped, ref, moving->GetNumberOfComponentsPerPixel());
+      CompositeImagePointer warped = LDDMMType::new_cimg(ref, moving->GetNumberOfComponentsPerPixel());
 
       // Perform the warp
       LDDMMType::interp_cimg(moving, warp, warped,
