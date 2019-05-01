@@ -10,8 +10,8 @@ Required Command Options:
   -S <mode>              : Splatting mode. Currently supported modes are:
                              exact   : a slide is splatted if it's z matches target (up to ztol)
 Additional Command Options:
-  -ztol                  : Tolerance for the exact splatting mode
-  -M                     : Alternative manifest file. Can be used to specify the list of ids to
+  -ztol <value>          : Tolerance for the exact splatting mode
+  -M <file>              : Alternative manifest file. Can be used to specify the list of ids to
                            include in the splatting (column 1) and the alternative sources for the
                            images (optional column 2). The can be used to splat derived data.
   -H                     : When providing alternative sources with -M, ignore the header of the

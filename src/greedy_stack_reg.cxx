@@ -1652,6 +1652,10 @@ void splat(StackParameters &param, CommandLineHelper &cl)
       sparam.z_step = cl.read_double();
       sparam.z_last = cl.read_double();
       }
+    else if(arg == "-ztol")
+      {
+      sparam.z_exact_tol = cl.read_double();
+      }
     else if(arg == "-S")
       {
       std::string mode = cl.read_string();
