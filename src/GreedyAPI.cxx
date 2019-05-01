@@ -282,7 +282,8 @@ GreedyApproach<VDim, TReal>
     itk::SmartPointer<TImage> pointer = image;
 
     // The component type is unknown here
-    *comp_type = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE;
+    if(comp_type)
+      *comp_type = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE;
 
     return pointer;
     }
