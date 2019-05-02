@@ -273,7 +273,7 @@ public:
   /** Set of enums used to refer to files in the project directory */
   enum FileIntent {
     MANIFEST_FILE = 0, CONFIG_ENTRY, AFFINE_MATRIX, METRIC_VALUE, ACCUM_MATRIX, ACCUM_RESLICE,
-    VOL_INIT_MATRIX, VOL_SLIDE, VOL_MEDIAN_INIT_MATRIX,
+    VOL_INIT_MATRIX, VOL_SLIDE, VOL_MASK_SLIDE, VOL_MEDIAN_INIT_MATRIX,
     VOL_ITER_MATRIX, VOL_ITER_WARP, ITER_METRIC_DUMP
   };
 
@@ -358,6 +358,9 @@ public:
 
   bool CanSkipFile(const std::string &fn)
   {
+    if(fn.length() == 0)
+      return true;
+
     return m_GlobalParam.reuse && itksys::SystemTools::FileExists(fn.c_str(), true);
   }
 
@@ -685,14 +688,19 @@ public:
     return vol_slice_2d;
   }
 
-  void InitialMatchToVolume(const std::string &fn_volume, const GreedyParameters &gparam)
+  void InitialMatchToVolume(const std::string &fn_volume, const std::string &fn_mask,
+                            const GreedyParameters &gparam)
   {
     // Configure the threads
     GreedyAPI::ConfigThreads(gparam);
 
     // Read the 3D volume into memory
-    LDDMMType3D::CompositeImagePointer vol;
-    LDDMMType3D::cimg_read(fn_volume.c_str(), vol);
+    LDDMMType3D::CompositeImagePointer vol = LDDMMType3D::cimg_read(fn_volume.c_str());
+
+    // Read the mask into memory
+    LDDMMType3D::CompositeImagePointer mask;
+    if(fn_mask.size())
+      mask = LDDMMType3D::cimg_read(fn_mask.c_str());
 
     // Extract target slices from the 3D volume
     for(unsigned int i = 0; i < m_Slices.size(); i++)
@@ -703,7 +711,12 @@ public:
       // Output matrix for this registration
       std::string fn_vol_init_matrix = GetFilenameForSlice(m_Slices[i], VOL_INIT_MATRIX);
 
-      if(!CanSkipFile(fn_vol_slide) || !CanSkipFile(fn_vol_init_matrix))
+      // Is there a mask?
+      std::string fn_vol_mask_slide = (fn_mask.length())
+                                      ? GetFilenameForSlice(m_Slices[i], VOL_MASK_SLIDE)
+                                      : std::string();
+
+      if(!CanSkipFile(fn_vol_slide) || !CanSkipFile(fn_vol_init_matrix) || !CanSkipFile(fn_vol_mask_slide))
         {
         // Extract the slice from the 3D image
         SlideImagePointer vol_slice_2d = ExtractSliceFromVolume(vol, m_Slices[i].z_pos);
@@ -724,6 +737,15 @@ public:
         ImagePairSpec img_pair("vol_slice", fn_accum_reslice, 1.0);
         greedy_api.AddCachedInputObject("vol_slice", vol_slice_2d.GetPointer());
         my_param.inputs.push_back(img_pair);
+
+        // Handle the mask
+        if(fn_vol_mask_slide.length())
+          {
+          // TODO: we are not caching because of different image types
+          SlideImagePointer mask_slice_2d = ExtractSliceFromVolume(mask, m_Slices[i].z_pos);
+          LDDMMType::cimg_write(mask_slice_2d, fn_vol_mask_slide.c_str());
+          my_param.gradient_mask = fn_vol_mask_slide;
+          }
 
         // Set other parameters
         my_param.affine_dof = GreedyParameters::DOF_AFFINE;
@@ -840,6 +862,12 @@ public:
         SlideImagePointer vol_slice_2d = slice_cache.GetImage<SlideImageType>(
                                            GetFilenameForSlice(m_Slices[k], VOL_SLIDE));
 
+        // Load the mask as well
+        GreedyAPI::ImagePointer mask_slice_2d;
+        std::string fn_mask_slice = GetFilenameForSlice(m_Slices[k], VOL_MASK_SLIDE);
+        if(itksys::SystemTools::FileExists(fn_mask_slice.c_str(), true))
+          mask_slice_2d = slice_cache.GetImage<GreedyAPI::ImageType>(fn_mask_slice);
+
         // Set up the registration. We are registering to the volume and to the transformed
         // adjacent slices. We should do everything in the space of the MRI volume because
         // (a) it should be large enough to cover the histology and (b) there might be a mask
@@ -871,7 +899,14 @@ public:
 
         // Set up the main registration pair
         GreedyParameters param_reg = gparam;
-        param_reg.inputs.push_back(ImagePairSpec("volume_slice", "moving", w_volume));
+        param_reg.inputs.push_back(ImagePairSpec("volume_slice", "moving", w_volume));    
+
+        // Handle mask
+        if(mask_slice_2d)
+          {
+          api_reg.AddCachedInputObject("mask_slice", mask_slice_2d);
+          param_reg.gradient_mask = "mask_slice";
+          }
 
         // Handle each of the neighbors
         for(auto nbr : k_nbr)
@@ -1366,6 +1401,9 @@ private:
       case VOL_SLIDE:
         sprintf(filename, "%s/vol/slides/vol_slide_%s.%s", dir, sid, ext);
         break;
+      case VOL_MASK_SLIDE:
+        sprintf(filename, "%s/vol/slides/vol_mask_slide_%s.%s", dir, sid, ext);
+        break;
       case VOL_ITER_MATRIX:
         sprintf(filename, "%s/vol/iter%02d/affine_refvol_mov_%s_iter%02d.mat", dir, iter, sid, iter);
         break;
@@ -1508,13 +1546,17 @@ void volmatch(StackParameters &param, CommandLineHelper &cl)
   GreedyParameters gparam;
 
   // Parse the parameters
-  std::string fn_volume;
+  std::string fn_volume, fn_mask;
   std::string arg;
   while(cl.read_command(arg))
     {
     if(arg == "-i")
       {
       fn_volume = cl.read_existing_filename();
+      }
+    else if(arg == "-gm")
+      {
+      fn_mask = cl.read_existing_filename();
       }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
@@ -1534,7 +1576,7 @@ void volmatch(StackParameters &param, CommandLineHelper &cl)
   // Create the project
   StackGreedyProject sgp(param.output_dir, param);
   sgp.RestoreProject();
-  sgp.InitialMatchToVolume(fn_volume, gparam);
+  sgp.InitialMatchToVolume(fn_volume, fn_mask, gparam);
 }
 
 
