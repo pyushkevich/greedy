@@ -1163,7 +1163,7 @@ public:
         double z_pos = target->GetOrigin()[2] + target->GetSpacing()[2] * it_slice.GetIndex()[2];
 
         // Find the slice with tolerance
-        int i_slice = FindSlideByZ(z_pos, sparam.z_exact_tol);
+        int i_slice = FindSlideByZ(z_pos, sparam.z_exact_tol, alt_source);
         if(i_slice < 0)
           continue;
 
@@ -1296,15 +1296,29 @@ public:
     return -1;
   }
 
-  int FindSlideByZ(double z, double z_tol = 0.0)
+  int FindSlideByZ(double z, double z_tol, const std::map<std::string, std::string> &alt_source)
   {
+    int i_best = -1;
+    double dz_best = 1e100;
+
     for (int i = 0; i < m_Slices.size(); i++)
       {
+      // Check the filter
+      if(alt_source.size() && alt_source.find(m_Slices[i].unique_id) == alt_source.end())
+        continue;
+
+      // Check the range
       if(m_Slices[i].z_pos >= z - z_tol && m_Slices[i].z_pos <= z + z_tol)
-        return i;
+        {
+        if(i_best < 0 || fabs(m_Slices[i].z_pos - z) < dz_best)
+          {
+          i_best = i;
+          dz_best = fabs(m_Slices[i].z_pos - z);
+          }
+        }
       }
 
-    return -1;
+    return i_best;
   }
 
   unsigned int GetRootSlide()
