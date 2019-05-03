@@ -1167,10 +1167,6 @@ public:
         if(i_slice < 0)
           continue;
 
-        // Make sure the slice is included in the alternative manifest
-        if(alt_source.size() && alt_source.find(m_Slices[i_slice].unique_id) == alt_source.end())
-          continue;
-
         // Get the filename to read
         std::string fn_source = alt_source.size() == 0
                                 ? m_Slices[i_slice].raw_filename
