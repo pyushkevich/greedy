@@ -277,7 +277,7 @@ public:
   /** Set of enums used to refer to files in the project directory */
   enum FileIntent {
     MANIFEST_FILE = 0, CONFIG_ENTRY, AFFINE_MATRIX, METRIC_VALUE, ACCUM_MATRIX, ACCUM_RESLICE,
-    VOL_INIT_MATRIX, VOL_SLIDE, VOL_MASK_SLIDE, VOL_MEDIAN_INIT_MATRIX,
+    VOL_INIT_MATRIX, VOL_SLIDE, VOL_MASK_SLIDE, VOL_BEST_INIT_MATRIX,
     VOL_ITER_MATRIX, VOL_ITER_WARP, ITER_METRIC_DUMP
   };
 
@@ -763,39 +763,72 @@ public:
         }
       }
 
-    // List of affine matrices to the volume slice
-    typedef vnl_matrix_fixed<double, 3, 3> Mat3;
-    std::vector<Mat3> vol_affine(m_Slices.size());
+    // Now we have a large set of per-slice matrices. We next try each matrix on each pair of
+    // slices and store the metric, with the goal of finding a matrix that will provide the 
+    // best possible match.
+    std::vector<double> accum_metric(m_Slices.size(), 0.0);
     for(unsigned int i = 0; i < m_Slices.size(); i++)
       {
-      std::string fn_vol_init_matrix = GetFilenameForSlice(m_Slices[i], VOL_INIT_MATRIX);
-      vol_affine[i] = GreedyAPI::ReadAffineMatrix(TransformSpec(fn_vol_init_matrix));
-      }
+      // Load the images to avoid N^2 IO operations
+      LDDMMType::CompositeImagePointer vol_slice = 
+        LDDMMType::cimg_read(GetFilenameForSlice(m_Slices[i], VOL_SLIDE).c_str());
 
-    // Compute distances between all pairs of affine matrices
-    vnl_matrix<double> aff_dist(m_Slices.size(), m_Slices.size()); aff_dist.fill(0.0);
-    for(unsigned int i = 0; i < m_Slices.size(); i++)
-      {
-      for(unsigned int j = 0; j < i; j++)
+      LDDMMType::CompositeImagePointer acc_slice = 
+        LDDMMType::cimg_read(GetFilenameForSlice(m_Slices[i], ACCUM_RESLICE).c_str());
+
+      // Loop over matrices
+      for(unsigned int k = 0; k < m_Slices.size(); k++)
         {
-        aff_dist(i,j) = (vol_affine[i] - vol_affine[j]).array_one_norm();
-        aff_dist(j,i) = aff_dist(i,j);
+        // This API is for metric computation
+        GreedyAPI greedy_api;
+        GreedyParameters my_param = gparam;
+
+        // Same image pairs as before
+        ImagePairSpec img_pair("vol_slice", "acc_slice", 1.0);
+        greedy_api.AddCachedInputObject("vol_slice", vol_slice.GetPointer());
+        greedy_api.AddCachedInputObject("acc_slice", acc_slice.GetPointer());
+        my_param.inputs.push_back(img_pair);
+
+        // TODO: this is really bad, can't cache mask images
+        if(fn_mask.length())
+          my_param.gradient_mask = GetFilenameForSlice(m_Slices[i], VOL_MASK_SLIDE);
+
+        // No output, as we will run for a single iteration
+        my_param.iter_per_level.clear();
+        my_param.iter_per_level.push_back(0);
+
+        // TODO: this is lame
+        my_param.output = "/tmp/dummy.mat";
+        
+        // Set other parameters
+        my_param.affine_dof = GreedyParameters::DOF_AFFINE;
+        my_param.affine_init_mode = RAS_FILENAME;
+        my_param.affine_init_transform = GetFilenameForSlice(m_Slices[k], VOL_INIT_MATRIX);
+
+        // Run affine to get the metric value
+        greedy_api.RunAffine(my_param);
+        accum_metric[k] += greedy_api.GetLastMetricReport().TotalMetric;
         }
       }
 
-    // Compute the sum of distances from each matrix to the rest
-    vnl_vector<double> row_sums = aff_dist * vnl_vector<double>(m_Slices.size(), 1.0);
-
-    // Find the index of the smallest element
-    unsigned int idx_best =
-        std::find(row_sums.begin(), row_sums.end(), row_sums.min_value()) -
-        row_sums.begin();
+    // Now find the matrix with the best overall metric
+    unsigned int k_best = 0; double m_best = 0.0;
+    for(unsigned int k = 0; k < m_Slices.size(); k++)
+      {
+      printf("Across-slice metric for matrix %04d: %8.4f\n", k, accum_metric[k]);
+      if(k == 0 || accum_metric[k] > m_best) 
+        {
+        k_best = k;
+        m_best = accum_metric[k];
+        }
+      }
 
     // The median affine
-    Mat3 median_affine = vol_affine[idx_best];
+    vnl_matrix<double> M_best =
+      GreedyAPI::ReadAffineMatrix(GetFilenameForSlice(m_Slices[k_best], VOL_INIT_MATRIX));
 
     // Write the median affine to a file
-    GreedyAPI::WriteAffineMatrix(GetFilenameForGlobal(VOL_MEDIAN_INIT_MATRIX), median_affine);
+    GreedyAPI::WriteAffineMatrix(GetFilenameForGlobal(VOL_BEST_INIT_MATRIX), M_best);
 
     // Now write the complete initial to-volume transform for each slide
     for(unsigned int i = 0; i < m_Slices.size(); i++)
@@ -803,7 +836,7 @@ public:
       vnl_matrix<double> M_root =
           GreedyAPI::ReadAffineMatrix(GetFilenameForSlice(m_Slices[i], ACCUM_MATRIX));
 
-      vnl_matrix<double> M_vol = M_root * median_affine;
+      vnl_matrix<double> M_vol = M_root * M_best;
 
       GreedyAPI::WriteAffineMatrix(
             GetFilenameForSlice(m_Slices[i], VOL_ITER_MATRIX, 0), M_vol);
@@ -1458,8 +1491,8 @@ private:
 
     switch(intent)
       {
-      case VOL_MEDIAN_INIT_MATRIX:
-        sprintf(filename, "%s/vol/match/affine_refvol_median.mat", dir);
+      case VOL_BEST_INIT_MATRIX:
+        sprintf(filename, "%s/vol/match/affine_refvol_best.mat", dir);
         break;
       case MANIFEST_FILE:
         sprintf(filename, "%s/config/manifest.txt", dir);
