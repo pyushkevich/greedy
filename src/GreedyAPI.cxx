@@ -1036,6 +1036,9 @@ int GreedyApproach<VDim, TReal>
 }
 
 
+
+
+
 #include "itkStatisticsImageFilter.h"
 
 /** My own time probe because itk's use of fork is messing up my debugging */
@@ -1497,6 +1500,158 @@ int GreedyApproach<VDim, TReal>
     }
   return 0;
 }
+
+
+
+
+/**
+ * Computes the metric without running any optimization. Metric can be computed
+ * at different levels by specifying the iterations array
+ */
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::ComputeMetric(GreedyParameters &param, double &total_metric)
+{
+  // Create an optical flow helper object
+  OFHelperType of_helper;
+
+  // Set the scaling factors for multi-resolution
+  of_helper.SetDefaultPyramidFactors(1);
+
+  // Set the scaling mode depending on the metric
+  if(param.metric == GreedyParameters::MAHALANOBIS)
+    of_helper.SetScaleFixedImageWithVoxelSize(true);
+
+  // Read the image pairs to register
+  ReadImages(param, of_helper);
+
+  // An image pointer desribing the current estimate of the deformation
+  VectorImagePointer uLevel = NULL;
+
+  // Clear the metric log
+  m_MetricLog.clear();
+
+  // Add stage to metric log
+  m_MetricLog.push_back(std::vector<MultiComponentMetricReport>());
+
+  // Reference space
+  ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
+
+  // Intermediate images
+  ImagePointer iTemp = ImageType::New();
+  VectorImagePointer viTemp = VectorImageType::New();
+  VectorImagePointer uk = VectorImageType::New();
+  VectorImagePointer uk1 = VectorImageType::New();
+
+  // This is the exponentiated uk, in stationary velocity mode it is uk^(2^N)
+  VectorImagePointer uk_exp = VectorImageType::New();
+
+  // A pointer to the full warp image - either uk in greedy mode, or uk_exp in diff demons mdoe
+  VectorImageType *uFull;
+
+  // Allocate the intermediate data
+  LDDMMType::alloc_vimg(uk, refspace);
+  LDDMMType::alloc_img(iTemp, refspace);
+  LDDMMType::alloc_vimg(viTemp, refspace);
+  LDDMMType::alloc_vimg(uk1, refspace);
+
+  // These are only allocated in diffeomorphic demons mode
+  if(param.flag_stationary_velocity_mode)
+    {
+    LDDMMType::alloc_vimg(uk_exp, refspace);
+    }
+
+  if(param.initial_warp.size())
+    {
+    // The user supplied an initial warp or initial root warp. In this case, we
+    // do not start iteration from zero, but use the initial warp to start from
+    VectorImagePointer uInit = VectorImageType::New();
+
+    // Read the warp file
+    LDDMMType::vimg_read(param.initial_warp.c_str(), uInit );
+
+    // Convert the warp file into voxel units from physical units
+    OFHelperType::PhysicalWarpToVoxelWarp(uInit, uInit, uInit);
+
+    // Scale the initial warp by the pyramid level
+    LDDMMType::vimg_resample_identity(uInit, refspace, uk);
+    uLevel = uk;
+    }
+  else if(param.affine_init_mode != VOX_IDENTITY)
+    {
+    typename LinearTransformType::Pointer tran = LinearTransformType::New();
+
+    if(param.affine_init_mode == RAS_FILENAME)
+      {
+      // Read the initial affine transform from a file
+      vnl_matrix<double> Qp = ReadAffineMatrixViaCache(param.affine_init_transform);
+
+      // Map this to voxel space
+      MapPhysicalRASSpaceToAffine(of_helper, 0, Qp, tran);
+      }
+    else if(param.affine_init_mode == RAS_IDENTITY)
+      {
+      // Physical space transform
+      vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
+
+      // Map this to voxel space
+      MapPhysicalRASSpaceToAffine(of_helper, 0, Qp, tran);
+      }
+
+    // Create an initial warp
+    OFHelperType::AffineToField(tran, uk);
+    uLevel = uk;
+    }
+
+  // Integrate the total deformation field for this iteration
+  if(param.flag_stationary_velocity_mode)
+    {
+    // This is the exponentiation of the stationary velocity field
+    // Take current warp to 'exponent' power - this is the actual warp
+    LDDMMType::vimg_exp(uk, uk_exp, viTemp, param.warp_exponent, 1.0);
+    uFull = uk_exp;
+    }
+  else
+    {
+    uFull = uk;
+    }
+
+  // Create a metric report that will be returned by all metrics
+  MultiComponentMetricReport metric_report;
+
+  // Switch based on the metric
+  if(param.metric == GreedyParameters::SSD)
+    {
+    of_helper.ComputeOpticalFlowField(0, uFull, iTemp, metric_report, uk1, 1.0);
+    }
+  else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
+    {
+    of_helper.ComputeMIFlowField(0, param.metric == GreedyParameters::NMI, uFull, iTemp, metric_report, uk1, 1.0);
+
+    // If there is a mask, multiply the gradient by the mask
+    }
+
+  else if(param.metric == GreedyParameters::NCC)
+    {
+    itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
+
+    // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
+    of_helper.ComputeNCCMetricImage(0, uFull, radius, iTemp, metric_report, uk1, 1.0);
+    }
+  else if(param.metric == GreedyParameters::MAHALANOBIS)
+    {
+    of_helper.ComputeMahalanobisMetricImage(0, uFull, iTemp, metric_report, uk1);
+    }
+
+  // Compute the accumulated metric over the mask
+  if(param.gradient_mask.size())
+    LDDMMType::img_multiply_in_place(iTemp, of_helper.GetGradientMask(0));
+
+  // Compute the sum
+  total_metric = LDDMMType::img_voxel_sum(iTemp);
+  return 0;
+}
+
 
 /**
  * This function performs brute force search for similar patches. It generates a discrete displacement

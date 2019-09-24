@@ -806,8 +806,9 @@ public:
         my_param.affine_init_transform = GetFilenameForSlice(m_Slices[k], VOL_INIT_MATRIX);
 
         // Run affine to get the metric value
-        greedy_api.RunAffine(my_param);
-        accum_metric[k] += greedy_api.GetLastMetricReport().TotalMetric;
+        double total_metric = 0.0;
+        greedy_api.ComputeMetric(my_param, total_metric);
+        accum_metric[k] += total_metric;
         }
       }
 
