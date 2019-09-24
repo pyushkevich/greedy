@@ -165,6 +165,7 @@ public:
   static void img_smooth(ImageType *src, ImageType *out, double sigma);
   static void vimg_smooth(VectorImageType *src, VectorImageType *out, double sigma);
   static void vimg_smooth(VectorImageType *src, VectorImageType *out, Vec sigmas);
+  static void cimg_smooth(CompositeImageType *src, CompositeImageType *out, Vec sigma);
 
   // Smooth a displacement field with a border of zeros around it
   static void vimg_smooth_withborder(VectorImageType *src, VectorImageType *trg, Vec sigma, int border_size);
@@ -255,6 +256,7 @@ public:
   static void vimg_copy(const VectorImageType *src, VectorImageType *trg);
   static void img_copy(const ImageType *src, ImageType *trg);
   static void mimg_copy(const MatrixImageType *src, MatrixImageType *trg);
+  static void cimg_copy(const CompositeImageType *src, CompositeImageType *trg);
 
   /** Cast to image of different datatype automatically */
   static bool vimg_auto_cast(const VectorImageType *src, ImageBaseType *trg);

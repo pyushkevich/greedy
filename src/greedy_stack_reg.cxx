@@ -98,11 +98,15 @@ struct SplatParameters
   // Background values
   std::vector<double> background;
 
+  // In-plane sigma
+  double sigma_inplane;
+
   SplatParameters()
     : z_first(0.0), z_last(0.0), z_step(0.0),
       source_stage(RAW), source_iter(0),
       mode(EXACT), z_exact_tol(1e-6), sigma(0.0),
-      ignore_alt_headers(false), background(1, 0.0) {}
+      ignore_alt_headers(false), background(1, 0.0),
+      sigma_inplane(0.0) {}
 };
 
 
@@ -1176,6 +1180,15 @@ public:
         LDDMMType::CompositeImagePointer img_source =
             icache.GetImage<LDDMMType::CompositeImageType>(fn_source);
 
+        // Smooth the image if needed
+        if(sparam.sigma_inplane > 0.0)
+          {
+          LDDMMType::Vec sigma_phys;
+          for(unsigned int a = 0; a < 2; a++)
+            sigma_phys[a] = sparam.sigma_inplane * img_source->GetSpacing()[a];
+          LDDMMType::cimg_smooth(img_source, img_source, sigma_phys);
+          }
+
         // Should we override the image header?
         if(fn_source != m_Slices[i_slice].raw_filename && sparam.ignore_alt_headers)
           {
@@ -1727,6 +1740,10 @@ void splat(StackParameters &param, CommandLineHelper &cl)
     else if(arg == "-H")
       {
       sparam.ignore_alt_headers = true;
+      }
+    else if(arg == "-si")
+      {
+      sparam.sigma_inplane = cl.read_double();
       }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {

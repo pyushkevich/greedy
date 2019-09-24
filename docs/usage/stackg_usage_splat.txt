@@ -18,6 +18,8 @@ Additional Command Options:
                            source images, stretching them to occupy the same physical space as the
                            images in the main manifest. Useful when you have data covering the same
                            slide extents but with headers that don't match.
+  -si <sigma>            : Apply in-plane Gaussian smoothing with given standard deviation (voxel
+                           units) to images before splatting
 Options Shared with Greedy (see Greedy docs for more info):
   -rb <value>            : Background value for 2D/3D interpolation
   -ri <mode> [sigma]     : Interpolation mode (for 2D interpolation)

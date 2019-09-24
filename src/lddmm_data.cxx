@@ -1095,6 +1095,23 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
+::cimg_smooth(CompositeImageType *src, CompositeImageType *trg, Vec sigma)
+{
+  typedef itk::SmoothingRecursiveGaussianImageFilter<CompositeImageType, CompositeImageType> Filter;
+  typename Filter::Pointer fltSmooth = Filter::New();
+  fltSmooth->SetInput(src);
+  fltSmooth->SetSigmaArray(sigma);
+  fltSmooth->Update();
+
+  // TODO: this is a work-around for a stupid bug with this recursive filter. When the data
+  // type is float, the filter does not allow me to graft an output
+  LDDMMData<TFloat, VDim>::cimg_copy(fltSmooth->GetOutput(), trg);
+}
+
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
 ::vimg_smooth(VectorImageType *src, VectorImageType *trg, double sigma)
 {
   Vec sa; sa.Fill(sigma);
@@ -1467,6 +1484,18 @@ LDDMMData<TFloat, VDim>
 ::vimg_copy(const VectorImageType *src, VectorImageType *trg)
 {
   typedef itk::CastImageFilter<VectorImageType, VectorImageType> CastFilter;
+  typename CastFilter::Pointer fltCast = CastFilter::New();
+  fltCast->SetInput(src);
+  fltCast->GraftOutput(trg);
+  fltCast->Update();
+}
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_copy(const CompositeImageType *src, CompositeImageType *trg)
+{
+  typedef itk::CastImageFilter<CompositeImageType, CompositeImageType> CastFilter;
   typename CastFilter::Pointer fltCast = CastFilter::New();
   fltCast->SetInput(src);
   fltCast->GraftOutput(trg);
