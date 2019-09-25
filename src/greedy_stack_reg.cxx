@@ -793,22 +793,15 @@ public:
         if(fn_mask.length())
           my_param.gradient_mask = GetFilenameForSlice(m_Slices[i], VOL_MASK_SLIDE);
 
-        // No output, as we will run for a single iteration
-        my_param.iter_per_level.clear();
-        my_param.iter_per_level.push_back(0);
-
-        // TODO: this is lame
-        my_param.output = "/tmp/dummy.mat";
-        
         // Set other parameters
-        my_param.affine_dof = GreedyParameters::DOF_AFFINE;
         my_param.affine_init_mode = RAS_FILENAME;
         my_param.affine_init_transform = GetFilenameForSlice(m_Slices[k], VOL_INIT_MATRIX);
 
         // Run affine to get the metric value
-        double total_metric = 0.0;
-        greedy_api.ComputeMetric(my_param, total_metric);
-        accum_metric[k] += total_metric;
+        MultiComponentMetricReport metric_report;
+        greedy_api.ComputeMetric(my_param, metric_report);
+        printf("Slide %03d matrix %03d metric %8.4f\n", i, k, metric_report.TotalMetric);
+        accum_metric[k] += metric_report.TotalMetric;
         }
       }
 

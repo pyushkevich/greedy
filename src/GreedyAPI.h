@@ -98,7 +98,7 @@ public:
 
   int RunJacobian(GreedyParameters &param);
 
-  int ComputeMetric(GreedyParameters &param, double &total_metric);
+  int ComputeMetric(GreedyParameters &param, MultiComponentMetricReport &metric_report);
 
   /**
    * Add an image that is already in memory to the internal cache, and

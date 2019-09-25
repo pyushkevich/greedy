@@ -1510,7 +1510,7 @@ int GreedyApproach<VDim, TReal>
  */
 template <unsigned int VDim, typename TReal>
 int GreedyApproach<VDim, TReal>
-::ComputeMetric(GreedyParameters &param, double &total_metric)
+::ComputeMetric(GreedyParameters &param, MultiComponentMetricReport &metric_report)
 {
   // Create an optical flow helper object
   OFHelperType of_helper;
@@ -1527,12 +1527,6 @@ int GreedyApproach<VDim, TReal>
 
   // An image pointer desribing the current estimate of the deformation
   VectorImagePointer uLevel = NULL;
-
-  // Clear the metric log
-  m_MetricLog.clear();
-
-  // Add stage to metric log
-  m_MetricLog.push_back(std::vector<MultiComponentMetricReport>());
 
   // Reference space
   ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
@@ -1616,9 +1610,6 @@ int GreedyApproach<VDim, TReal>
     uFull = uk;
     }
 
-  // Create a metric report that will be returned by all metrics
-  MultiComponentMetricReport metric_report;
-
   // Switch based on the metric
   if(param.metric == GreedyParameters::SSD)
     {
@@ -1643,12 +1634,6 @@ int GreedyApproach<VDim, TReal>
     of_helper.ComputeMahalanobisMetricImage(0, uFull, iTemp, metric_report, uk1);
     }
 
-  // Compute the accumulated metric over the mask
-  if(param.gradient_mask.size())
-    LDDMMType::img_multiply_in_place(iTemp, of_helper.GetGradientMask(0));
-
-  // Compute the sum
-  total_metric = LDDMMType::img_voxel_sum(iTemp);
   return 0;
 }
 
