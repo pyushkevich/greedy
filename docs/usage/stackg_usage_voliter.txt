@@ -6,6 +6,11 @@ Command Options:
   -nd <iter>             : Total numer of deformable iterations [5]
   -w <weight>            : Relative weight of the slice-to-volume metric
                            vs. the slice-to-neighbors metric [4.0]
+  -wf <weight>           : Relative weight of the slice-to-volume metric
+                           for slides marked as 'followers' in the manifest. 
+                           Default: equal to -w
+  -wdp                   : Use z-distance proportional weighting for neighbor
+                           slices (default: neighbor slices have same weight)
   -R <first> <last>      : Only run a subset of iterations. Iterations
                            are counted starting with 1.
 Options Shared with Greedy (see Greedy docs for more info):

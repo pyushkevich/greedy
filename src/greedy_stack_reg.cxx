@@ -881,7 +881,8 @@ public:
   // again, do we want to do this based on initial metric or current metric. For now, we can start
   // by just using same weights.
   void IterativeMatchToVolume(unsigned int n_affine, unsigned int n_deform, unsigned int i_first,
-                              unsigned int i_last, double w_volume, const GreedyParameters &gparam)
+                              unsigned int i_last, double w_volume, double w_volume_follower, 
+                              bool dist_prop_weighting, const GreedyParameters &gparam)
   {
     // Set up a cache for loaded images. These images can be cycled in and out of memory
     // depending on need. TODO: let user configure cache sizes
@@ -917,9 +918,16 @@ public:
             ? GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter)
             : GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter);
 
+        printf("#############################\n");
+        printf("### Iter :%d   Slide %s ###\n", iter, m_Slices[k].unique_id.c_str());
+        printf("#############################\n");
+
         // Has this already been done? Then on to the next!
         if(CanSkipFile(fn_result))
+          {
+          printf("Skipping, prior result available");
           continue;
+          }
 
         // Get the pointer to the current slide (used as moving image)
         SlideImagePointer img_slide = slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
@@ -948,12 +956,16 @@ public:
         // are not used as they are assumed to be less reliable
         slice_ref_set k_nbr;
 
+        // Keep track of total weight when using distance proportional weighting
+        double tot_dist_wgt = 0.0;
+
         // Find slice before k that is a leader slice
         for(auto itr = m_SortedSlices.rbegin(); itr != m_SortedSlices.rend(); itr++)
           {
           if(itr->first < m_Slices[k].z_pos && m_Slices[itr->second].is_leader)
             {
             k_nbr.insert(*itr);
+            tot_dist_wgt += 1.0 / (m_Slices[k].z_pos - itr->first);
             break;
             }
           }
@@ -964,6 +976,7 @@ public:
           if(itf->first > m_Slices[k].z_pos && m_Slices[itf->second].is_leader)
             {
             k_nbr.insert(*itf);
+            tot_dist_wgt += 1.0 / (itf->first - m_Slices[k].z_pos);
             break;
             }
           }
@@ -978,7 +991,13 @@ public:
 
         // Set up the main registration pair
         GreedyParameters param_reg = gparam;
-        param_reg.inputs.push_back(ImagePairSpec("volume_slice", "moving", w_volume));    
+
+        double w_vol = m_Slices[k].is_leader ? w_volume : w_volume_follower;
+        if(w_vol > 0.0)
+          {
+          printf("Registering to volume with weight %f\n", w_vol);
+          param_reg.inputs.push_back(ImagePairSpec("volume_slice", "moving", w_vol));    
+          }
 
         // Handle mask
         if(mask_slice_2d)
@@ -1028,12 +1047,21 @@ public:
           sprintf(fixed_fn, "neighbor_%03d", j);
           api_reg.AddCachedInputObject(fixed_fn, resliced_neighbors[j]);
 
-          param_reg.inputs.push_back(ImagePairSpec(fixed_fn, "moving", 1.0));
-          }
+          // Calculate the weight
+          double w = 1.0 / k_nbr.size();
+          if(dist_prop_weighting && k_nbr.size() > 1) 
+            {
+            double dz = fabs(m_Slices[k].z_pos - m_Slices[j].z_pos);
+            double w_unscaled = 1.0 / dz;
+            w = (1.0 / dz) / tot_dist_wgt;
+            }
 
-        printf("#############################\n");
-        printf("### Iter :%d   Slide %s ###\n", iter, m_Slices[k].unique_id.c_str());
-        printf("#############################\n");
+          if(w > 0.0)
+            {
+            param_reg.inputs.push_back(ImagePairSpec(fixed_fn, "moving", w));
+            printf("Registering to neighbor %s with weight %f\n", m_Slices[j].unique_id.c_str(), w);
+            }
+          }
 
         // What kind of registration are we doing at this iteration?
         if(iter <= n_affine)
@@ -1696,6 +1724,8 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   unsigned int n_affine = 5, n_deform = 5;
   unsigned int i_first = 0, i_last = 0;
   double w_volume = 4.0;
+  double w_volume_follower = -1.0;
+  bool dist_prop_wgt = false;
 
   std::string arg;
   while(cl.read_command(arg))
@@ -1717,6 +1747,14 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
       {
       w_volume = cl.read_double();
       }
+    else if(arg == "-wf")
+      {
+      w_volume_follower = cl.read_double();
+      }
+    else if(arg == "-wdp")
+      {
+      dist_prop_wgt = true;
+      }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
       gparam.ParseCommandLine(arg, cl);
@@ -1724,6 +1762,10 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
     else
       throw GreedyException("Unknown parameter to 'voliter': %s", arg.c_str());
     }
+
+  // Set the follower weight properly
+  if(w_volume_follower < 0.0)
+    w_volume_follower = w_volume;
 
   // Default is to run all iterations
   if(i_first == 0 && i_last == 0)
@@ -1738,7 +1780,7 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   // Create the project
   StackGreedyProject sgp(param.output_dir, param);
   sgp.RestoreProject();
-  sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, w_volume, gparam);
+  sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, w_volume, w_volume_follower, dist_prop_wgt, gparam);
 }
 
 
