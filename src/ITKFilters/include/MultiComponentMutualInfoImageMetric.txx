@@ -319,6 +319,11 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
         m_comp = StandardMutualInformationMetricFunction<RealType>::compute(
               m_Bins, hc.Pfm, hc.Pf, hc.Pm, this->m_ComputeGradient ? &this->m_GradWeights[c] : NULL);
 
+      // Scale the gradient weights for this component 
+      m_comp *= this->m_Weights[c];
+      if(this->m_ComputeGradient)
+        this->m_GradWeights[c] *= this->m_Weights[c];
+
       m_total += m_comp;
 
       if(this->m_ComputeGradient)
