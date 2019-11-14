@@ -323,6 +323,11 @@ inline void allocate_aligned(int elements, float ** pointer)
     throw std::string("_aligned_malloc allocation error");
   }
 }
+
+inline void free_aligned(void *pointer) 
+{
+  _aligned_free(pointer);
+}
 #else
 inline void allocate_aligned(int elements, float ** pointer)
 {
@@ -332,6 +337,10 @@ inline void allocate_aligned(int elements, float ** pointer)
     std::cerr << "posix_memalign return value " << rc << " input " << elements * sizeof(float) << std::endl;
     throw std::string("posix_memalign allocation error");
   }
+}
+inline void free_aligned(void *pointer)
+{
+  free(pointer);
 }
 #endif
 
@@ -536,9 +545,9 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
     }
 
   // Free allocated memory
-  free(tailline);
-  free(scanline);
-  free(sum_align);
+  free_aligned(tailline);
+  free_aligned(scanline);
+  free_aligned(sum_align);
 }
 
 #endif // _NCC_SSE_
