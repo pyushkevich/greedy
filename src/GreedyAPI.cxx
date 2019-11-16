@@ -46,6 +46,7 @@
 #include "MultiImageRegistrationHelper.h"
 #include "FastWarpCompositeImageFilter.h"
 #include "MultiComponentImageMetricBase.h"
+#include "WarpFunctors.h"
 
 #include <vnl/algo/vnl_powell.h>
 #include <vnl/algo/vnl_svd.h>
@@ -1450,7 +1451,8 @@ int GreedyApproach<VDim, TReal>
 
   // The transformation field is in voxel units. To work with ANTS, it must be mapped
   // into physical offset units - just scaled by the spacing?
-  
+  ImageBaseType *warp_ref_space = of_helper.GetMovingReferenceSpace(nlevels - 1);
+
   if(param.flag_stationary_velocity_mode)
     {
     // Take current warp to 'exponent' power - this is the actual warp
@@ -1458,25 +1460,29 @@ int GreedyApproach<VDim, TReal>
     VectorImagePointer uLevelWork = LDDMMType::new_vimg(uLevel);
     LDDMMType::vimg_exp(uLevel, uLevelExp, uLevelWork, param.warp_exponent, 1.0);
 
-    // Write the resulting transformation field
-    of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevelExp, param.output.c_str(), param.warp_precision);
+    // Write the resulting transformation field (if provided)
+    if(param.output.size())
+      {
+      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevelExp, param.output.c_str(), param.warp_precision);
+      }
 
+    // If asked to write root warp, do so
     if(param.root_warp.size())
       {
-      // If asked to write root warp, do so
-      of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevel, param.root_warp.c_str(), 0);
+      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevel, param.root_warp.c_str(), 0);
       }
+
+    // Compute the inverse (this is probably unnecessary for small warps)
     if(param.inverse_warp.size())
       {
-      // Compute the inverse (this is probably unnecessary for small warps)
       of_helper.ComputeDeformationFieldInverse(uLevel, uLevelWork, 0);
-      of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevelWork, param.inverse_warp.c_str(), param.warp_precision);
+      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevelWork, param.inverse_warp.c_str(), param.warp_precision);
       }
     }
   else
     {
     // Write the resulting transformation field
-    of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uLevel, param.output.c_str(), param.warp_precision);
+    WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevel, param.output.c_str(), param.warp_precision);
 
     // If an inverse is requested, compute the inverse using the Chen 2008 fixed method.
     // A modification of this method is that if convergence is slow, we take the square
@@ -1495,11 +1501,36 @@ int GreedyApproach<VDim, TReal>
       of_helper.ComputeDeformationFieldInverse(uLevel, uInverse, param.warp_exponent);
 
       // Write the warp using compressed format
-      of_helper.WriteCompressedWarpInPhysicalSpace(nlevels - 1, uInverse, param.inverse_warp.c_str(), param.warp_precision);
+      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uInverse, param.inverse_warp.c_str(), param.warp_precision);
       }
     }
   return 0;
 }
+
+
+
+
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
+::WriteCompressedWarpInPhysicalSpaceViaCache(
+  ImageBaseType *moving_ref_space, VectorImageType *warp, const char *filename, double precision)
+{
+  // Define a _float_ output type, even if working with double precision (less space on disk)
+  typedef CompressWarpFunctor<VectorImageType, VectorImageType> Functor;
+
+  typedef UnaryPositionBasedFunctorImageFilter<VectorImageType, VectorImageType, Functor> Filter;
+  Functor functor(warp, moving_ref_space, precision);
+
+  // Perform the compression
+  typename Filter::Pointer filter = Filter::New();
+  filter->SetFunctor(functor);
+  filter->SetInput(warp);
+  filter->Update();
+
+  // Write the resulting image via cache
+  WriteImageViaCache(filter->GetOutput(), filename, itk::ImageIOBase::FLOAT);
+}
+
 
 
 
@@ -2481,7 +2512,7 @@ int GreedyApproach<VDim, TReal>
   OFHelperType::ComputeDeformationFieldInverse(warp, uInverse, param.warp_exponent, true);
 
   // Write the warp using compressed format
-  OFHelperType::WriteCompressedWarpInPhysicalSpace(uInverse, warp, param.invwarp_param.out_warp.c_str(), param.warp_precision);
+  WriteCompressedWarpInPhysicalSpaceViaCache(uInverse, warp, param.invwarp_param.out_warp.c_str(), param.warp_precision);
 
   return 0;
 }
@@ -2510,7 +2541,7 @@ int GreedyApproach<VDim, TReal>
   OFHelperType::ComputeWarpRoot(warp, warp_root, param.warp_exponent, 1e-6);
 
   // Write the warp using compressed format
-  OFHelperType::WriteCompressedWarpInPhysicalSpace(warp_root, warp, param.warproot_param.out_warp.c_str(), param.warp_precision);
+  WriteCompressedWarpInPhysicalSpaceViaCache(warp_root, warp, param.warproot_param.out_warp.c_str(), param.warp_precision);
 
   return 0;
 }

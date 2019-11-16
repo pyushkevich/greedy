@@ -273,6 +273,18 @@ public:
   typedef LDDMMType3D::CompositeImageType VolumeImage;
   typedef LDDMMType3D::CompositeImagePointer VolumePointer;
 
+  // Transform typedefs
+  typedef itk::MatrixOffsetTransformBase<double, 2, 2> TransformType;
+  typedef itk::MatrixOffsetTransformBase<double, 2, 2>::Pointer TransformPointer;
+  typedef LDDMMType::VectorImageType WarpImageType;
+  typedef LDDMMType::VectorImagePointer WarpImagePointer;
+
+  // Floating point warp (this is what is output by Greedy API)
+  typedef LDDMMData<float, 2>::VectorImageType FloatWarpImageType;
+
+  // Mask typedefs
+  typedef LDDMMType::ImageType MaskImageType;
+  typedef LDDMMType::ImagePointer MaskImagePointer;
 
   /** Set of enums used to refer to files in the project directory */
   enum FileIntent {
@@ -872,6 +884,97 @@ public:
       }
   }
 
+  /** Helper function to run an affine registration between two images and output the result */
+  void DoAffineRegistration(const GreedyParameters &param, 
+                            SlideImageType *fixed, SlideImageType *moving, MaskImageType *mask,
+                            TransformPointer &out_transform)
+  {
+    // Create a copy of the parameters for this task
+    GreedyParameters my_param = param;
+
+    // Create the Greedy API
+    GreedyAPI api_reg;
+
+    // Set up the moving/fixed pair
+    api_reg.AddCachedInputObject("fixed", fixed);
+    api_reg.AddCachedInputObject("moving", moving);
+    my_param.inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
+
+    // Set up the mask
+    if(mask)
+      {
+      api_reg.AddCachedInputObject("mask", mask);
+      my_param.gradient_mask = "mask";
+      }
+
+    // Set up the output transform
+    api_reg.AddCachedOutputObject("output", out_transform);
+    my_param.output = "output";
+
+    // Run affine registration
+    api_reg.RunAffine(my_param);
+  }
+
+  /** Helper function to do deformable registration between two images and output the result */
+  void DoLogDemonsRegistration(const GreedyParameters &param, 
+    SlideImageType *fixed, SlideImageType *moving, MaskImageType *mask,
+    WarpImageType *out_root_warp)
+  {
+    // Create a copy of the parameters for this task
+    GreedyParameters my_param = param;
+
+    // Create the Greedy API
+    GreedyAPI api_reg;
+
+    // Set up the moving/fixed pair
+    api_reg.AddCachedInputObject("fixed", fixed);
+    api_reg.AddCachedInputObject("moving", moving);
+    my_param.inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
+
+    // Set up the mask
+    if(mask)
+      {
+      api_reg.AddCachedInputObject("mask", mask);
+      my_param.gradient_mask = "mask";
+      }
+
+    // Set up the output transform
+    api_reg.AddCachedOutputObject("output", out_root_warp);
+    my_param.flag_stationary_velocity_mode = true;
+    my_param.root_warp = "output";
+
+    // Run affine registration
+    api_reg.RunDeformable(my_param);
+  }
+
+  /** Reslice an image using an affine transformation and an optional warp */
+  void DoReslice(const GreedyParameters &param, 
+    SlideImageType *ref, SlideImageType *src,
+    std::string fn_matrix, std::string fn_warp,
+    SlideImageType *resliced)
+    {
+    // Each of the neighbor slices needs to be resliced using last iteration's transform. We
+    // could cache these images, but then again, it does not take so much to do this on the
+    // fly. For now we will do this on the fly.
+    GreedyAPI api_reslice;
+    GreedyParameters my_param = param;
+    api_reslice.AddCachedInputObject("reference", ref);
+    api_reslice.AddCachedInputObject("source", src);
+    api_reslice.AddCachedOutputObject("output", resliced, false);
+    my_param.reslice_param.ref_image = "reference";
+    my_param.reslice_param.images.push_back(ResliceSpec("source", "output"));
+
+    // Add the transforms
+    if(fn_warp.size())
+      my_param.reslice_param.transforms.push_back(TransformSpec(fn_warp));
+    if(fn_matrix.size())
+      my_param.reslice_param.transforms.push_back(TransformSpec(fn_matrix));
+
+    // Perform the reslicing. We will use the resliced neighbor as the fixed image in registration
+    api_reslice.RunReslice(my_param);
+    }
+
+
   // Now that we have the affine initialization from the histology space to the volume space, we can
   // perform iterative optimization, where each slice is matched to its neighbors and to the
   // corresponding MRI slice. The only issue here is how do we want to use the graph in this
@@ -906,8 +1009,10 @@ public:
       std::random_shuffle(ordering.begin(), ordering.end());
 
       // Keep track of the total neighbor metric and total volume metric
-      double total_to_nbr_metric = 0.0;
-      double total_to_vol_metric = 0.0;
+      double total_leader_to_nbr_metric = 0.0;
+      double total_leader_to_vol_metric = 0.0;
+      double total_nonleader_to_nbr_metric = 0.0;
+      double total_nonleader_to_vol_metric = 0.0;
 
       // Iterate over the ordering
       for(unsigned int k : ordering)
@@ -981,71 +1086,56 @@ public:
             }
           }
 
-        // Create the greedy API for the main registration task
-        GreedyAPI api_reg;
-        api_reg.AddCachedInputObject("moving", img_slide);
-        api_reg.AddCachedInputObject("volume_slice", vol_slice_2d);
-
-        // We need to hold on to the resliced image pointers, because otherwise they will be deallocated
-        std::vector<SlideImagePointer> resliced_neighbors(m_Slices.size());
-
-        // Set up the main registration pair
+        // Set up the prototype parameters (shared by all registrations) and parameters
+        // specific for each registration that will need to be done
         GreedyParameters param_reg = gparam;
 
+        // Get the filename of the previous iteration affine transform
+        std::string fn_last_affine = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter-1);
+
+        // What kind of registration are we doing at this iteration?
+        if(iter <= n_affine)
+          {
+          // Specify the DOF, etc
+          param_reg.affine_dof = GreedyParameters::DOF_AFFINE;
+          param_reg.affine_init_mode = RAS_FILENAME;
+          param_reg.affine_init_transform = TransformSpec(fn_last_affine);
+          param_reg.rigid_search = RigidSearchSpec();
+          }
+        else
+          {
+          // Apply the last affine transformation
+          param_reg.affine_init_mode = VOX_IDENTITY;
+          param_reg.moving_pre_transforms.push_back(TransformSpec(fn_last_affine));
+
+          // Make sure the warps are not truncated, since histology is full-resolution
+          param_reg.warp_precision = 0.0;
+          }
+
+        // Set up an array of registration target images
+        std::vector<SlideImagePointer> reg_targets;
+
+        // Set up the array of registration outputs to be averaged at the end. This really
+        // depends on what kind of registration we will run
+        std::vector<double> weights;
+        std::vector<bool> flag_to_vol;
+        std::vector<std::string> target_desc;
+
+        // Set up the first registration, to the volume
         double w_vol = m_Slices[k].is_leader ? w_volume : w_volume_follower;
         if(w_vol > 0.0)
           {
           printf("Registering to volume with weight %f\n", w_vol);
-          param_reg.inputs.push_back(ImagePairSpec("volume_slice", "moving", w_vol));    
+          weights.push_back(w_vol);
+          reg_targets.push_back(vol_slice_2d);
+          flag_to_vol.push_back(true);
+          target_desc.push_back("volume");
           }
 
-        // Handle mask
-        if(mask_slice_2d)
-          {
-          api_reg.AddCachedInputObject("mask_slice", mask_slice_2d);
-          param_reg.gradient_mask = "mask_slice";
-          }
-
-        // Handle each of the neighbors
+        // Set up the registrations to neighbor slices
         for(auto nbr : k_nbr)
           {
           unsigned int j = nbr.second;
-
-          // Create an image pointer for the reslicing output
-          resliced_neighbors[j] = SlideImageType::New();
-
-          // Each of the neighbor slices needs to be resliced using last iteration's transform. We
-          // could cache these images, but then again, it does not take so much to do this on the
-          // fly. For now we will do this on the fly.
-          GreedyAPI api_reslice;
-          api_reslice.AddCachedInputObject("vol_slice", vol_slice_2d);
-          api_reslice.AddCachedOutputObject("output", resliced_neighbors[j], false);
-
-          GreedyParameters param_reslice = gparam;
-          param_reslice.reslice_param.ref_image = "vol_slice";
-          param_reslice.reslice_param.images.push_back(ResliceSpec(m_Slices[j].raw_filename, "output"));
-
-          // Was the previous iteration a deformable iteration? If so, apply the warp
-          if(iter - 1 <= n_affine)
-            {
-            param_reslice.reslice_param.transforms.push_back(
-                  TransformSpec(GetFilenameForSlice(m_Slices[j], VOL_ITER_MATRIX, iter-1)));
-            }
-          else
-            {
-            param_reslice.reslice_param.transforms.push_back(
-                  TransformSpec(GetFilenameForSlice(m_Slices[j], VOL_ITER_WARP, iter-1)));
-            param_reslice.reslice_param.transforms.push_back(
-                  TransformSpec(GetFilenameForSlice(m_Slices[j], VOL_ITER_MATRIX, iter-1)));
-            }
-
-          // Perform the reslicing
-          api_reslice.RunReslice(param_reslice);
-
-          // Add the image pair to the registration
-          char fixed_fn[64];
-          sprintf(fixed_fn, "neighbor_%03d", j);
-          api_reg.AddCachedInputObject(fixed_fn, resliced_neighbors[j]);
 
           // Calculate the weight
           double w = 1.0 / k_nbr.size();
@@ -1056,69 +1146,152 @@ public:
             w = (1.0 / dz) / tot_dist_wgt;
             }
 
-          if(w > 0.0)
-            {
-            param_reg.inputs.push_back(ImagePairSpec(fixed_fn, "moving", w));
-            printf("Registering to neighbor %s with weight %f\n", m_Slices[j].unique_id.c_str(), w);
-            }
+          // If zero weight, then skip this registration
+          if(w <= 0.0)
+            continue;
+
+          // Which neighbor
+          printf("Registering to neighbor %s with weight %f\n", m_Slices[j].unique_id.c_str(), w);
+
+          // Reslice the neighbor using previous iteration results
+          SlideImagePointer resliced_neighbor = SlideImageType::New();
+          SlideImagePointer native_neighbor = LDDMMType::cimg_read(m_Slices[j].raw_filename.c_str());
+
+          // Figure out which matrix/warp to use
+          std::string fn_matrix = GetFilenameForSlice(m_Slices[j], VOL_ITER_MATRIX, iter-1);
+          std::string fn_warp = (iter - 1 <= n_affine) ? "" : GetFilenameForSlice(m_Slices[j], VOL_ITER_WARP, iter-1);
+
+          // Do the reslicing
+          DoReslice(gparam, vol_slice_2d, native_neighbor, fn_matrix, fn_warp, resliced_neighbor);
+
+          // Add the resliced neighbor to target list
+          reg_targets.push_back(resliced_neighbor);
+          weights.push_back(w);
+          flag_to_vol.push_back(false);
+          target_desc.push_back(std::string("Neighbor ") + m_Slices[j].unique_id);
           }
 
-        // What kind of registration are we doing at this iteration?
+        // Renormalize the weights
+        double w_sum = 0.0;
+        for(unsigned int i = 0; i < weights.size(); i++)
+          w_sum += weights[i];
+        for(unsigned int i = 0; i < weights.size(); i++)
+          weights[i] /= w_sum;
+
+        // This image will hold the resliced moving image (for metric computation)
+        SlideImagePointer img_reslice = SlideImageType::New();
+
+        // Run the appropriate registrations and average the outputs
         if(iter <= n_affine)
           {
-          // Specify the DOF, etc
-          param_reg.affine_dof = GreedyParameters::DOF_AFFINE;
-          param_reg.affine_init_mode = RAS_FILENAME;
-          param_reg.affine_init_transform =
-              TransformSpec(GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter-1));
-          param_reg.rigid_search = RigidSearchSpec();
+          // Compute the average transform by averaging matrices. 
+          TransformType::MatrixType A; A.Fill(0.0);
+          TransformType::OffsetType b; b.Fill(0.0);
 
-          // Specify the output
-          param_reg.output = fn_result;
+          // TODO: do the averaging in log-space, then take exponent
+          for(unsigned int i = 0; i < weights.size(); i++)
+            {
+            // Run the affine registration
+            TransformPointer t_vol = TransformType::New();
+            DoAffineRegistration(param_reg, reg_targets[i], img_slide, mask_slice_2d, t_vol);
 
-          // Run this registration!
-          api_reg.RunAffine(param_reg);
+            // Add the weighted transforms
+            A += t_vol->GetMatrix() * weights[i];
+            b += t_vol->GetOffset() * weights[i];
+            }
+
+          // Create the average transform
+          TransformPointer t_avg = TransformType::New();
+          t_avg->SetMatrix(A);
+          t_avg->SetOffset(b);
+
+          // A nasty mess to save the transform
+          GreedyAPI matrix_api;
+          matrix_api.AddCachedInputObject("tran", t_avg);
+          matrix_api.WriteAffineMatrix(fn_result, matrix_api.ReadAffineMatrixViaCache(TransformSpec("tran")));
+
+          // Perform the reslicing
+          DoReslice(gparam, vol_slice_2d, img_slide, fn_result, "", img_reslice);
           }
         else
           {
-          // Apply the last affine transformation
-          param_reg.affine_init_mode = VOX_IDENTITY;
-          param_reg.moving_pre_transforms.push_back(
-                TransformSpec(GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter-1)));
+          // Create the average root warp image
+          LDDMMType::ImageBaseType *ref_space = reg_targets[0];
+          WarpImageType::Pointer avg_root = LDDMMType::new_vimg(ref_space);
+          WarpImageType::Pointer work_img = LDDMMType::new_vimg(ref_space);
 
-          // Specify the output
-          param_reg.output = fn_result;
+          // Repeat over all target images
+          for(unsigned int i = 0; i < weights.size(); i++)
+            {
+            // Do the deformable registration
+            DoLogDemonsRegistration(param_reg, reg_targets[i], img_slide, mask_slice_2d, work_img);
 
-          // Make sure the warps are not truncated, since histology is full-resolution
-          param_reg.warp_precision = 0.0;
+            // Accumulate this root warp with its weight
+            LDDMMType::vimg_add_scaled_in_place(avg_root, work_img, weights[i]);
+            }
 
-          // Run the registration
-          api_reg.RunDeformable(param_reg);
-          }
+          // Exponentiate the average root warp
+          WarpImageType::Pointer avg_warp = LDDMMType::new_vimg(ref_space);
+          LDDMMType::vimg_exp(avg_root, avg_warp, work_img, gparam.warp_exponent, 1.0);
 
-        MultiComponentMetricReport last_metric_report = api_reg.GetLastMetricReport();
-        total_to_vol_metric += last_metric_report.ComponentMetrics[0];
-        for(unsigned int a = 1; a < last_metric_report.ComponentMetrics.size(); a++)
-          total_to_nbr_metric += last_metric_report.ComponentMetrics[a];
+          // Write the result
+          LDDMMType::vimg_write(avg_warp, fn_result.c_str(), itk::ImageIOBase::FLOAT); 
 
-        // Write the metric for this slide to file
-        std::string fn_metric = GetFilenameForSlice(m_Slices[k], ITER_METRIC_DUMP, iter);
-        std::ofstream fout(fn_metric);
-        fout << api_reg.PrintIter(-1, -1, last_metric_report) << std::endl;
-
-        // For deformable iterations, propagate the matrix from last iteration
-        if(iter > n_affine)
-          {
+          // Propagate the matrix from last iteration
           GreedyAPI::WriteAffineMatrix(
-                GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
-                GreedyAPI::ReadAffineMatrix(
-                  GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter-1)));
+            GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
+            GreedyAPI::ReadAffineMatrix(fn_last_affine));
+
+          // Perform the reslicing (todo: this read the warp back from filem ugly)
+          DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, fn_result, img_reslice);
           }
 
+        // Last step is to compute the metric for this slide with all the target images
+        for(unsigned int i = 0; i < weights.size(); i++)
+          {
+          // Do the metric computation
+          MultiComponentMetricReport rpt;
+          GreedyParameters m_param = gparam;
+          GreedyAPI api_metric;
+          api_metric.AddCachedInputObject("fixed", reg_targets[i]);
+          api_metric.AddCachedInputObject("moving", img_reslice);
+          m_param.inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
+          m_param.affine_init_mode = RAS_IDENTITY;
+
+          // Set up the mask
+          if(mask_slice_2d)
+            {
+            api_metric.AddCachedInputObject("mask", mask_slice_2d);
+            m_param.gradient_mask = "mask";
+            }
+
+          api_metric.ComputeMetric(m_param, rpt);
+
+          // Get the total metric value
+          double mval = rpt.TotalMetric;
+          printf("Resliced by combined transform metric with %s is %f\n", target_desc[i].c_str(), mval);
+
+          // Add the metric to the appropriate column
+          if(m_Slices[k].is_leader) 
+            {
+            if(flag_to_vol[i])
+              total_leader_to_vol_metric += mval;
+            else
+              total_leader_to_nbr_metric += mval;
+            }
+          else 
+            {
+            if(flag_to_vol[i])
+              total_nonleader_to_vol_metric += mval;
+            else
+              total_nonleader_to_nbr_metric += mval;
+            }
+          }
         }
 
-      printf("ITER %3d  TOTAL_VOL_METRIC = %8.4f  TOTAL_NBR_METRIC = %8.4f\n",
-             iter, total_to_vol_metric, total_to_nbr_metric);
+      printf("ITER %3d  METRICS: L2V = %8.4f  L2N = %8.4f  NL2V = %8.4f  NL2N = %8.4F\n",
+             iter, total_leader_to_vol_metric, total_leader_to_nbr_metric,
+             total_nonleader_to_vol_metric, total_nonleader_to_nbr_metric);
       }
   }
 

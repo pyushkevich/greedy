@@ -203,6 +203,10 @@ protected:
   void WriteImageViaCache(TImage *img, const std::string &filename,
                           typename LDDMMType::IOComponentType comp = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE);
 
+  // Write a compressed warp via cache (in float format)
+  void WriteCompressedWarpInPhysicalSpaceViaCache(
+    ImageBaseType *moving_ref_space, VectorImageType *warp, const char *filename, double precision);
+
   void ReadImages(GreedyParameters &param, OFHelperType &ofhelper);
 
   void ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
