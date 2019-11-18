@@ -74,6 +74,7 @@ int usage()
   printf("  -iw inwarp outwarp     : Invert previously computed warp\n");
   printf("  -root inwarp outwarp N : Convert 2^N-th root of a warp \n");
   printf("  -jac inwarp outjac     : Compute the Jacobian determinant of the warp \n");
+  printf("  -metric                : Compute metric between images\n");
   printf("Options in deformable / affine mode: \n");
   printf("  -w weight              : weight of the next -i pair\n");
   printf("  -m metric              : metric for the entire registration\n");
@@ -149,6 +150,7 @@ int usage()
   printf("  -powell                : use Powell's method instead of LGBFS\n");
   printf("  -float                 : use single precision floating point (off by default)\n");
   printf("  -version               : print version info\n");
+  printf("  -V <level>             : set verbosity level (0: none, 1: default, 2: verbose)\n");
 
   return -1;
 }

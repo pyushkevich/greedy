@@ -97,6 +97,8 @@ public:
   int RunAlignMoments(GreedyParameters &param);
 
   int RunJacobian(GreedyParameters &param);
+  
+  int RunMetric(GreedyParameters &param);
 
   int ComputeMetric(GreedyParameters &param, MultiComponentMetricReport &metric_report);
 

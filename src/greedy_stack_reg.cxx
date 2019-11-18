@@ -885,9 +885,11 @@ public:
   }
 
   /** Helper function to run an affine registration between two images and output the result */
-  void DoAffineRegistration(const GreedyParameters &param, 
-                            SlideImageType *fixed, SlideImageType *moving, MaskImageType *mask,
-                            TransformPointer &out_transform)
+  MultiComponentMetricReport DoAffineRegistration(const GreedyParameters &param, 
+                                                  SlideImageType *fixed,
+                                                  SlideImageType *moving,
+                                                  MaskImageType *mask,
+                                                  TransformPointer &out_transform)
   {
     // Create a copy of the parameters for this task
     GreedyParameters my_param = param;
@@ -913,12 +915,17 @@ public:
 
     // Run affine registration
     api_reg.RunAffine(my_param);
+  
+    // Get the metric
+    return api_reg.GetLastMetricReport();
   }
 
   /** Helper function to do deformable registration between two images and output the result */
-  void DoLogDemonsRegistration(const GreedyParameters &param, 
-    SlideImageType *fixed, SlideImageType *moving, MaskImageType *mask,
-    WarpImageType *out_root_warp)
+  MultiComponentMetricReport DoLogDemonsRegistration(const GreedyParameters &param,
+                                                    SlideImageType *fixed,
+                                                     SlideImageType *moving,
+                                                     MaskImageType *mask,
+                                                     WarpImageType *out_root_warp)
   {
     // Create a copy of the parameters for this task
     GreedyParameters my_param = param;
@@ -945,6 +952,9 @@ public:
 
     // Run affine registration
     api_reg.RunDeformable(my_param);
+  
+    // Get the metric
+    return api_reg.GetLastMetricReport();
   }
 
   /** Reslice an image using an affine transformation and an optional warp */
@@ -1120,6 +1130,7 @@ public:
         std::vector<double> weights;
         std::vector<bool> flag_to_vol;
         std::vector<std::string> target_desc;
+        std::vector<double> direct_reg_metrics;
 
         // Set up the first registration, to the volume
         double w_vol = m_Slices[k].is_leader ? w_volume : w_volume_follower;
@@ -1142,7 +1153,6 @@ public:
           if(dist_prop_weighting && k_nbr.size() > 1) 
             {
             double dz = fabs(m_Slices[k].z_pos - m_Slices[j].z_pos);
-            double w_unscaled = 1.0 / dz;
             w = (1.0 / dz) / tot_dist_wgt;
             }
 
@@ -1168,7 +1178,7 @@ public:
           reg_targets.push_back(resliced_neighbor);
           weights.push_back(w);
           flag_to_vol.push_back(false);
-          target_desc.push_back(std::string("Neighbor ") + m_Slices[j].unique_id);
+          target_desc.push_back(m_Slices[j].unique_id);
           }
 
         // Renormalize the weights
@@ -1193,7 +1203,11 @@ public:
             {
             // Run the affine registration
             TransformPointer t_vol = TransformType::New();
-            DoAffineRegistration(param_reg, reg_targets[i], img_slide, mask_slice_2d, t_vol);
+            MultiComponentMetricReport mrpt =
+              DoAffineRegistration(param_reg, reg_targets[i], img_slide, mask_slice_2d, t_vol);
+            
+            // Record the metric (apply scaling for affine used internally)
+            direct_reg_metrics.push_back(mrpt.TotalMetric / -10000.0);
 
             // Add the weighted transforms
             A += t_vol->GetMatrix() * weights[i];
@@ -1224,7 +1238,11 @@ public:
           for(unsigned int i = 0; i < weights.size(); i++)
             {
             // Do the deformable registration
-            DoLogDemonsRegistration(param_reg, reg_targets[i], img_slide, mask_slice_2d, work_img);
+            MultiComponentMetricReport mrpt =
+              DoLogDemonsRegistration(param_reg, reg_targets[i], img_slide, mask_slice_2d, work_img);
+            
+            // Record the metric
+            direct_reg_metrics.push_back(mrpt.TotalMetric);
 
             // Accumulate this root warp with its weight
             LDDMMType::vimg_add_scaled_in_place(avg_root, work_img, weights[i]);
@@ -1245,6 +1263,10 @@ public:
           // Perform the reslicing (todo: this read the warp back from filem ugly)
           DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, fn_result, img_reslice);
           }
+        
+        // Create a metric dump file (useful for debugging, tracking convergence)
+        std::string fn_dump = GetFilenameForSlice(m_Slices[k], ITER_METRIC_DUMP, iter);
+        FILE *f_dump = fopen(fn_dump.c_str(), "wt");
 
         // Last step is to compute the metric for this slide with all the target images
         for(unsigned int i = 0; i < weights.size(); i++)
@@ -1256,8 +1278,8 @@ public:
           api_metric.AddCachedInputObject("fixed", reg_targets[i]);
           api_metric.AddCachedInputObject("moving", img_reslice);
           m_param.inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
-          m_param.affine_init_mode = RAS_IDENTITY;
-
+          m_param.affine_init_mode = VOX_IDENTITY;
+          
           // Set up the mask
           if(mask_slice_2d)
             {
@@ -1269,7 +1291,11 @@ public:
 
           // Get the total metric value
           double mval = rpt.TotalMetric;
-          printf("Resliced by combined transform metric with %s is %f\n", target_desc[i].c_str(), mval);
+          printf("Metric with %40s   DIRECT: %8.4f   COMBINED: %8.4f\n",
+                 target_desc[i].c_str(), direct_reg_metrics[i], mval);
+          
+          // Dump the metric to file
+          fprintf(f_dump, "%s\t%8.4f\t%8.4f\n", target_desc[i].c_str(), direct_reg_metrics[i], mval);
 
           // Add the metric to the appropriate column
           if(m_Slices[k].is_leader) 
@@ -1287,6 +1313,7 @@ public:
               total_nonleader_to_nbr_metric += mval;
             }
           }
+        fclose(f_dump);
         }
 
       printf("ITER %3d  METRICS: L2V = %8.4f  L2N = %8.4f  NL2V = %8.4f  NL2N = %8.4F\n",
@@ -1797,7 +1824,7 @@ void recon(StackParameters &param, CommandLineHelper &cl)
 {
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
-    "-m", "-n", "-threads", "-gm-trim", "-search"
+    "-m", "-n", "-threads", "-gm-trim", "-search", "-V"
   };
 
   // Greedy parameters for this mode
@@ -1839,7 +1866,7 @@ void volmatch(StackParameters &param, CommandLineHelper &cl)
 {
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
-    "-m", "-n", "-threads", "-gm-trim", "-search"
+    "-m", "-n", "-threads", "-gm-trim", "-search", "-V"
   };
 
   // Greedy parameters for this mode
@@ -1887,7 +1914,7 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
 {
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
-    "-m", "-n", "-threads", "-gm-trim", "-s", "-e", "-sv", "-exp"
+    "-m", "-n", "-threads", "-gm-trim", "-s", "-e", "-sv", "-exp", "-V"
   };
 
   // Greedy parameters for this mode

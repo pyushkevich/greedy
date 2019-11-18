@@ -67,6 +67,9 @@ GreedyParameters
   param.moments_flip_determinant = 0;
   param.flag_moments_id_covariance = false;
   param.moments_order = 1;
+  
+  // Verbosity
+  param.verbosity = VERB_DEFAULT;
 }
 
 bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelper &cl)
@@ -284,6 +287,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     this->warproot_param.in_warp = cl.read_existing_filename();
     this->warproot_param.out_warp = cl.read_output_filename();
     }
+  else if(cmd == "-metric")
+    {
+    this->mode = GreedyParameters::METRIC;
+    }
 
   else if(cmd == "-rm")
     {
@@ -374,6 +381,14 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
   else if(cmd == "-cov-id")
     {
     this->flag_moments_id_covariance = true;
+    }
+  else if(cmd == "-V")
+    {
+    int level = cl.read_integer();
+    if(level < 0 || level >= VERB_INVALID)
+      throw GreedyException("Invalid verbosity level %d", level);
+    
+    this->verbosity = (Verbosity)(level);
     }
   else
     {

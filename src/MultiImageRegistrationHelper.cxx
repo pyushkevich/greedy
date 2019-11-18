@@ -474,6 +474,36 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
+::ComputeHistogramsIfNeeded(int level)
+{
+  typedef MutualInformationPreprocessingFilter<MultiComponentImageType, BinnedImageType> BinnerType;
+  if(m_FixedBinnedImage.IsNull()
+     || m_FixedBinnedImage->GetBufferedRegion() != m_FixedComposite[level]->GetBufferedRegion())
+    {
+    typename BinnerType::Pointer fixed_binner = BinnerType::New();
+    fixed_binner->SetInput(m_FixedComposite[level]);
+    fixed_binner->SetBins(128);
+    fixed_binner->SetLowerQuantile(0.01);
+    fixed_binner->SetUpperQuantile(0.99);
+    fixed_binner->SetStartAtBinOne(true);
+    fixed_binner->Update();
+    m_FixedBinnedImage = fixed_binner->GetOutput();
+
+    typename BinnerType::Pointer moving_binner = BinnerType::New();
+    moving_binner = BinnerType::New();
+    moving_binner->SetInput(m_MovingComposite[level]);
+    moving_binner->SetBins(128);
+    moving_binner->SetLowerQuantile(0.01);
+    moving_binner->SetUpperQuantile(0.99);
+    moving_binner->SetStartAtBinOne(true);
+    moving_binner->Update();
+    m_MovingBinnedImage = moving_binner->GetOutput();
+    }
+}
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeMIFlowField(int level,
                      bool normalized_mutual_information,
                      VectorImageType *def,
@@ -494,37 +524,14 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   typedef itk::VectorImage<unsigned char, VDim> BinnedImageType;
   typedef MutualInformationPreprocessingFilter<MultiComponentImageType, BinnedImageType> BinnerType;
 
-  // TODO: this is utter laziness, get rid of this garbage!
-  static typename BinnerType::Pointer binner_fixed;
-  static typename BinnerType::Pointer binner_moving;
-
-  if(binner_fixed.IsNull()
-     || binner_fixed->GetOutput()->GetBufferedRegion()
-     != m_FixedComposite[level]->GetBufferedRegion())
-    {
-    binner_fixed = BinnerType::New();
-    binner_fixed->SetInput(m_FixedComposite[level]);
-    binner_fixed->SetBins(128);
-    binner_fixed->SetLowerQuantile(0.01);
-    binner_fixed->SetUpperQuantile(0.99);
-    binner_fixed->SetStartAtBinOne(true);
-    binner_fixed->Update();
-
-    binner_moving = BinnerType::New();
-    binner_moving->SetInput(m_MovingComposite[level]);
-    binner_moving->SetBins(128);
-    binner_moving->SetLowerQuantile(0.01);
-    binner_moving->SetUpperQuantile(0.99);
-    binner_moving->SetStartAtBinOne(true);
-    binner_moving->Update();
-    }
-
+  // Initialize the histograms
+  this->ComputeHistogramsIfNeeded(level);
 
   typename MetricType::Pointer metric = MetricType::New();
 
   metric->SetComputeNormalizedMutualInformation(normalized_mutual_information);
-  metric->SetFixedImage(binner_fixed->GetOutput());
-  metric->SetMovingImage(binner_moving->GetOutput());
+  metric->SetFixedImage(m_FixedBinnedImage);
+  metric->SetMovingImage(m_MovingBinnedImage);
   metric->SetDeformationField(def);
   metric->SetWeights(wscaled);
   metric->SetComputeGradient(true);
@@ -731,36 +738,14 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   typedef itk::VectorImage<unsigned char, VDim> BinnedImageType;
   typedef MutualInformationPreprocessingFilter<MultiComponentImageType, BinnedImageType> BinnerType;
 
-  // TODO: this is utter laziness, get rid of this garbage!
-  static typename BinnerType::Pointer binner_fixed;
-  static typename BinnerType::Pointer binner_moving;
-
-  if(binner_fixed.IsNull()
-     || binner_fixed->GetOutput()->GetBufferedRegion()
-     != m_FixedComposite[level]->GetBufferedRegion())
-    {
-    binner_fixed = BinnerType::New();
-    binner_fixed->SetInput(m_FixedComposite[level]);
-    binner_fixed->SetBins(128);
-    binner_fixed->SetLowerQuantile(0.01);
-    binner_fixed->SetUpperQuantile(0.99);
-    binner_fixed->SetStartAtBinOne(true);
-    binner_fixed->Update();
-
-    binner_moving = BinnerType::New();
-    binner_moving->SetInput(m_MovingComposite[level]);
-    binner_moving->SetBins(128);
-    binner_moving->SetLowerQuantile(0.01);
-    binner_moving->SetUpperQuantile(0.99);
-    binner_moving->SetStartAtBinOne(true);
-    binner_moving->Update();
-    }
+  // Initialize the histograms
+  this->ComputeHistogramsIfNeeded(level);
 
   typename MetricType::Pointer metric = MetricType::New();
 
   metric->SetComputeNormalizedMutualInformation(normalized_mutual_info);
-  metric->SetFixedImage(binner_fixed->GetOutput());
-  metric->SetMovingImage(binner_moving->GetOutput());
+  metric->SetFixedImage(m_FixedBinnedImage);
+  metric->SetMovingImage(m_MovingBinnedImage);
   metric->SetWeights(wscaled);
   metric->SetAffineTransform(tran);
   metric->SetComputeMovingDomainMask(true);

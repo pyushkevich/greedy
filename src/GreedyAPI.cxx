@@ -32,6 +32,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <cstdarg>
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"
@@ -55,7 +56,40 @@
 #include <vnl/vnl_numeric_traits.h>
 
 
-
+// A helper class for printing results. Wraps around printf but
+// takes into account the user's verbose settings
+class GreedyStdOut
+{
+public:
+  GreedyStdOut(GreedyParameters::Verbosity verbosity, FILE *f_out = NULL)
+  : m_Verbosity(verbosity), m_Output(f_out ? f_out : stdout)
+  {
+  }
+  
+  void printf(const char *format, ...)
+  {
+    if(m_Verbosity > GreedyParameters::VERB_NONE)
+      {
+      char buffer[4096];
+      va_list args;
+      va_start (args, format);
+      vsprintf (buffer,format, args);
+      va_end (args);
+      
+      fprintf(m_Output, "%s", buffer);
+      }
+  }
+  
+  void flush()
+  {
+    fflush(m_Output);
+  }
+  
+private:
+  GreedyParameters::Verbosity m_Verbosity;
+  FILE *m_Output;
+  
+};
 
 
 // Helper function to get the RAS coordinate of the center of 
@@ -670,6 +704,9 @@ int GreedyApproach<VDim, TReal>
 
   // Create an optical flow helper object
   OFHelperType of_helper;
+  
+  // Object for text output
+  GreedyStdOut gout(param.verbosity);
 
   // Set the scaling factors for multi-resolution
   of_helper.SetDefaultPyramidFactors(param.iter_per_level.size());
@@ -971,8 +1008,8 @@ int GreedyApproach<VDim, TReal>
         optimizer->set_f_tolerance(1e-9);
         optimizer->set_x_tolerance(1e-4);
         optimizer->set_g_tolerance(1e-6);
-        optimizer->set_trace(true);
-        optimizer->set_verbose(true);
+        optimizer->set_trace(param.verbosity > GreedyParameters::VERB_NONE);
+        optimizer->set_verbose(param.verbosity > GreedyParameters::VERB_DEFAULT);
         optimizer->set_max_function_evals(param.iter_per_level[level]);
 
         optimizer->minimize(xLevel);
@@ -983,10 +1020,12 @@ int GreedyApproach<VDim, TReal>
         {
         // Set up the optimizer
         vnl_lbfgs *optimizer = new vnl_lbfgs(*acf);
-        optimizer->set_f_tolerance(1e-9);
-        optimizer->set_x_tolerance(1e-4);
-        optimizer->set_g_tolerance(1e-6);
-        optimizer->set_trace(true);
+        
+        // Using defaults from scipy
+        optimizer->set_f_tolerance(2.220446049250313e-9);
+        optimizer->set_g_tolerance(1e-05);
+        optimizer->set_trace(param.verbosity > GreedyParameters::VERB_NONE);
+        optimizer->set_verbose(param.verbosity > GreedyParameters::VERB_DEFAULT);
         optimizer->set_max_function_evals(param.iter_per_level[level]);
 
         optimizer->minimize(xLevel);
@@ -1008,23 +1047,23 @@ int GreedyApproach<VDim, TReal>
         }
 
       // End of level report
-      printf("END OF LEVEL %3d\n", level);
+      gout.printf("END OF LEVEL %3d\n", level);
 
       // Print final metric report
       MultiComponentMetricReport metric_report = this->GetMetricLog()[level].back();
-      printf("Level %3d  LastIter   Metrics", level);
+      gout.printf("Level %3d  LastIter   Metrics", level);
       for (unsigned i = 0; i < metric_report.ComponentMetrics.size(); i++)
-        printf("  %8.6f", metric_report.ComponentMetrics[i]);
-      printf("  Energy = %8.6f\n", metric_report.TotalMetric);
-      fflush(stdout);
+        gout.printf("  %8.6f", metric_report.ComponentMetrics[i]);
+      gout.printf("  Energy = %8.6f\n", metric_report.TotalMetric);
+      gout.flush();
       }
 
     // Print the final RAS transform for this level (even if no iter)
-    printf("Level %3d  Final RAS Transform:\n", level);
+    gout.printf("Level %3d  Final RAS Transform:\n", level);
     for(unsigned int a = 0; a < VDim+1; a++)
       {
       for(unsigned int b = 0; b < VDim+1; b++)
-        printf("%8.4f%c", Q_physical(a,b), b < VDim ? ' ' : '\n');
+        gout.printf("%8.4f%c", Q_physical(a,b), b < VDim ? ' ' : '\n');
       }
 
     delete acf;
@@ -1128,6 +1167,9 @@ int GreedyApproach<VDim, TReal>
 {
   // Create an optical flow helper object
   OFHelperType of_helper;
+  
+  // Object for text output
+  GreedyStdOut gout(param.verbosity);
 
   // Set the scaling factors for multi-resolution
   of_helper.SetDefaultPyramidFactors(param.iter_per_level.size());
@@ -1167,8 +1209,8 @@ int GreedyApproach<VDim, TReal>
                                                     param.sigma_post.physical_units);
 
     // Report the smoothing factors used
-    std::cout << "LEVEL " << level+1 << " of " << nlevels << std::endl;
-    std::cout << "  Smoothing sigmas: " << sigma_pre_phys << ", " << sigma_post_phys << std::endl;
+    gout.printf("LEVEL %d of %d\n", level+1, nlevels);
+    gout.printf("  Smoothing sigmas: %f, %f\n");
 
     // Set up timers for different critical components of the optimization
     GreedyTimeProbe tm_Gradient, tm_Gaussian1, tm_Gaussian2, tm_Iteration,
@@ -1230,8 +1272,6 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::vimg_scale_in_place(uk, 1.0 / (1 << level));
       uLevel = uk;
       itk::Index<VDim> test; test.Fill(24);
-      std::cout << "Index 24x24x24 maps to " << uInit->GetPixel(test) << std::endl;
-      std::cout << "Index 24x24x24 maps to " << uk->GetPixel(test) << std::endl;
       }
     else if(param.affine_init_mode != VOX_IDENTITY)
       {
@@ -1259,11 +1299,7 @@ int GreedyApproach<VDim, TReal>
       uLevel = uk;
 
       itk::Index<VDim> test; test.Fill(24);
-      std::cout << "Index 24x24x24 maps to " << uk->GetPixel(test) << std::endl;
       }
-
-    if(uLevel.IsNotNull())
-      LDDMMType::vimg_write(uLevel, "/tmp/ulevel.nii.gz");
 
     // Iterate for this level
     for(unsigned int iter = 0; iter < param.iter_per_level[level]; iter++)
@@ -1431,21 +1467,22 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::field_jacobian_det(uk, iTemp);
       TReal jac_min, jac_max;
       LDDMMType::img_min_max(iTemp, jac_min, jac_max);
-      printf("END OF LEVEL %3d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
+      gout.printf("END OF LEVEL %3d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
 
       // Print final metric report
       MultiComponentMetricReport metric_report = this->GetMetricLog()[level].back();
-      std::cout << this->PrintIter(level, -1, metric_report) << std::endl;
-      fflush(stdout);
-
+      std::string iter_line = this->PrintIter(level, -1, metric_report);
+      gout.printf("%s", iter_line.c_str());
+      gout.flush();
+      
       // Print timing information
-      printf("  Avg. Gradient Time  : %6.4fs  %5.2f%% \n", tm_Gradient.GetMean(), 
+      gout.printf("  Avg. Gradient Time  : %6.4fs  %5.2f%% \n", tm_Gradient.GetMean(),
              tm_Gradient.GetMean() * 100.0 / tm_Iteration.GetMean());
-      printf("  Avg. Gaussian Time  : %6.4fs  %5.2f%% \n", tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean(),
+      gout.printf("  Avg. Gaussian Time  : %6.4fs  %5.2f%% \n", tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean(),
              (tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean()) * 100.0 / tm_Iteration.GetMean());
-      printf("  Avg. Integration Time  : %6.4fs  %5.2f%% \n", tm_Integration.GetMean() + tm_Update.GetMean(),
+      gout.printf("  Avg. Integration Time  : %6.4fs  %5.2f%% \n", tm_Integration.GetMean() + tm_Update.GetMean(),
              (tm_Integration.GetMean() + tm_Update.GetMean()) * 100.0 / tm_Iteration.GetMean());
-      printf("  Avg. Total Iteration Time : %6.4fs \n", tm_Iteration.GetMean());
+      gout.printf("  Avg. Total Iteration Time : %6.4fs \n", tm_Iteration.GetMean());
       }
     }
 
@@ -2113,6 +2150,9 @@ template <unsigned int VDim, typename TReal>
 int GreedyApproach<VDim, TReal>
 ::RunReslice(GreedyParameters &param)
 {
+  // Object for text output
+  GreedyStdOut gout(param.verbosity);
+
   GreedyResliceParameters r_param = param.reslice_param;
 
   // Check the parameters
@@ -2546,6 +2586,22 @@ int GreedyApproach<VDim, TReal>
   return 0;
 }
 
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::RunMetric(GreedyParameters &param)
+{
+  MultiComponentMetricReport metric_report;
+  this->ComputeMetric(param, metric_report);
+  
+  printf("Metric Report:\n");
+  for (unsigned i = 0; i < metric_report.ComponentMetrics.size(); i++)
+    printf("  Component %d: %8.6f", i, metric_report.ComponentMetrics[i]);
+  printf("  Total = %8.6f\n", metric_report.TotalMetric);
+	
+  return 0;
+}
+
+
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
@@ -2591,15 +2647,17 @@ template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
 ::ConfigThreads(const GreedyParameters &param)
 {
+  GreedyStdOut gout(param.verbosity);
+  
   if(param.threads > 0)
     {
-    std::cout << "Limiting the number of threads to " << param.threads << std::endl;
+    gout.printf("Limiting the number of threads to %d", param.threads);
     itk::MultiThreader::SetGlobalMaximumNumberOfThreads(param.threads);
     }
   else
     {
-    std::cout << "Executing with the default number of threads: " << itk::MultiThreader::GetGlobalDefaultNumberOfThreads() << std::endl;
-
+    gout.printf("Executing with the default number of threads: %d",
+                itk::MultiThreader::GetGlobalDefaultNumberOfThreads());
     }
 }
 
@@ -2627,6 +2685,8 @@ int GreedyApproach<VDim, TReal>
       return Self::RunJacobian(param);
     case GreedyParameters::ROOT_WARP:
       return Self::RunRootWarp(param);
+    case GreedyParameters::METRIC:
+      return Self::RunMetric(param);
     }
 
   return -1;

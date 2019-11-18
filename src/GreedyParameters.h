@@ -206,8 +206,9 @@ struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, MI, NMI, MAHALANOBIS };
   enum TimeStepMode { CONSTANT=0, SCALE, SCALEDOWN };
-  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, JACOBIAN_WARP, MOMENTS };
+  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, JACOBIAN_WARP, MOMENTS, METRIC };
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
+  enum Verbosity { VERB_NONE=0, VERB_DEFAULT, VERB_VERBOSE, VERB_INVALID };
 
   std::vector<ImagePairSpec> inputs;
   std::string output;
@@ -316,6 +317,9 @@ struct GreedyParameters
 
   // Read parameters from the
   bool ParseCommandLine(const std::string &cmd, CommandLineHelper &cl);
+  
+  // Verbosity flag
+  Verbosity verbosity;
 
   // Constructor
   GreedyParameters() { SetToDefaults(*this); }

@@ -34,6 +34,8 @@
 
 #include "MultiComponentMetricReport.h"
 
+template <class MultiComponentImageType, class BinnedImageType> class MutualInformationPreprocessingFilter;
+
 /**
  * This class is used to perform mean square intensity difference type
  * registration with multiple images. The filter is designed for speed
@@ -274,6 +276,13 @@ protected:
 
   // Adjust NCC radius to be smaller than half image size
   SizeType AdjustNCCRadius(int level, const SizeType &radius, bool report_on_adjust);
+
+  // Precompute histograms for MI/NMI
+  void ComputeHistogramsIfNeeded(int level);
+
+  // Fixed and moving images intensity mapped into histogram binned
+  typedef itk::VectorImage<unsigned char, VDim> BinnedImageType;
+  typename BinnedImageType::Pointer m_FixedBinnedImage, m_MovingBinnedImage;
 
   // Whether the fixed images should be scaled down by the pyramid factors
   // when subsampling. This is needed for the Mahalanobis distance metric, but not for
