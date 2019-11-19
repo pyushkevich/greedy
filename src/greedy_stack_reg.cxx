@@ -1246,11 +1246,36 @@ public:
 
             // Accumulate this root warp with its weight
             LDDMMType::vimg_add_scaled_in_place(avg_root, work_img, weights[i]);
+            
+            // Dump all the intermediates
+            /*
+            char buffer[256];
+            sprintf(buffer, "/tmp/sg_%s_fixed_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+            LDDMMType::cimg_write(reg_targets[i], buffer);
+            
+            sprintf(buffer, "/tmp/sg_%s_moving_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+            LDDMMType::cimg_write(img_slide, buffer);
+
+            sprintf(buffer, "/tmp/sg_%s_warproot_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+            LDDMMType::vimg_write(work_img, buffer);
+             */
+            
             }
+          
+          /*
+          char buffer[256];
+          sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
+          LDDMMType::vimg_write(avg_root, buffer);
+           */
 
           // Exponentiate the average root warp
           WarpImageType::Pointer avg_warp = LDDMMType::new_vimg(ref_space);
           LDDMMType::vimg_exp(avg_root, avg_warp, work_img, gparam.warp_exponent, 1.0);
+
+          /*
+          sprintf(buffer, "/tmp/sg_%s_avgwarp.nii.gz", m_Slices[k].unique_id.c_str());
+          LDDMMType::vimg_write(avg_warp, buffer);
+           */
 
           // Write the result
           LDDMMType::vimg_write(avg_warp, fn_result.c_str(), itk::ImageIOBase::FLOAT); 

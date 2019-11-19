@@ -2651,12 +2651,12 @@ void GreedyApproach<VDim, TReal>
   
   if(param.threads > 0)
     {
-    gout.printf("Limiting the number of threads to %d", param.threads);
+    gout.printf("Limiting the number of threads to %d\n", param.threads);
     itk::MultiThreader::SetGlobalMaximumNumberOfThreads(param.threads);
     }
   else
     {
-    gout.printf("Executing with the default number of threads: %d",
+    gout.printf("Executing with the default number of threads: %d\n",
                 itk::MultiThreader::GetGlobalDefaultNumberOfThreads());
     }
 }
