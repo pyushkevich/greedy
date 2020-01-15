@@ -48,9 +48,10 @@
 struct StackParameters
 {
   bool reuse;
+  bool debug;
   std::string output_dir;
   StackParameters()
-    : reuse(false) {}
+    : reuse(false), debug(false) {}
 };
 
 
@@ -542,6 +543,8 @@ public:
 
         // Map the metric value into a weight
         double weight = (1.0 - pair_metric) * pow(1 + z_epsilon, fabs(it_n.first - it.first));
+        printf("F: %s   M: %s   M=%f  W=%f\n",
+               m_Slices[it.second].unique_id.c_str(), m_Slices[it_n.second].unique_id.c_str(), pair_metric, weight);
 
         // Regardless of whether we did registration or not, record the edge in the graph
         G_edge_weight[G_adjidx[it.second] + n_pos++] = weight;
@@ -618,7 +621,7 @@ public:
 
       // Traverse the path
       unsigned int i_curr = i, i_prev = dijkstra.GetPredecessorArray()[i];
-      std::cout << "Chain for " << i << " : ";
+      std::cout << "Chain for " << m_Slices[i].unique_id << " : ";
       while(i_prev != DijkstraShortestPath<double>::NO_PATH && (i_prev != i_curr))
         {
         // Load the matrix
@@ -629,7 +632,7 @@ public:
         // Accumulate the total transformation
         t_accum = t_accum * t_step;
 
-        std::cout << i_prev << " ";
+        std::cout << m_Slices[i_prev].unique_id << " ";
 
         // Go to the next edge
         i_curr = i_prev;
@@ -1248,34 +1251,33 @@ public:
             LDDMMType::vimg_add_scaled_in_place(avg_root, work_img, weights[i]);
             
             // Dump all the intermediates
-            /*
-            char buffer[256];
-            sprintf(buffer, "/tmp/sg_%s_fixed_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
-            LDDMMType::cimg_write(reg_targets[i], buffer);
-            
-            sprintf(buffer, "/tmp/sg_%s_moving_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
-            LDDMMType::cimg_write(img_slide, buffer);
+            if(m_GlobalParam.debug)
+              {
+              char buffer[256];
+              sprintf(buffer, "/tmp/sg_%s_fixed_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+              LDDMMType::cimg_write(reg_targets[i], buffer);
+              
+              sprintf(buffer, "/tmp/sg_%s_moving_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+              LDDMMType::cimg_write(img_slide, buffer);
 
-            sprintf(buffer, "/tmp/sg_%s_warproot_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
-            LDDMMType::vimg_write(work_img, buffer);
-             */
-            
+              sprintf(buffer, "/tmp/sg_%s_warproot_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+              LDDMMType::vimg_write(work_img, buffer);
+              }
             }
           
-          /*
-          char buffer[256];
-          sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
-          LDDMMType::vimg_write(avg_root, buffer);
-           */
-
           // Exponentiate the average root warp
           WarpImageType::Pointer avg_warp = LDDMMType::new_vimg(ref_space);
           LDDMMType::vimg_exp(avg_root, avg_warp, work_img, gparam.warp_exponent, 1.0);
 
-          /*
-          sprintf(buffer, "/tmp/sg_%s_avgwarp.nii.gz", m_Slices[k].unique_id.c_str());
-          LDDMMType::vimg_write(avg_warp, buffer);
-           */
+          if(m_GlobalParam.debug)
+            {
+            char buffer[256];
+            sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
+            LDDMMType::vimg_write(avg_root, buffer);
+
+            sprintf(buffer, "/tmp/sg_%s_avgwarp.nii.gz", m_Slices[k].unique_id.c_str());
+            LDDMMType::vimg_write(avg_warp, buffer);
+            }
 
           // Write the result
           LDDMMType::vimg_write(avg_warp, fn_result.c_str(), itk::ImageIOBase::FLOAT); 
@@ -2128,6 +2130,10 @@ int main(int argc, char *argv[])
     if(arg == "-N")
       {
       param.reuse = true;
+      }
+    else if(arg == "-debug")
+      {
+      param.debug = true;
       }
     else
       {
