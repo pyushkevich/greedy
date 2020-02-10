@@ -298,11 +298,14 @@ struct GreedyParameters
   int moments_order;
   bool flag_moments_id_covariance;
 
-  // Stationary velocity (diffeomophic demons) mode
+  // Stationary velocity (Vercauteren 2008 LogDemons) mode
   bool flag_stationary_velocity_mode;
 
-  // Whether the lie bracket is used in the y velocity update
+  // Whether the Lie bracket is used in the y velocity update
   bool flag_stationary_velocity_mode_use_lie_bracket;
+
+  // Incompressibility mode (Mansi 2011 iLogDemons)
+  bool flag_incompressibility_mode;
 
   // Floating point precision?
   bool flag_float_math;

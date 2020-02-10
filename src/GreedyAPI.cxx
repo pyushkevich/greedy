@@ -1214,7 +1214,7 @@ int GreedyApproach<VDim, TReal>
 
     // Set up timers for different critical components of the optimization
     GreedyTimeProbe tm_Gradient, tm_Gaussian1, tm_Gaussian2, tm_Iteration,
-      tm_Integration, tm_Update;
+      tm_Integration, tm_Update, tm_UpdatePDE, tm_PDE;
 
     // Intermediate images
     ImagePointer iTemp = ImageType::New();
@@ -1232,6 +1232,12 @@ int GreedyApproach<VDim, TReal>
     typedef typename LDDMMType::MatrixImageType MatrixImageType;
     typename MatrixImageType::Pointer work_mat = MatrixImageType::New();
 
+    // Sparse solver for incompressibility mode
+    void *incompressibility_solver = NULL;
+
+    // Mask used for incompressibility purposes
+    ImagePointer incompressibility_mask = NULL;
+
     // Allocate the intermediate data
     LDDMMType::alloc_vimg(uk, refspace);
     if(param.iter_per_level[level] > 0)
@@ -1245,6 +1251,20 @@ int GreedyApproach<VDim, TReal>
         {
         LDDMMType::alloc_vimg(uk_exp, refspace);
         LDDMMType::alloc_mimg(work_mat, refspace);
+        }
+
+      if(param.flag_stationary_velocity_mode && param.flag_incompressibility_mode)
+        {
+        if(param.gradient_mask.size())
+          {
+          std::cout << "Setting up incompressibility mask" << std::endl;
+          incompressibility_mask = LDDMMType::new_img(of_helper.GetGradientMask(level));
+          LDDMMType::img_copy(of_helper.GetGradientMask(level), incompressibility_mask);
+          LDDMMType::img_threshold_in_place(incompressibility_mask, 0.9, 1.0, 1.0, 0.0);
+          }
+
+        std::cout << "Setting up incompressibility solver" << std::endl;
+        incompressibility_solver = LDDMMType::poisson_pde_zero_boundary_initialize(uk, incompressibility_mask);
         }
       }
 
@@ -1450,11 +1470,55 @@ int GreedyApproach<VDim, TReal>
         LDDMMType::vimg_write(uk1, fname);
         }
 
-      // Another layer of smoothing
+      // Another layer of smoothing (diffusion-like)
       tm_Gaussian2.Start();
       LDDMMType::vimg_smooth_withborder(uk1, uk, sigma_post_phys, 1);
       tm_Gaussian2.Stop();
 
+      // Optional incompressibility step
+      tm_UpdatePDE.Start();
+      if(incompressibility_solver)
+        {
+        // Compute the divergence of uk.
+        LDDMMType::field_divergence(uk, iTemp, true);
+
+        // If using mask, multiply
+        if(incompressibility_mask)
+          LDDMMType::img_multiply_in_place(iTemp, incompressibility_mask);
+
+        // Dump the divergence before correction
+        if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
+          {
+          char fname[256];
+          sprintf(fname, "dump_divv_pre_lev%02d_iter%04d.nii.gz", level, iter);
+          LDDMMType::img_write(iTemp, fname);
+          }
+
+        // TODO: this should not be temporary!
+        typename LDDMMType::ImagePointer pde_soln = LDDMMType::new_img(iTemp);
+
+        // Solve the PDE
+        tm_PDE.Start();
+        LDDMMType::poisson_pde_zero_boundary_solve(incompressibility_solver, iTemp, pde_soln);
+        tm_PDE.Stop();
+        if(incompressibility_mask)
+          LDDMMType::img_multiply_in_place(pde_soln, incompressibility_mask);
+
+        // Take the gradient of the solution and subtract from uk
+        LDDMMType::image_gradient(pde_soln, uk1, true);
+        LDDMMType::vimg_subtract_in_place(uk, uk1);
+
+        // Compute the divergence of the updated image. Should be zero
+        // Dump the divergence after correction
+        if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
+          {
+          char fname[256];
+          sprintf(fname, "dump_divv_post_lev%02d_iter%04d.nii.gz", level, iter);
+          LDDMMType::field_divergence(uk, iTemp, true);
+          LDDMMType::img_write(iTemp, fname);
+          }
+        }
+      tm_UpdatePDE.Stop();
       tm_Iteration.Stop();
       }
 
@@ -1472,16 +1536,22 @@ int GreedyApproach<VDim, TReal>
       // Print final metric report
       MultiComponentMetricReport metric_report = this->GetMetricLog()[level].back();
       std::string iter_line = this->PrintIter(level, -1, metric_report);
-      gout.printf("%s", iter_line.c_str());
+      gout.printf("%s\n", iter_line.c_str());
       gout.flush();
       
       // Print timing information
-      gout.printf("  Avg. Gradient Time  : %6.4fs  %5.2f%% \n", tm_Gradient.GetMean(),
+      gout.printf("  Avg. Gradient Time        : %6.4fs  %5.2f%% \n", tm_Gradient.GetMean(),
              tm_Gradient.GetMean() * 100.0 / tm_Iteration.GetMean());
-      gout.printf("  Avg. Gaussian Time  : %6.4fs  %5.2f%% \n", tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean(),
+      gout.printf("  Avg. Gaussian Time        : %6.4fs  %5.2f%% \n", tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean(),
              (tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean()) * 100.0 / tm_Iteration.GetMean());
-      gout.printf("  Avg. Integration Time  : %6.4fs  %5.2f%% \n", tm_Integration.GetMean() + tm_Update.GetMean(),
-             (tm_Integration.GetMean() + tm_Update.GetMean()) * 100.0 / tm_Iteration.GetMean());
+      if(incompressibility_solver)
+        {
+        gout.printf("  Avg. PDE Time             : %6.4fs  %5.2f%% \n", tm_PDE.GetMean(),
+          (tm_PDE.GetMean()) * 100.0 / tm_Iteration.GetMean());
+        }
+      gout.printf("  Avg. Integration Time     : %6.4fs  %5.2f%% \n", 
+        tm_Integration.GetMean() + tm_Update.GetMean() + tm_UpdatePDE.GetMean(),
+        (tm_Integration.GetMean() + tm_Update.GetMean() + tm_UpdatePDE.GetMean()) * 100.0 / tm_Iteration.GetMean());
       gout.printf("  Avg. Total Iteration Time : %6.4fs \n", tm_Iteration.GetMean());
       }
     }

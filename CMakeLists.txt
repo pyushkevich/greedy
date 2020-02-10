@@ -43,6 +43,9 @@ OPTION(GREEDY_BUILD_MACF "Build experimental multi-atlas correspondence fusion c
 # Do we want to build the stack registration binary
 OPTION(GREEDY_BUILD_STACK_REG "Build experimental slice stack registration code" OFF)
 
+# Do we want to enable PDE-based methods that require sparse solvers
+OPTION(GREEDY_USE_SPARSE_SOLVERS "Build registration tools that use sparse solvers" OFF)
+
 #--------------------------------------------------------------------------------
 # Dependent packages
 #--------------------------------------------------------------------------------
@@ -57,6 +60,14 @@ IF(GREEDY_USE_FFTW)
   SET(ITK_USE_FFTWD ON)
   INCLUDE(CMake/FindFFTW.cmake)
   ADD_DEFINITIONS(-D_LDDMM_FFT_)
+ENDIF()
+
+# Deal with sparse solvers
+IF(GREEDY_USE_SPARSE_SOLVERS)
+  ADD_DEFINITIONS(-D_LDDMM_SPARSE_SOLVERS_)
+  ADD_SUBDIRECTORY(src/SparseSolvers)
+  INCLUDE_DIRECTORIES(src/SparseSolvers)
+  SET(SPARSE_LIBRARY sparsesolvers)
 ENDIF()
 
 # Include the header directories
@@ -149,6 +160,7 @@ SET(HEADERS
 # Define greedy library files
 SET(GREEDY_LIB_SRC
   src/lddmm_data.cxx
+  src/lddmm_sparse.cxx
   src/GreedyAPI.cxx
   src/GreedyParameters.cxx
   src/MultiImageRegistrationHelper.cxx
@@ -175,7 +187,7 @@ IF(BUILD_CLI)
   IF(GREEDY_BUILD_LDDMM)
     ADD_EXECUTABLE(lddmm ${LDDMM_SRC})
     TARGET_LINK_LIBRARIES(lddmm greedyapi
-      ${ITK_LIBRARIES} ${FFTWF_LIB}
+      ${ITK_LIBRARIES} ${FFTWF_LIB} ${SPARSE_LIBRARY}
       ${FFTWF_THREADS_LIB})
   ENDIF()
 
@@ -187,12 +199,14 @@ IF(BUILD_CLI)
   IF(GREEDY_BUILD_STACK_REG)
     ADD_EXECUTABLE(stack_greedy ${STACK_GREEDY_SRC})
     INCLUDE_DIRECTORIES(${GREEDY_SOURCE_DIR}/src/dijkstra)
-    TARGET_LINK_LIBRARIES(stack_greedy greedyapi ${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB})
+    TARGET_LINK_LIBRARIES(stack_greedy greedyapi 
+      ${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB} ${SPARSE_LIBRARY})
     ADD_DEPENDENCIES(stack_greedy docs_to_hex)
   ENDIF()
 
   ADD_EXECUTABLE(greedy ${GREEDY_SRC})
-  TARGET_LINK_LIBRARIES(greedy greedyapi ${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB})
+  TARGET_LINK_LIBRARIES(greedy greedyapi 
+    ${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB} ${SPARSE_LIBRARY})
 
   ADD_EXECUTABLE(test_accum testing/src/TestOneDimensionalInPlaceAccumulateFilter.cxx)
   TARGET_LINK_LIBRARIES(test_accum ${ITK_LIBRARIES})

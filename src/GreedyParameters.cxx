@@ -56,6 +56,7 @@ GreedyParameters
   param.affine_jitter = 0.5;
   param.flag_float_math = false;
   param.flag_stationary_velocity_mode = false;
+  param.flag_incompressibility_mode = false;
   param.flag_stationary_velocity_mode_use_lie_bracket = false;
   param.background = 0.0;
   param.current_weight = 1.0;
@@ -340,6 +341,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->flag_stationary_velocity_mode = true;
     this->flag_stationary_velocity_mode_use_lie_bracket = true;
+    }
+  else if(cmd == "-sv-incompr")
+    {
+    this->flag_incompressibility_mode = true;
     }
   else if(cmd == "-ri")
     {

@@ -134,6 +134,13 @@ Format: ``-h``
 
 Use this command to list all the commands and options for greedy. Some commands are esoteric or developer-oriented and are not discussed here.
 
+Mode Specification Commands
+---------------------------
+Greedy has several operating modes. The most common modes are deformable registration (default mode), affine registration (``-a`` command) and reslicing mode (``-rXXX`` commands). 
+
+Deformable Registration Mode
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 Common Commands in Deformable Registration Mode
 -----------------------------------------------
 

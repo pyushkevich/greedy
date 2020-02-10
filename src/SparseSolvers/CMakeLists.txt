@@ -1,0 +1,98 @@
+PROJECT(SparseSolverLibrary)
+
+# Options for the sparse solvers
+OPTION(SPARSESOLVER_USE_PARDISO "Use the PARDISO sparse solver library" OFF)
+OPTION(SPARSESOLVER_USE_TAUCS "Use the TAUCS sparse solver library" OFF)
+OPTION(SPARSESOLVER_USE_MKL "Use the MKL sparse solver library" OFF)
+
+# Source files
+
+# ========================================
+# PARDISO support
+# ========================================
+IF(SPARSESOLVER_USE_PARDISO)
+  IF(WIN32)
+
+    # On Windows, the library can only be loaded dynamically
+    ADD_DEFINITIONS(-DHAVE_PARDISO -DPARDISO_DYNLOAD)  
+
+  ELSE(WIN32)
+
+    # On Linux, Lapack is also required
+    FIND_PACKAGE(LAPACK REQUIRED)
+    
+    FIND_LIBRARY(GOMP_LIB gomp DOC "The location of the libgomp library")
+    IF(NOT GOMP_LIB)
+      MESSAGE(ERROR "GNU OpenMP (gomp) library required for PARDISO")
+    ENDIF(NOT GOMP_LIB) 
+
+    # Search for PARDISO
+    FIND_LIBRARY(PARDISO_LIB pardiso DOC "The location of the PARDISO shared library")
+    IF(PARDISO_LIB AND LAPACK_FOUND AND GOMP_LIB)
+
+      ADD_DEFINITIONS(-DHAVE_PARDISO)
+      SET(SOLVER_SRC ${SOLVER_SRC} PardisoInterface.cxx)
+
+      # Set the PDE libraries variable
+      SET(SOLVER_LIBS ${SOLVER_LIBS} ${PARDISO_LIB} ${LAPACK_LIB} ${GOMP_LIB})
+
+    ENDIF(PARDISO_LIB AND LAPACK_FOUND AND GOMP_LIB)
+
+  ENDIF(WIN32)
+
+ELSE(SPARSESOLVER_USE_PARDISO)
+
+  ADD_DEFINITIONS(-UHAVE_PARDISO)
+
+ENDIF(SPARSESOLVER_USE_PARDISO)
+
+
+# Optionally, support TAUCS
+IF(SPARSESOLVER_USE_TAUCS)
+
+  FIND_PATH(TAUCS_BUILD_DIR "taucs_config_build.h")
+  IF(TAUCS_BUILD_DIR)
+    GET_FILENAME_COMPONENT(TAUCS_BUILD_DIR_PARENT ${TAUCS_BUILD_DIR} PATH)
+    GET_FILENAME_COMPONENT(TAUCS_ROOT_DIR ${TAUCS_BUILD_DIR_PARENT} PATH)
+    GET_FILENAME_COMPONENT(TAUCS_SYS ${TAUCS_BUILD_DIR} NAME_WE)
+    INCLUDE_DIRECTORIES(${TAUCS_BUILD_DIR} ${TAUCS_ROOT_DIR}/src)
+    FIND_LIBRARY(TAUCS_LIB taucs PATHS ${TAUCS_ROOT_DIR}/lib/${TAUCS_SYS} DOC "The location of the TAUCS library")
+    IF(TAUCS_LIB)
+      SET(SOLVER_SRC ${SOLVER_SRC} TaucsInterface.cxx)
+    ENDIF(TAUCS_LIB)  
+
+    # On Linux, Lapack is also required
+    FIND_PACKAGE(LAPACK REQUIRED)
+    FIND_LIBRARY(METIS_LIB metis)
+
+    # Set the PDE libraries variable
+    IF(TAUCS_LIB AND LAPACK_FOUND AND METIS_LIB)
+      ADD_DEFINITIONS(-DHAVE_TAUCS)
+      SET(SOLVER_LIBS ${SOLVER_LIBS} ${TAUCS_LIB} ${LAPACK_LIB} ${METIS_LIB})
+    ENDIF(TAUCS_LIB AND LAPACK_FOUND AND METIS_LIB)
+
+  ENDIF(TAUCS_BUILD_DIR)
+ENDIF(SPARSESOLVER_USE_TAUCS)
+
+# Optionally, use MKL
+IF(SPARSESOLVER_USE_MKL)
+  FIND_PACKAGE(MKL REQUIRED)
+  IF(MKL_LIBRARIES)
+
+    ADD_DEFINITIONS(-DHAVE_MKL)
+    INCLUDE_DIRECTORIES(${MKL_INCLUDES})
+
+    SET(SOLVER_SRC ${SOLVER_SRC} MKLSolverInterface.cxx)
+    SET(SOLVER_LIBS ${SOLVER_LIBS} ${MKL_LIBRARIES})
+
+  ENDIF(MKL_LIBRARIES)
+ENDIF(SPARSESOLVER_USE_MKL)
+
+# Create a library
+ADD_LIBRARY(sparsesolvers
+  SparseMatrix.cxx
+  SparseSolver.cxx
+  ${SOLVER_SRC})
+
+# Link to the library
+TARGET_LINK_LIBRARIES(sparsesolvers ${SOLVER_LIBS})

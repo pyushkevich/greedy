@@ -134,6 +134,9 @@ public:
   // The output Jacobians are stored 
   static void field_jacobian(VectorImageType *vec, MatrixImageType *out);
 
+  // Divergence of a vector field
+  static void field_divergence(VectorImageType *v, ImageType *div_v, bool use_spacing);
+
   // Jacobian of warp composition. Let f(x) = x + u(x) and g(x) = x + v(x) and let h = x + w(x)
   // Suppose h(x) = f(g(x)), then w(x) = v(x) + u(x + v(x))
   // This code computes the Jacobian of w, Dw, given the Jacobians of u and v, as well as v itself.
@@ -171,7 +174,7 @@ public:
   static void vimg_smooth_withborder(VectorImageType *src, VectorImageType *trg, Vec sigma, int border_size);
 
   // Take gradient of an image
-  static void image_gradient(ImageType *src, VectorImageType *grad);
+  static void image_gradient(ImageType *src, VectorImageType *grad, bool use_spacing);
 
   // Basic math
   static void vimg_add_in_place(VectorImageType *trg, VectorImageType *a);
@@ -201,9 +204,9 @@ public:
                                                  bool scale_down_only);
 
   // Scalar math
-  static void img_add_in_place(ImagePointer &trg, ImageType *a);
-  static void img_subtract_in_place(ImagePointer &trg, ImageType *a);
-  static void img_multiply_in_place(ImagePointer &trg, ImageType *a);
+  static void img_add_in_place(ImageType *trg, ImageType *a);
+  static void img_subtract_in_place(ImageType *trg, ImageType *a);
+  static void img_multiply_in_place(ImageType *trg, ImageType *a);
   static void img_scale_in_place(ImageType *trg, TFloat scale);
   static TFloat img_euclidean_norm_sq(ImageType *trg);
   static TFloat img_voxel_sum(ImageType *trg);
@@ -286,6 +289,11 @@ public:
   // specified threshold. These should be applied to non-negative quantities
   static void img_linear_to_const_rectifier_fn(ImageType *src, ImageType *trg, TFloat thresh);
   static void img_linear_to_const_rectifier_deriv(ImageType *src, ImageType *trg, TFloat thresh);
+
+  // PDE support (for incompressibility)
+  static void * poisson_pde_zero_boundary_initialize(ImageBaseType *ref, ImageType *mask = NULL);
+  static void poisson_pde_zero_boundary_solve(void *solver_data, ImageType *rhs, ImageType *solution);
+  static void poisson_pde_zero_boundary_laplacian(void *solver_data, ImageType *u, ImageType *result);
 
 protected:
 

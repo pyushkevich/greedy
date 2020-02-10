@@ -953,6 +953,8 @@ public:
     my_param.flag_stationary_velocity_mode = true;
     my_param.root_warp = "output";
 
+    std::cout << "INCOMPRESS: " << my_param.flag_incompressibility_mode << std::endl;
+
     // Run affine registration
     api_reg.RunDeformable(my_param);
   
@@ -1941,7 +1943,7 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
 {
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
-    "-m", "-n", "-threads", "-gm-trim", "-s", "-e", "-sv", "-exp", "-V"
+    "-m", "-n", "-threads", "-gm-trim", "-s", "-e", "-sv", "-exp", "-V", "-sv-incompr"
   };
 
   // Greedy parameters for this mode
@@ -1985,6 +1987,7 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
       gparam.ParseCommandLine(arg, cl);
+      std::cout << "INCOMPRESS: " << arg << " " << gparam.flag_incompressibility_mode << std::endl;
       }
     else
       throw GreedyException("Unknown parameter to 'voliter': %s", arg.c_str());

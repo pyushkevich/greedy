@@ -115,6 +115,7 @@ int usage()
   printf("                           deformation fields and Jacobians than the pure greedy approach.\n");
   printf("  -svlb                  : Same as -sv but uses the more accurate but also more expensive \n");
   printf("                           update of v, v <- v + u + [v,u]. Experimental feature \n");
+  printf("  -sv-incompr            : Incompressibility mode, implements Mansi et al. 2011 iLogDemons\n");
   printf("  -id image.nii          : Specifies the initial warp to start iteration from. In stationary mode, this \n");
   printf("                           is the initial stationary velocity field (output by -oroot option)\n");
   printf("Initial transform specification: \n");
