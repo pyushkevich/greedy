@@ -155,7 +155,17 @@ public:
 
   static vnl_matrix<double> ReadAffineMatrix(const TransformSpec &ts);
 
+  /**
+   * Helper method to read an affine matrix from file into an ITK transform type
+   */
+  static void ReadAffineTransform(const TransformSpec &ts, LinearTransformType *tran);
+
   static void WriteAffineMatrix(const std::string &filename, const vnl_matrix<double> &Qp);
+
+  /**
+   * Helper method to write an affine ITK transform type to a matrix file
+   */
+  static void WriteAffineTransform(const std::string &filename, LinearTransformType *tran);
 
   static vnl_matrix<double> MapAffineToPhysicalRASSpace(
       OFHelperType &of_helper, int level,
@@ -194,6 +204,8 @@ protected:
   template <class TImage>
   itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename,
                                               itk::ImageIOBase::IOComponentType *comp_type = NULL);
+
+  template<class TObject> TObject *CheckCache(const std::string &filename) const;
 
   // This function reads an image base object via cache. It is more permissive than using
   // ReadImageViaCache.

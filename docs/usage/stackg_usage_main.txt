@@ -10,3 +10,4 @@ Commands:
   help               : Help for any particular command
 Common Options
   -N                 : Skip steps when outputs are already present
+  -debug             : Save intermediate outputs to /tmp directory

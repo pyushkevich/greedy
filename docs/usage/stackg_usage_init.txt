@@ -8,7 +8,9 @@ Required Command Options:
                          z_position        : a float indicating slice z-position
                          leader            : a flag (1/0) indicating whether this slide
                                              is a leader or a follower in registration
-                         filename          : path to image filename
+                         image_filename    : path to image filename
+                         [mask_filename]   : path to an image mask filename
 Additional Command Options:
   -ext <extension>   : Extension to use for output image files (without trailing period).)
                        Default extension is nii.gz.
+  -gm                : Indicates that the manifest includes mask images in the fifth column.

@@ -292,10 +292,51 @@ GreedyApproach<VDim, TReal>
 template<unsigned int VDim, typename TReal>
 void
 GreedyApproach<VDim, TReal>
+::ReadAffineTransform(const TransformSpec &ts, LinearTransformType *out_tran)
+{
+  vnl_matrix<double> Q = ReadAffineMatrix(ts);
+  vnl_matrix<double>  A = Q.extract(VDim, VDim);
+  vnl_vector<double> b = Q.get_column(VDim).extract(VDim);
+
+  typename LinearTransformType::MatrixType tran_A;
+  typename LinearTransformType::OffsetType tran_b;
+
+  vnl_matrix_to_itk_matrix(A, tran_A);
+  vnl_vector_to_itk_vector(b, tran_b);
+
+  out_tran->SetMatrix(tran_A);
+  out_tran->SetOffset(tran_b);
+}
+
+
+
+template<unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>
 ::WriteAffineMatrix(const std::string &filename, const vnl_matrix<double> &Qp)
 {
   GreedyApproach<VDim, TReal> api;
   api.WriteAffineMatrixViaCache(filename, Qp);
+}
+
+template<unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>
+::WriteAffineTransform(const std::string &filename, LinearTransformType *tran)
+{
+  vnl_matrix<double> Q(VDim+1, VDim+1);
+  Q.set_identity();
+
+  for(unsigned int i = 0; i < VDim; i++)
+    {
+    for(unsigned int j = 0; j < VDim; j++)
+      {
+      Q(i,j) = (double) tran->GetMatrix()(i,j);
+      }
+    Q(i,VDim) = (double) tran->GetOffset()[i];
+    }
+
+  WriteAffineMatrix(filename, Q);
 }
 
 template <unsigned int VDim, typename TReal>
@@ -335,6 +376,23 @@ GreedyApproach<VDim, TReal>
 
   itk::SmartPointer<TImage> pointer = reader->GetOutput();
   return pointer;
+}
+
+template <unsigned int VDim, typename TReal>
+template <class TObject>
+TObject *
+GreedyApproach<VDim, TReal>
+::CheckCache(const std::string &filename) const
+{
+  // Check the cache for the presence of the image
+  typename ImageCache::const_iterator it = m_ImageCache.find(filename);
+  if(it != m_ImageCache.end())
+    {
+    itk::Object *cached_object = it->second.target;
+    return dynamic_cast<TObject *>(cached_object);
+    }
+
+  return NULL;
 }
 
 template <unsigned int VDim, typename TReal>
@@ -1089,6 +1147,7 @@ public:
   void Start();
   void Stop();
   double GetMean() const;
+  double GetTotal() const;
 protected:
   double m_TotalTime;
   double m_StartTime;
@@ -1124,6 +1183,10 @@ double GreedyTimeProbe::GetMean() const
     return m_TotalTime / (CLOCKS_PER_SEC * m_Runs);
 }
 
+double GreedyTimeProbe::GetTotal() const
+{
+  return m_TotalTime / CLOCKS_PER_SEC;
+}
 
 template <unsigned int VDim, typename TReal>
 std::string
@@ -1540,19 +1603,20 @@ int GreedyApproach<VDim, TReal>
       gout.flush();
       
       // Print timing information
-      gout.printf("  Avg. Gradient Time        : %6.4fs  %5.2f%% \n", tm_Gradient.GetMean(),
-             tm_Gradient.GetMean() * 100.0 / tm_Iteration.GetMean());
-      gout.printf("  Avg. Gaussian Time        : %6.4fs  %5.2f%% \n", tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean(),
-             (tm_Gaussian1.GetMean() + tm_Gaussian2.GetMean()) * 100.0 / tm_Iteration.GetMean());
+      double n_it = param.iter_per_level[level];
+      double t_total = tm_Iteration.GetTotal() / n_it;
+      double t_gradient = tm_Gradient.GetTotal() / n_it;
+      double t_gaussian = (tm_Gaussian1.GetTotal() + tm_Gaussian2.GetTotal()) / n_it;
+      double t_update = (tm_Integration.GetTotal() + tm_Update.GetTotal() + tm_UpdatePDE.GetTotal()) / n_it;
+      double t_pde = tm_PDE.GetTotal() / n_it;
+      gout.printf("  Avg. Gradient Time        : %6.4fs  %5.2f%% \n", t_gradient, 100 * t_gradient / t_total);
+      gout.printf("  Avg. Gaussian Time        : %6.4fs  %5.2f%% \n", t_gaussian, 100 * t_gaussian / t_total);
       if(incompressibility_solver)
         {
-        gout.printf("  Avg. PDE Time             : %6.4fs  %5.2f%% \n", tm_PDE.GetMean(),
-          (tm_PDE.GetMean()) * 100.0 / tm_Iteration.GetMean());
+        gout.printf("  Avg. PDE Time             : %6.4fs  %5.2f%% \n", t_pde, 100 * t_pde / t_total);
         }
-      gout.printf("  Avg. Integration Time     : %6.4fs  %5.2f%% \n", 
-        tm_Integration.GetMean() + tm_Update.GetMean() + tm_UpdatePDE.GetMean(),
-        (tm_Integration.GetMean() + tm_Update.GetMean() + tm_UpdatePDE.GetMean()) * 100.0 / tm_Iteration.GetMean());
-      gout.printf("  Avg. Total Iteration Time : %6.4fs \n", tm_Iteration.GetMean());
+      gout.printf("  Avg. Integration Time     : %6.4fs  %5.2f%% \n", t_update, 100 * t_update / t_total);
+      gout.printf("  Avg. Total Iteration Time : %6.4fs \n", t_total);
       }
     }
 
@@ -1892,14 +1956,13 @@ void GreedyApproach<VDim, TReal>
     std::string tran = tran_chain[i].filename;
 
     // Determine if it's an affine transform
-    if(itk::ImageIOFactory::CreateImageIO(tran.c_str(), itk::ImageIOFactory::ReadMode))
+    if(CheckCache<VectorImageType>(tran) || itk::ImageIOFactory::CreateImageIO(tran.c_str(), itk::ImageIOFactory::ReadMode))
       {
       // Create a temporary warp
       VectorImagePointer warp_tmp = LDDMMType::new_vimg(ref_space);
 
       // Read the next warp
-      VectorImagePointer warp_i = VectorImageType::New();
-      LDDMMType::vimg_read(tran.c_str(), warp_i);
+      VectorImagePointer warp_i = ReadImageViaCache<VectorImageType>(tran);
 
       // If there is an exponent on the transform spec, handle it
       if(tran_chain[i].exponent != 1)
