@@ -1201,13 +1201,10 @@ public:
         // Figure out which matrix/warp to use
         std::string fn_matrix = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter-1);
 
-        // Load the warp via cache (we will need it again)
-        WarpRef prev_warp_k( iter - 1 <= n_affine ? NULL : slice_cache.GetImage<WarpImageType>(
-                                                      GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter-1)));
-
-        // Do the reslicing
+        // Do the reslicing by affine transform. We do not apply the previous warp
+        // because composing warps over many iterations will mess with our regularization
         SlideImagePointer resliced_slide = SlideImageType::New();
-        DoReslice(gparam, vol_slice_2d, img_slide, fn_matrix, prev_warp_k, resliced_slide);
+        DoReslice(gparam, vol_slice_2d, img_slide, fn_matrix, WarpRef(), resliced_slide);
 
         MaskImagePointer mask_slide, resliced_mask;
         if(m_UseMasks)
@@ -1218,7 +1215,7 @@ public:
           // Reslice the mask
           // TODO: use correct interpolation scheme
           resliced_mask = MaskImageType::New();
-          DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_matrix, prev_warp_k, resliced_mask);
+          DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_matrix, WarpRef(), resliced_mask);
           }
 
 
@@ -1340,7 +1337,8 @@ public:
           WarpRef prev_warp_j( iter - 1 <= n_affine ? NULL : slice_cache.GetImage<WarpImageType>(
                                                         GetFilenameForSlice(m_Slices[j], VOL_ITER_WARP, iter-1)));
 
-          // Do the reslicing
+          // Do the reslicing. Here we do apply the previous warp, since we want the slide to
+          // end up looking like it's current iteration neighbors
           DoReslice(gparam, vol_slice_2d, native_neighbor, fn_matrix_j, prev_warp_j, resliced_neighbor);
 
           // Add the resliced neighbor to target list
@@ -1483,9 +1481,7 @@ public:
             }
           
           // Exponentiate the negative average root warp. This gives us psi_inverse, which is the
-          // transform that takes the resliced slide image into volume space. We now need to compose
-          // this with the warp from the previous iteration, so we can take the affine-resliced
-          // slide image into volume space.
+          // transform that takes the resliced slide image into volume space.
           WarpImageType::Pointer psi_inv = LDDMMType::new_vimg(ref_space);
           LDDMMType::vimg_exp(avg_root, psi_inv, work_img, gparam.warp_exponent, -1.0);
 
@@ -1499,34 +1495,18 @@ public:
             LDDMMType::vimg_write(psi_inv, buffer);
             }
 
-          // Use an API call to compose the transformations
-          GreedyAPI api_compose;
-          GreedyParameters param_compose = gparam;
-          prev_warp_k.AddTo(&api_compose, param_compose.reslice_param, "phi_prev");
-          WarpRef(psi_inv).AddTo(&api_compose, param_compose.reslice_param, "psi");
-
-          // Add an output object that will also be written to file
-          WarpImagePointer phi_comp = LDDMMType::new_vimg(psi_inv);
-          std::string fn_composed_warp = GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter);
-          api_compose.AddCachedOutputObject(fn_composed_warp, phi_comp, true);
-          param_compose.reslice_param.out_composed_warp = fn_composed_warp;
-
-          // Set the reference image
-          api_compose.AddCachedInputObject("reference", vol_slice_2d);
-          param_compose.reslice_param.ref_image = "reference";
-
-          // Compose the warp with the previous iteration warp
-          api_compose.RunReslice(param_compose);
-
           // Propagate the matrix from last iteration
           GreedyAPI::WriteAffineMatrix(
             GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
             GreedyAPI::ReadAffineMatrix(fn_last_affine));
 
+          // Save the warp at this iteration
+          LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
+
           // Perform the reslicing (todo: this read the warp back from filem ugly)
-          DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(phi_comp), resliced_slide);
+          DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide);
           if(m_UseMasks)
-            DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(phi_comp), resliced_mask);
+            DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
           }
         
         // Create a metric dump file (useful for debugging, tracking convergence)
