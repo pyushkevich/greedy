@@ -1618,6 +1618,11 @@ int GreedyApproach<VDim, TReal>
       gout.printf("  Avg. Integration Time     : %6.4fs  %5.2f%% \n", t_update, 100 * t_update / t_total);
       gout.printf("  Avg. Total Iteration Time : %6.4fs \n", t_total);
       }
+
+      // Deallocate the incompressibility solver
+      if(incompressibility_solver)
+        LDDMMType::poisson_pde_zero_boundary_dealloc(incompressibility_solver);
+
     }
 
   // The transformation field is in voxel units. To work with ANTS, it must be mapped

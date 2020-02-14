@@ -291,9 +291,10 @@ public:
   static void img_linear_to_const_rectifier_deriv(ImageType *src, ImageType *trg, TFloat thresh);
 
   // PDE support (for incompressibility)
-  static void * poisson_pde_zero_boundary_initialize(ImageBaseType *ref, ImageType *mask = NULL);
+  static void *poisson_pde_zero_boundary_initialize(ImageBaseType *ref, ImageType *mask = NULL);
   static void poisson_pde_zero_boundary_solve(void *solver_data, ImageType *rhs, ImageType *solution);
   static void poisson_pde_zero_boundary_laplacian(void *solver_data, ImageType *u, ImageType *result);
+  static void poisson_pde_zero_boundary_dealloc(void *solver_data);
 
 protected:
 

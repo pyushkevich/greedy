@@ -238,6 +238,16 @@ LDDMMData<TFloat, VDim>
   return pde;
 }
 
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::poisson_pde_zero_boundary_dealloc(void *solver_data)
+{
+  typedef PoissonPDEZeroBoundary<TFloat, VDim> PDEType;
+  PDEType *pde = static_cast<PDEType *>(solver_data);
+  delete pde;
+}
+
 template <typename TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>

@@ -125,7 +125,7 @@ class ImageCache
 public:
 
   ImageCache(unsigned long max_memory = 0l, unsigned int max_images = 0)
-    : m_MaxMemory(max_memory), m_MaxImages(max_images), m_Counter(0l) {}
+    : m_MaxMemory(max_memory), m_UsedMemory(0l), m_MaxImages(max_images), m_Counter(0l) {}
 
   template <typename TImage> typename TImage::Pointer GetImage(const std::string &filename)
   {
@@ -182,7 +182,7 @@ public:
 
   bool IsCacheFull(unsigned long new_bytes, unsigned int new_images)
   {
-    printf("Cache usage: %8.4f GB, %d images\n", m_UsedMemory / (1024.0*1024.0*1024.0), m_Cache.size());
+    printf("Cache usage: %8.4f GB, %ld images\n", m_UsedMemory / (1024.0*1024.0*1024.0), m_Cache.size());
     if(m_MaxMemory > 0 && m_UsedMemory + new_bytes > m_MaxMemory)
       return true;
 
