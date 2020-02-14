@@ -293,7 +293,7 @@ public:
   enum FileIntent {
     MANIFEST_FILE = 0, CONFIG_ENTRY, AFFINE_MATRIX, METRIC_VALUE, ACCUM_MATRIX, ACCUM_RESLICE,
     VOL_INIT_MATRIX, VOL_SLIDE, VOL_MASK_SLIDE, VOL_BEST_INIT_MATRIX,
-    VOL_ITER_MATRIX, VOL_ITER_WARP, ITER_METRIC_DUMP
+    VOL_ITER_MATRIX, VOL_ITER_WARP, ITER_METRIC_DUMP, TEMP_FILE
   };
 
   /** Constructor */
@@ -651,8 +651,9 @@ public:
     // The padded image has a non-zero index, which causes problems downstream for GreedyAPI.
     // To account for this, we save and load the image
     // TODO: handle this internally using a filter!
-    LDDMMType::img_write(img_root_padded, "/tmp/padded.nii.gz");
-    img_root_padded = LDDMMType::img_read("/tmp/padded.nii.gz");
+    std::string fn_img_root_padded = GetFilenameForGlobal(TEMP_FILE, "padded_root.nii.gz");
+    LDDMMType::img_write(img_root_padded, fn_img_root_padded.c_str());
+    img_root_padded = LDDMMType::img_read(fn_img_root_padded.c_str());
 
     // Compute transformation for each slice
     for(unsigned int i = 0; i < m_Slices.size(); i++)
@@ -2018,6 +2019,9 @@ private:
         break;
       case CONFIG_ENTRY:
         sprintf(filename, "%s/config/dict/%s", dir, va_arg(args, char *));
+        break;
+      case TEMP_FILE:
+        sprintf(filename, "%s/tmp/%s", dir, va_arg(args, char *));
         break;
       default:
         throw GreedyException("Wrong intent in GetFilenameForGlobal");
