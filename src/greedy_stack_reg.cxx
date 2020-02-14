@@ -182,6 +182,7 @@ public:
 
   bool IsCacheFull(unsigned long new_bytes, unsigned int new_images)
   {
+    printf("Cache usage: %8.4f GB, %d images\n", m_UsedMemory / (1024.0*1024.0*1024.0), m_Cache.size());
     if(m_MaxMemory > 0 && m_UsedMemory + new_bytes > m_MaxMemory)
       return true;
 
@@ -480,7 +481,7 @@ public:
 
     // Set up a cache for loaded images. These images can be cycled in and out of memory
     // depending on need. TODO: let user configure cache sizes
-    ImageCache slice_cache(0, 400);
+    ImageCache slice_cache(0, 100);
 
     // At this point we can create a rigid adjacency structure for the graph-theoretic algorithm,
     vnl_vector<unsigned int> G_adjidx(m_SortedSlices.size()+1, 0u);
