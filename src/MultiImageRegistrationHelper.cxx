@@ -457,7 +457,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     wscaled[i] = m_Weights[i] * result_scaling;
 
   // TODO: this needs to be controlled by parameters, etc.
-  filter->SetUseDemonsGradientForm(true);
+  // 'false' represents compatibility with previous greedy versions
+  filter->SetUseDemonsGradientForm(false);
   filter->SetDemonsSigma(0.01);
 
   // Run the filter
