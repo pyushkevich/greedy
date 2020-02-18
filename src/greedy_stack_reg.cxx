@@ -1164,6 +1164,9 @@ public:
       std::iota(ordering.begin(), ordering.end(), 0);
       std::random_shuffle(ordering.begin(), ordering.end());
 
+      // Keep track of which images have been visited already
+      std::vector<bool> visited(m_Slices.size(), false);
+
       // Keep track of the total neighbor metric and total volume metric
       double total_leader_to_nbr_metric = 0.0;
       double total_leader_to_vol_metric = 0.0;
@@ -1332,12 +1335,15 @@ public:
           SlideImagePointer resliced_neighbor = SlideImageType::New();
           SlideImagePointer native_neighbor = slice_cache.GetImage<SlideImageType>(m_Slices[j].raw_filename.c_str());
 
+          // Which iteration to use, current or previous
+          unsigned int nbr_iter = visited[j] ? iter : iter-1;
+
           // Figure out which matrix/warp to use
-          std::string fn_matrix_j = GetFilenameForSlice(m_Slices[j], VOL_ITER_MATRIX, iter-1);
+          std::string fn_matrix_j = GetFilenameForSlice(m_Slices[j], VOL_ITER_MATRIX, nbr_iter);
 
           // Load the warp from cache
-          WarpRef prev_warp_j( iter - 1 <= n_affine ? NULL : slice_cache.GetImage<WarpImageType>(
-                                                        GetFilenameForSlice(m_Slices[j], VOL_ITER_WARP, iter-1)));
+          WarpRef prev_warp_j( nbr_iter <= n_affine ? NULL : slice_cache.GetImage<WarpImageType>(
+                                                        GetFilenameForSlice(m_Slices[j], VOL_ITER_WARP, nbr_iter)));
 
           // Do the reslicing. Here we do apply the previous warp, since we want the slide to
           // end up looking like it's current iteration neighbors
@@ -1561,6 +1567,9 @@ public:
             }
           }
         fclose(f_dump);
+
+        // Mark this slice as visited
+        visited[k] = true;
         }
 
       printf("ITER %3d  METRICS: L2V = %8.4f  L2N = %8.4f  NL2V = %8.4f  NL2N = %8.4F\n",
