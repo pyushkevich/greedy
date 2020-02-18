@@ -112,8 +112,30 @@ public:
    */
   virtual double GetGradientScalingFactor() const ITK_OVERRIDE { return -2.0; }
 
+  /**
+   * What form of the gradient to return. The default is to return the gradient of the
+   * objective function [F - M \circ u]. The alternative is to use the Demons-like form
+   * in Eq.4 of Vercauteren 2008 NeuroImage "Diffeomorphic Demons: Efficient Non-parametric
+   * Image Registration".
+   *
+   * u = \frac{F - M \circ \phi}{(|J|^2 + \sigma} J
+   *
+   * where J = \nabla ( M \circ \phi )
+   */
+  itkSetMacro(UseDemonsGradientForm, bool)
+  itkGetMacro(UseDemonsGradientForm, bool)
+
+  /**
+   * The value of \frac{\sigma_i}{sigma_x^2} in Eq.4 of Vercauteren 2008 NeuroImage. The
+   * default is set to 0.1 but is pretty meaningless as it depends on the norm of the
+   * gradient of M
+   */
+  itkSetMacro(DemonsSigma, double)
+  itkGetMacro(DemonsSigma, double)
+
+
 protected:
-  MultiImageOpticalFlowImageFilter() {}
+  MultiImageOpticalFlowImageFilter() : m_UseDemonsGradientForm(false), m_DemonsSigma(0.1) {}
   ~MultiImageOpticalFlowImageFilter() {}
 
   void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
@@ -122,6 +144,9 @@ protected:
 private:
   MultiImageOpticalFlowImageFilter(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
+
+  bool m_UseDemonsGradientForm;
+  double m_DemonsSigma;
 };
 
 

@@ -110,8 +110,23 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
             if(this->m_ComputeGradient)
               {
               const RealType *grad_mov_k = iter.GetMovingSampleGradient(k);
-              for(int i = 0; i < ImageDimension; i++)
-                grad_metric[i] += delw * grad_mov_k[i];
+              if(this->m_UseDemonsGradientForm)
+                {
+                // The Newton-Gauss formulation from Vercauteren 2008
+                double denominator = this->m_DemonsSigma;
+                for(int i = 0; i < ImageDimension; i++)
+                  denominator += grad_mov_k[i] * grad_mov_k[i];
+
+                double scale = delw / denominator;
+                for(int i = 0; i < ImageDimension; i++)
+                  grad_metric[i] += scale * grad_mov_k[i];
+                }
+              else
+                {
+                // Simple, unscaled gradient to use with affine registration
+                for(int i = 0; i < ImageDimension; i++)
+                  grad_metric[i] += delw * grad_mov_k[i];
+                }
               }
             }
 

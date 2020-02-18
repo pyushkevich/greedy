@@ -456,6 +456,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   for (unsigned i = 0; i < wscaled.size(); i++)
     wscaled[i] = m_Weights[i] * result_scaling;
 
+  // TODO: this needs to be controlled by parameters, etc.
+  filter->SetUseDemonsGradientForm(true);
+  filter->SetDemonsSigma(0.01);
+
   // Run the filter
   filter->SetFixedImage(m_FixedComposite[level]);
   filter->SetMovingImage(m_MovingComposite[level]);
