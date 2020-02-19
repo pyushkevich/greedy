@@ -1141,7 +1141,8 @@ public:
   // by just using same weights.
   void IterativeMatchToVolume(unsigned int n_affine, unsigned int n_deform, unsigned int i_first,
                               unsigned int i_last, double w_volume, double w_volume_follower, 
-                              bool dist_prop_weighting, const GreedyParameters &gparam)
+                              bool dist_prop_weighting, bool multi_metric,
+                              const GreedyParameters &gparam)
   {
     // Set up a cache for loaded images. These images can be cycled in and out of memory
     // depending on need. TODO: let user configure cache sizes
@@ -1364,157 +1365,343 @@ public:
         // Run the appropriate registrations and average the outputs
         if(iter <= n_affine)
           {
-          // Compute the average transform by averaging matrices. 
-          TransformType::MatrixType A; A.Fill(0.0);
-          TransformType::OffsetType b; b.Fill(0.0);
-
-          // TODO: do the averaging in log-space, then take exponent
-          for(unsigned int i = 0; i < targets.size(); i++)
+          // There are two ways to skin this cat. One is to register every slice to its neighbors using
+          // a single deformation and three image match terms. The other is to match the fixed image to
+          // the moving image three times, and then average the transforms
+          if(!multi_metric)
             {
-            if(m_GlobalParam.debug)
+            // Compute the average transform by averaging matrices.
+            TransformType::MatrixType A; A.Fill(0.0);
+            TransformType::OffsetType b; b.Fill(0.0);
+
+            // TODO: do the averaging in log-space, then take exponent
+            for(unsigned int i = 0; i < targets.size(); i++)
               {
-              char buffer[256];
-              sprintf(buffer, "/tmp/aff_%s_fixed_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
-              LDDMMType::cimg_write(resliced_slide, buffer);
-
-              sprintf(buffer, "/tmp/aff_%s_moving_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
-              LDDMMType::cimg_write(targets[i].image, buffer);
-
-              if(resliced_mask)
+              if(m_GlobalParam.debug)
                 {
-                sprintf(buffer, "/tmp/aff_%s_mask_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
-                LDDMMType::img_write(resliced_mask, buffer);
+                char buffer[256];
+                sprintf(buffer, "/tmp/aff_%s_fixed_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                LDDMMType::cimg_write(resliced_slide, buffer);
+
+                sprintf(buffer, "/tmp/aff_%s_moving_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                LDDMMType::cimg_write(targets[i].image, buffer);
+
+                if(resliced_mask)
+                  {
+                  sprintf(buffer, "/tmp/aff_%s_mask_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                  LDDMMType::img_write(resliced_mask, buffer);
+                  }
+                }
+
+              // Run the affine registration.
+              // The current slide (resliced to volume space) is the fixed image, and the
+              // volume and adjacent slides are the moving images.
+              TransformPointer t_vol = TransformType::New();
+              MultiComponentMetricReport mrpt =
+                DoAffineRegistration(param_reg, resliced_slide, targets[i].image, resliced_mask.GetPointer(), t_vol);
+
+              // Record the metric (apply scaling for affine used internally)
+              targets[i].direct_reg_metric = mrpt.TotalMetric / -10000.0;
+
+              // Add the weighted transforms
+              A += t_vol->GetMatrix() * targets[i].weight;
+              b += t_vol->GetOffset() * targets[i].weight;
+
+              if(m_GlobalParam.debug)
+                {
+                char buffer[256];
+                sprintf(buffer, "/tmp/aff_%s_transform_%02d.mat", m_Slices[k].unique_id.c_str(), i);
+                GreedyAPI::WriteAffineTransform(buffer, t_vol);
                 }
               }
 
-            // Run the affine registration.
-            // The current slide (resliced to volume space) is the fixed image, and the
-            // volume and adjacent slides are the moving images.
-            TransformPointer t_vol = TransformType::New();
-            MultiComponentMetricReport mrpt =
-              DoAffineRegistration(param_reg, resliced_slide, targets[i].image, resliced_mask.GetPointer(), t_vol);
-            
-            // Record the metric (apply scaling for affine used internally)
-            targets[i].direct_reg_metric = mrpt.TotalMetric / -10000.0;
+            // The registration was performed between with slide k resliced via last iteration affine matrix
+            // as the fixed image and the volume as the moving image. We now need to compute the transform
+            // that would map slide k into the volume at the current iteration. This is given by
+            //
+            //   phi(x) = phi_prev( psi_inv (x) )
+            //
+            // Where phi_prev is the last iteration transformation, and psi is what we just computed.
+            GreedyAPI compose_api;
+            GreedyParameters compose_param = gparam;
 
-            // Add the weighted transforms
-            A += t_vol->GetMatrix() * targets[i].weight;
-            b += t_vol->GetOffset() * targets[i].weight;
+            // The current transform
+            TransformPointer t_psi = TransformType::New();
+            t_psi->SetMatrix(A); t_psi->SetOffset(b);
+
+            // The previous transform
+            TransformPointer t_phi = TransformType::New();
+            GreedyAPI::ReadAffineTransform(TransformSpec(fn_matrix), t_phi);
+
+            // Compose the two transforms
+            TransformPointer t_psi_inv = TransformType::New();
+            t_psi->GetInverse(t_psi_inv);
+            t_phi->Compose(t_psi_inv, true);
+
+            // Save the transform
+            GreedyAPI::WriteAffineTransform(fn_result, t_phi);
+
+            // Perform the reslicing
+            DoReslice(gparam, vol_slice_2d, img_slide, fn_result, WarpRef(), resliced_slide);
+            if(m_UseMasks)
+              DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_result, WarpRef(), resliced_mask);
 
             if(m_GlobalParam.debug)
               {
               char buffer[256];
-              sprintf(buffer, "/tmp/aff_%s_transform_%02d.mat", m_Slices[k].unique_id.c_str(), i);
-              GreedyAPI::WriteAffineTransform(buffer, t_vol);
+              sprintf(buffer, "/tmp/aff_%s_reslice_comp.nii.gz", m_Slices[k].unique_id.c_str());
+              LDDMMType::cimg_write(resliced_slide, buffer);
+
+              sprintf(buffer, "/tmp/aff_%s_transform_avg.mat", m_Slices[k].unique_id.c_str());
+              GreedyAPI::WriteAffineTransform(buffer, t_psi);
+
+              sprintf(buffer, "/tmp/aff_%s_transform_comp.mat", m_Slices[k].unique_id.c_str());
+              GreedyAPI::WriteAffineTransform(buffer, t_phi);
               }
             }
-
-          // The registration was performed between with slide k resliced via last iteration affine matrix
-          // as the fixed image and the volume as the moving image. We now need to compute the transform
-          // that would map slide k into the volume at the current iteration. This is given by
-          //
-          //   phi(x) = phi_prev( psi_inv (x) )
-          //
-          // Where phi_prev is the last iteration transformation, and psi is what we just computed.
-          GreedyAPI compose_api;
-          GreedyParameters compose_param = gparam;
-
-          // The current transform
-          TransformPointer t_psi = TransformType::New();
-          t_psi->SetMatrix(A); t_psi->SetOffset(b);
-
-          // The previous transform
-          TransformPointer t_phi = TransformType::New();
-          GreedyAPI::ReadAffineTransform(TransformSpec(fn_matrix), t_phi);
-
-          // Compose the two transforms
-          TransformPointer t_psi_inv = TransformType::New();
-          t_psi->GetInverse(t_psi_inv);
-          t_phi->Compose(t_psi_inv, true);
-
-          // Save the transform
-          GreedyAPI::WriteAffineTransform(fn_result, t_phi);
-
-          // Perform the reslicing
-          DoReslice(gparam, vol_slice_2d, img_slide, fn_result, WarpRef(), resliced_slide);
-          if(m_UseMasks)
-            DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_result, WarpRef(), resliced_mask);
-
-          if(m_GlobalParam.debug)
+          else // multi-metric
             {
-            char buffer[256];
-            sprintf(buffer, "/tmp/aff_%s_reslice_comp.nii.gz", m_Slices[k].unique_id.c_str());
-            LDDMMType::cimg_write(resliced_slide, buffer);
+            // Create a copy of the parameters for this task
+            GreedyParameters my_param = param_reg;
+            GreedyAPI api_reg;
 
-            sprintf(buffer, "/tmp/aff_%s_transform_avg.mat", m_Slices[k].unique_id.c_str());
-            GreedyAPI::WriteAffineTransform(buffer, t_psi);
+            // Set up the moving/fixed pairs
+            for(unsigned int i = 0; i < targets.size(); i++)
+              {
+              api_reg.AddCachedInputObject("fixed", resliced_slide);
+              api_reg.AddCachedInputObject(targets[i].desc, targets[i].image);
+              my_param.inputs.push_back(ImagePairSpec("fixed", targets[i].desc, targets[i].weight));
 
-            sprintf(buffer, "/tmp/aff_%s_transform_comp.mat", m_Slices[k].unique_id.c_str());
-            GreedyAPI::WriteAffineTransform(buffer, t_phi);
+              if(m_GlobalParam.debug)
+                {
+                char buffer[256];
+                sprintf(buffer, "/tmp/aff_%s_fixed_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                LDDMMType::cimg_write(resliced_slide, buffer);
+
+                sprintf(buffer, "/tmp/aff_%s_moving_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                LDDMMType::cimg_write(targets[i].image, buffer);
+
+                if(resliced_mask)
+                  {
+                  sprintf(buffer, "/tmp/aff_%s_mask_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                  LDDMMType::img_write(resliced_mask, buffer);
+                  }
+                }
+              }
+
+            // Set up the mask
+            if(resliced_mask)
+              {
+              api_reg.AddCachedInputObject("mask", resliced_mask);
+              my_param.gradient_mask = "mask";
+              }
+
+            // Set up the output transform
+            TransformPointer t_vol = TransformType::New();
+            api_reg.AddCachedOutputObject("output", t_vol);
+            my_param.output = "output";
+
+            // Run affine registration
+            api_reg.RunAffine(my_param);
+
+            // Get the metric
+            MultiComponentMetricReport mrpt = api_reg.GetLastMetricReport();
+            for(unsigned int i = 0; i < targets.size(); i++)
+              targets[i].direct_reg_metric = mrpt.ComponentMetrics[i] / -10000.0;
+
+            TransformType::MatrixType A = t_vol->GetMatrix();
+            TransformType::OffsetType b = t_vol->GetOffset();
+
+            // The registration was performed between with slide k resliced via last iteration affine matrix
+            // as the fixed image and the volume as the moving image. We now need to compute the transform
+            // that would map slide k into the volume at the current iteration. This is given by
+            //
+            //   phi(x) = phi_prev( psi_inv (x) )
+            //
+            // Where phi_prev is the last iteration transformation, and psi is what we just computed.
+            GreedyAPI compose_api;
+            GreedyParameters compose_param = gparam;
+
+            // The current transform
+            TransformPointer t_psi = TransformType::New();
+            t_psi->SetMatrix(A); t_psi->SetOffset(b);
+
+            // The previous transform
+            TransformPointer t_phi = TransformType::New();
+            GreedyAPI::ReadAffineTransform(TransformSpec(fn_matrix), t_phi);
+
+            // Compose the two transforms
+            TransformPointer t_psi_inv = TransformType::New();
+            t_psi->GetInverse(t_psi_inv);
+            t_phi->Compose(t_psi_inv, true);
+
+            // Save the transform
+            GreedyAPI::WriteAffineTransform(fn_result, t_phi);
+
+            // Perform the reslicing
+            DoReslice(gparam, vol_slice_2d, img_slide, fn_result, WarpRef(), resliced_slide);
+            if(m_UseMasks)
+              DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_result, WarpRef(), resliced_mask);
+
+            if(m_GlobalParam.debug)
+              {
+              char buffer[256];
+              sprintf(buffer, "/tmp/aff_%s_reslice_comp.nii.gz", m_Slices[k].unique_id.c_str());
+              LDDMMType::cimg_write(resliced_slide, buffer);
+
+              sprintf(buffer, "/tmp/aff_%s_transform_avg.mat", m_Slices[k].unique_id.c_str());
+              GreedyAPI::WriteAffineTransform(buffer, t_psi);
+
+              sprintf(buffer, "/tmp/aff_%s_transform_comp.mat", m_Slices[k].unique_id.c_str());
+              GreedyAPI::WriteAffineTransform(buffer, t_phi);
+              }
             }
           }
         else
           {
-          // Create the average root warp image
-          LDDMMType::ImageBaseType *ref_space = targets[0].image;
-          WarpImageType::Pointer avg_root = LDDMMType::new_vimg(ref_space);
-          WarpImageType::Pointer work_img = LDDMMType::new_vimg(ref_space);
-
-          // Repeat over all target images
-          for(unsigned int i = 0; i < targets.size(); i++)
+          // There are two ways to skin this cat. One is to register every slice to its neighbors using
+          // a single deformation and three image match terms. The other is to match the fixed image to
+          // the moving image three times, and then average the transforms
+          if(!multi_metric)
             {
-            // Do the deformable registration
-            MultiComponentMetricReport mrpt =
-              DoLogDemonsRegistration(param_reg, resliced_slide, targets[i].image, resliced_mask, work_img);
-            
-            // Record the metric
-            targets[i].direct_reg_metric = mrpt.TotalMetric;
+            // Create the average root warp image
+            LDDMMType::ImageBaseType *ref_space = targets[0].image;
+            WarpImageType::Pointer avg_root = LDDMMType::new_vimg(ref_space);
+            WarpImageType::Pointer work_img = LDDMMType::new_vimg(ref_space);
 
-            // Accumulate this root warp with its weight
-            LDDMMType::vimg_add_scaled_in_place(avg_root, work_img, targets[i].weight);
-            
-            // Dump all the intermediates
+            // Repeat over all target images
+            for(unsigned int i = 0; i < targets.size(); i++)
+              {
+              // Do the deformable registration
+              MultiComponentMetricReport mrpt =
+                DoLogDemonsRegistration(param_reg, resliced_slide, targets[i].image, resliced_mask, work_img);
+
+              // Record the metric
+              targets[i].direct_reg_metric = mrpt.TotalMetric;
+
+              // Accumulate this root warp with its weight
+              LDDMMType::vimg_add_scaled_in_place(avg_root, work_img, targets[i].weight);
+
+              // Dump all the intermediates
+              if(m_GlobalParam.debug)
+                {
+                char buffer[256];
+                sprintf(buffer, "/tmp/sg_%s_fixed_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                LDDMMType::cimg_write(resliced_slide, buffer);
+
+                sprintf(buffer, "/tmp/sg_%s_moving_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                LDDMMType::cimg_write(targets[i].image, buffer);
+
+                sprintf(buffer, "/tmp/sg_%s_warproot_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                LDDMMType::vimg_write(work_img, buffer);
+                }
+              }
+
+            // Exponentiate the negative average root warp. This gives us psi_inverse, which is the
+            // transform that takes the resliced slide image into volume space.
+            WarpImageType::Pointer psi_inv = LDDMMType::new_vimg(ref_space);
+            LDDMMType::vimg_exp(avg_root, psi_inv, work_img, gparam.warp_exponent, -1.0);
+
             if(m_GlobalParam.debug)
               {
               char buffer[256];
-              sprintf(buffer, "/tmp/sg_%s_fixed_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
-              LDDMMType::cimg_write(resliced_slide, buffer);
-              
-              sprintf(buffer, "/tmp/sg_%s_moving_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
-              LDDMMType::cimg_write(targets[i].image, buffer);
+              sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
+              LDDMMType::vimg_write(avg_root, buffer);
 
-              sprintf(buffer, "/tmp/sg_%s_warproot_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
-              LDDMMType::vimg_write(work_img, buffer);
+              sprintf(buffer, "/tmp/sg_%s_invavgwarp.nii.gz", m_Slices[k].unique_id.c_str());
+              LDDMMType::vimg_write(psi_inv, buffer);
               }
-            }
-          
-          // Exponentiate the negative average root warp. This gives us psi_inverse, which is the
-          // transform that takes the resliced slide image into volume space.
-          WarpImageType::Pointer psi_inv = LDDMMType::new_vimg(ref_space);
-          LDDMMType::vimg_exp(avg_root, psi_inv, work_img, gparam.warp_exponent, -1.0);
 
-          if(m_GlobalParam.debug)
+            // Propagate the matrix from last iteration
+            GreedyAPI::WriteAffineMatrix(
+              GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
+              GreedyAPI::ReadAffineMatrix(fn_last_affine));
+
+            // Save the warp at this iteration
+            LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
+
+            // Perform the reslicing (todo: this read the warp back from filem ugly)
+            DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide);
+            if(m_UseMasks)
+              DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
+            }
+          else
             {
-            char buffer[256];
-            sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
-            LDDMMType::vimg_write(avg_root, buffer);
+            // Create a copy of the parameters for this task
+            GreedyParameters my_param = param_reg;
+            GreedyAPI api_reg;
 
-            sprintf(buffer, "/tmp/sg_%s_invavgwarp.nii.gz", m_Slices[k].unique_id.c_str());
-            LDDMMType::vimg_write(psi_inv, buffer);
+            // Allocate image to hold the root warp
+            LDDMMType::ImageBaseType *ref_space = targets[0].image;
+            WarpImageType::Pointer avg_root = LDDMMType::new_vimg(ref_space);
+            WarpImageType::Pointer work_img = LDDMMType::new_vimg(ref_space);
+
+            // Set up the moving/fixed pairs
+            for(unsigned int i = 0; i < targets.size(); i++)
+              {
+              api_reg.AddCachedInputObject("fixed", resliced_slide);
+              api_reg.AddCachedInputObject(targets[i].desc, targets[i].image);
+              my_param.inputs.push_back(ImagePairSpec("fixed", targets[i].desc, targets[i].weight));
+
+              if(m_GlobalParam.debug)
+                {
+                char buffer[256];
+                sprintf(buffer, "/tmp/sg_%s_fixed_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                LDDMMType::cimg_write(resliced_slide, buffer);
+
+                sprintf(buffer, "/tmp/sg_%s_moving_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                LDDMMType::cimg_write(targets[i].image, buffer);
+                }
+              }
+
+            // Set up the mask
+            if(resliced_mask)
+              {
+              api_reg.AddCachedInputObject("mask", resliced_mask);
+              my_param.gradient_mask = "mask";
+              }
+
+            // Set up the output transform
+            api_reg.AddCachedOutputObject("output", avg_root);
+            my_param.flag_stationary_velocity_mode = true;
+            my_param.root_warp = "output";
+
+            // Run affine registration
+            api_reg.RunDeformable(my_param);
+
+            // Get the metric
+            MultiComponentMetricReport mrpt = api_reg.GetLastMetricReport();
+            for(unsigned int i = 0; i < targets.size(); i++)
+              targets[i].direct_reg_metric = mrpt.ComponentMetrics[i];
+
+            // Exponentiate the negative average root warp. This gives us psi_inverse, which is the
+            // transform that takes the resliced slide image into volume space.
+            WarpImageType::Pointer psi_inv = LDDMMType::new_vimg(ref_space);
+            LDDMMType::vimg_exp(avg_root, psi_inv, work_img, gparam.warp_exponent, -1.0);
+
+            if(m_GlobalParam.debug)
+              {
+              char buffer[256];
+              sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
+              LDDMMType::vimg_write(avg_root, buffer);
+
+              sprintf(buffer, "/tmp/sg_%s_invavgwarp.nii.gz", m_Slices[k].unique_id.c_str());
+              LDDMMType::vimg_write(psi_inv, buffer);
+              }
+
+            // Propagate the matrix from last iteration
+            GreedyAPI::WriteAffineMatrix(
+              GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
+              GreedyAPI::ReadAffineMatrix(fn_last_affine));
+
+            // Save the warp at this iteration
+            LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
+
+            // Perform the reslicing (todo: this read the warp back from filem ugly)
+            DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide);
+            if(m_UseMasks)
+              DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
             }
-
-          // Propagate the matrix from last iteration
-          GreedyAPI::WriteAffineMatrix(
-            GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
-            GreedyAPI::ReadAffineMatrix(fn_last_affine));
-
-          // Save the warp at this iteration
-          LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
-
-          // Perform the reslicing (todo: this read the warp back from filem ugly)
-          DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide);
-          if(m_UseMasks)
-            DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
           }
         
         // Create a metric dump file (useful for debugging, tracking convergence)
@@ -2193,6 +2380,7 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   double w_volume = 4.0;
   double w_volume_follower = -1.0;
   bool dist_prop_wgt = false;
+  bool multi_metric = false;
 
   std::string arg;
   while(cl.read_command(arg))
@@ -2222,6 +2410,10 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
       {
       dist_prop_wgt = true;
       }
+    else if(arg == "-mm")
+      {
+      multi_metric = true;
+      }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
       gparam.ParseCommandLine(arg, cl);
@@ -2247,7 +2439,7 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   // Create the project
   StackGreedyProject sgp(param.output_dir, param);
   sgp.RestoreProject();
-  sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, w_volume, w_volume_follower, dist_prop_wgt, gparam);
+  sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, w_volume, w_volume_follower, dist_prop_wgt, multi_metric, gparam);
 }
 
 
