@@ -1101,6 +1101,30 @@ public:
     resliced->SetPixelContainer(resliced_vimg->GetPixelContainer());
     }
 
+
+  /** Reslice an image using an affine transformation and an optional warp */
+  void DoScalingAndSquaring(const GreedyParameters &param,
+                            WarpImagePointer rootwarp, WarpImagePointer out_warp,
+                            int exponent)
+  {
+    // Each of the neighbor slices needs to be resliced using last iteration's transform. We
+    // could cache these images, but then again, it does not take so much to do this on the
+    // fly. For now we will do this on the fly.
+    GreedyAPI api_reslice;
+    GreedyParameters my_param = param;
+    api_reslice.AddCachedInputObject("reference", rootwarp);
+    api_reslice.AddCachedInputObject("rootwarp", rootwarp);
+    api_reslice.AddCachedOutputObject("output", out_warp, false);
+    my_param.reslice_param.ref_image = "reference";
+    my_param.reslice_param.out_composed_warp = "output";
+
+    // Add the transforms
+    my_param.reslice_param.transforms.push_back(TransformSpec("rootwarp", exponent));
+
+    // Perform the reslicing. We will use the resliced neighbor as the fixed image in registration
+    api_reslice.RunReslice(my_param);
+  }
+
   /** Reslice an image using an affine transformation and an optional warp
   void DoReslice(const GreedyParameters &param,
     SlideImageType *ref, SlideImageType *src,
@@ -1559,16 +1583,16 @@ public:
           }
         else
           {
+          // Allocate image to hold the root warp
+          LDDMMType::ImageBaseType *ref_space = targets[0].image;
+          WarpImageType::Pointer avg_root = LDDMMType::new_vimg(ref_space);
+          WarpImageType::Pointer work_img = LDDMMType::new_vimg(ref_space);
+
           // There are two ways to skin this cat. One is to register every slice to its neighbors using
           // a single deformation and three image match terms. The other is to match the fixed image to
           // the moving image three times, and then average the transforms
           if(!multi_metric)
             {
-            // Create the average root warp image
-            LDDMMType::ImageBaseType *ref_space = targets[0].image;
-            WarpImageType::Pointer avg_root = LDDMMType::new_vimg(ref_space);
-            WarpImageType::Pointer work_img = LDDMMType::new_vimg(ref_space);
-
             // Repeat over all target images
             for(unsigned int i = 0; i < targets.size(); i++)
               {
@@ -1596,45 +1620,12 @@ public:
                 LDDMMType::vimg_write(work_img, buffer);
                 }
               }
-
-            // Exponentiate the negative average root warp. This gives us psi_inverse, which is the
-            // transform that takes the resliced slide image into volume space.
-            WarpImageType::Pointer psi_inv = LDDMMType::new_vimg(ref_space);
-            LDDMMType::vimg_exp(avg_root, psi_inv, work_img, gparam.warp_exponent, -1.0);
-
-            if(m_GlobalParam.debug)
-              {
-              char buffer[256];
-              sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
-              LDDMMType::vimg_write(avg_root, buffer);
-
-              sprintf(buffer, "/tmp/sg_%s_invavgwarp.nii.gz", m_Slices[k].unique_id.c_str());
-              LDDMMType::vimg_write(psi_inv, buffer);
-              }
-
-            // Propagate the matrix from last iteration
-            GreedyAPI::WriteAffineMatrix(
-              GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
-              GreedyAPI::ReadAffineMatrix(fn_last_affine));
-
-            // Save the warp at this iteration
-            LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
-
-            // Perform the reslicing (todo: this read the warp back from filem ugly)
-            DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide);
-            if(m_UseMasks)
-              DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
             }
           else
             {
             // Create a copy of the parameters for this task
             GreedyParameters my_param = param_reg;
             GreedyAPI api_reg;
-
-            // Allocate image to hold the root warp
-            LDDMMType::ImageBaseType *ref_space = targets[0].image;
-            WarpImageType::Pointer avg_root = LDDMMType::new_vimg(ref_space);
-            WarpImageType::Pointer work_img = LDDMMType::new_vimg(ref_space);
 
             // Set up the moving/fixed pairs
             for(unsigned int i = 0; i < targets.size(); i++)
@@ -1673,35 +1664,41 @@ public:
             MultiComponentMetricReport mrpt = api_reg.GetLastMetricReport();
             for(unsigned int i = 0; i < targets.size(); i++)
               targets[i].direct_reg_metric = mrpt.ComponentMetrics[i];
-
-            // Exponentiate the negative average root warp. This gives us psi_inverse, which is the
-            // transform that takes the resliced slide image into volume space.
-            WarpImageType::Pointer psi_inv = LDDMMType::new_vimg(ref_space);
-            LDDMMType::vimg_exp(avg_root, psi_inv, work_img, gparam.warp_exponent, -1.0);
-
-            if(m_GlobalParam.debug)
-              {
-              char buffer[256];
-              sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
-              LDDMMType::vimg_write(avg_root, buffer);
-
-              sprintf(buffer, "/tmp/sg_%s_invavgwarp.nii.gz", m_Slices[k].unique_id.c_str());
-              LDDMMType::vimg_write(psi_inv, buffer);
-              }
-
-            // Propagate the matrix from last iteration
-            GreedyAPI::WriteAffineMatrix(
-              GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
-              GreedyAPI::ReadAffineMatrix(fn_last_affine));
-
-            // Save the warp at this iteration
-            LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
-
-            // Perform the reslicing (todo: this read the warp back from filem ugly)
-            DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide);
-            if(m_UseMasks)
-              DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
             }
+
+          // Write the average warp
+          if(m_GlobalParam.debug)
+            {
+            char buffer[256];
+            sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
+            LDDMMType::vimg_write(avg_root, buffer);
+            }
+
+          // Exponentiate the negative average root warp. This gives us psi_inverse, which is the
+          // transform that takes the resliced slide image into volume space.
+          WarpImageType::Pointer psi_inv = LDDMMType::new_vimg(ref_space);
+          DoScalingAndSquaring(param_reg, avg_root, psi_inv, -(1 << param_reg.warp_exponent));
+
+          // Write the inverse warp
+          if(m_GlobalParam.debug)
+            {
+            char buffer[256];
+            sprintf(buffer, "/tmp/sg_%s_invavgwarp.nii.gz", m_Slices[k].unique_id.c_str());
+            LDDMMType::vimg_write(psi_inv, buffer);
+            }
+
+          // Propagate the matrix from last iteration
+          GreedyAPI::WriteAffineMatrix(
+            GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
+            GreedyAPI::ReadAffineMatrix(fn_last_affine));
+
+          // Save the warp at this iteration
+          LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
+
+          // Perform the reslicing (todo: this read the warp back from filem ugly)
+          DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide);
+          if(m_UseMasks)
+            DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
           }
         
         // Create a metric dump file (useful for debugging, tracking convergence)
