@@ -35,6 +35,7 @@
 #include "itkMultiplyImageFilter.h"
 #include "itkGradientImageFilter.h"
 #include "itkUnaryFunctorImageFilter.h"
+#include "itkBinaryFunctorImageFilter.h"
 #include "itkImageFileReader.h"
 #include "itkImageFileWriter.h"
 #include "itkVectorImage.h"
@@ -1683,6 +1684,9 @@ LDDMMData<TFloat, VDim>
   trg->SetSpacing(spc_post);
   trg->SetDirection(src->GetDirection());
   trg->Allocate();
+  
+  fltSmooth->Update();
+  auto *smooth = fltSmooth->GetOutput();
 
   // Set the image sizes and spacing.
   filter->SetSize(sz);
@@ -1746,6 +1750,77 @@ LDDMMData<TFloat, VDim>
   filter->SetOutsideValue(back);
   filter->Update();
 }
+
+template <class TImage>
+class MaskNaNFunctor
+{
+public:
+  typedef typename TImage::PixelType PixelType;
+  PixelType operator() (const PixelType &x)
+  {
+    return isnan(x) ? 1 : 0;
+  }
+};
+
+
+
+template <class TImage>
+class FilterNaNFunctor
+{
+public:
+  typedef typename TImage::PixelType PixelType;
+  PixelType operator() (const PixelType &x)
+  {
+    return isnan(x) ? 0 : x;
+  }
+};
+
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::img_filter_nans_in_place(ImageType *src, ImageType *nan_mask)
+{
+  typedef MaskNaNFunctor<ImageType> MaskFunctor;
+  typedef itk::UnaryFunctorImageFilter<ImageType, ImageType, MaskFunctor> MaskFilterType;
+  typename MaskFilterType::Pointer mask = MaskFilterType::New();
+  mask->SetInput(src);
+  mask->GraftOutput(nan_mask);
+  mask->Update();
+
+  typedef FilterNaNFunctor<ImageType> RemoveFunctor;
+  typedef itk::UnaryFunctorImageFilter<ImageType, ImageType, RemoveFunctor> RemoveFilterType;
+  typename RemoveFilterType::Pointer remove = RemoveFilterType::New();
+  remove->SetInput(src);
+  remove->GraftOutput(src);
+  remove->Update();
+}
+
+template <class TImage>
+class ReconstituteNaNFunctor
+{
+public:
+  typedef typename TImage::PixelType PixelType;
+  PixelType operator() (const PixelType &x, const PixelType &m)
+  {
+    return m > 0 ? nan("") : x;
+  }
+};
+
+
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::img_reconstitute_nans_in_place(ImageType *src, ImageType *nan_mask)
+{
+  typedef ReconstituteNaNFunctor<ImageType> Functor;
+  typedef itk::BinaryFunctorImageFilter<ImageType, ImageType, ImageType, Functor> FilterType;
+  typename FilterType::Pointer filter = FilterType::New();
+  filter->SetInput1(src);
+  filter->SetInput2(nan_mask);
+  filter->GraftOutput(src);
+  filter->Update();
+}
+
 
 template <class TImage>
 struct VoxelToPhysicalFunctor

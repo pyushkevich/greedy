@@ -228,6 +228,12 @@ public:
   // Threshold image
   static void img_threshold_in_place(ImageType *src, double lt, double up, double fore, double back);
 
+  // Filter NaNs from an image
+  static void img_filter_nans_in_place(ImageType *src, ImageType *nan_mask);
+
+  // Replace NaNs in an image using a mask
+  static void img_reconstitute_nans_in_place(ImageType *src, ImageType *nan_mask);
+
   // Convert voxel-space warp to a physical space warp
   static void warp_voxel_to_physical(VectorImageType *src, ImageBaseType *ref_space, VectorImageType *trg);
   

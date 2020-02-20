@@ -1273,7 +1273,8 @@ int GreedyApproach<VDim, TReal>
 
     // Report the smoothing factors used
     gout.printf("LEVEL %d of %d\n", level+1, nlevels);
-    gout.printf("  Smoothing sigmas: %f, %f\n");
+    std::ostringstream oss; oss << sigma_pre_phys << " , " << sigma_post_phys;
+    gout.printf("  Smoothing sigmas: %s\n", oss.str().c_str());
 
     // Set up timers for different critical components of the optimization
     GreedyTimeProbe tm_Gradient, tm_Gaussian1, tm_Gaussian2, tm_Iteration,

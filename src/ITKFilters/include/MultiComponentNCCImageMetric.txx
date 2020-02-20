@@ -44,7 +44,6 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
 ::MultiImageNCCPrecomputeFilter()
 {
   m_Parent = NULL;
-  m_FlagGenerateFixedComponents = true;
 }
 
 /**
@@ -71,27 +70,17 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
   // This is complex! The number of components depends on what we are computing.
   int nc = m_Parent->GetFixedImage()->GetNumberOfComponentsPerPixel();
 
-  // If there are no gradients computed, we just need 5 output pixels per input comp.
+  // If there are no gradients computed, we just need 6 output pixels per input comp.
   if(!m_Parent->GetComputeGradient())
-    return 1 + nc * 5;
+    return nc * 6;
 
   // If we are not computing affine transform, then the gradient requires 3 comps per dimension
   if(!m_Parent->GetComputeAffine())
-    return 1 + nc * (5 + 3 * ImageDimension);
+    return nc * (6 + 3 * ImageDimension);
 
   // Otherwise we need a ton of components, because for each gradient component we need it also
   // scaled by x, by y and by z.
-  return 1 + nc * (5 + 3 * ImageDimension * (1 + ImageDimension));
-}
-
-template <class TMetricTraits, class TOutputImage>
-int
-MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
-::GetNumberOfFixedOnlyOutputComponents()
-{
-  // This is complex! The number of components depends on what we are computing.
-  int nc = m_Parent->GetFixedImage()->GetNumberOfComponentsPerPixel();
-  return 1 + nc * 2;
+  return nc * (6 + 3 * ImageDimension * (1 + ImageDimension));
 }
 
 /**
@@ -110,8 +99,14 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
   int ncomp_in = m_Parent->GetFixedImage()->GetNumberOfComponentsPerPixel();
   int ncomp_out = this->GetNumberOfOutputComponents();
 
-  // Number of invariant components (fixed-only)
-  int ncomp_fixed = ncomp_in * 2 + 1;
+  // Number of output components per input component
+  bool need_grad = m_Parent->GetComputeGradient();
+  bool need_affine = m_Parent->GetComputeAffine();
+  int n_out_comp_per_input_comp = 6 + (need_grad
+                                       ? ( need_affine
+                                           ? 3 * ImageDimension * (1 + ImageDimension)
+                                           : 3 * ImageDimension)
+                                       : 0);
 
   // Get the pointer to the output image
   OutputImageType *out = this->GetOutput();
@@ -132,57 +127,30 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
       if(iter.CheckFixedMask(0.0))
         {
         // Get the output pointer for this voxel
-        OutputComponentType *out;
-
-        // Is this the first time the filter is being run for this output working image. If
-        // so, we store the fixed components for future accumulation.
-        if(this->m_FlagGenerateFixedComponents)
-          {
-          out = iter.GetOutputLine();
-          // Store the components that are invariant of the moving image at the beginning. This
-          // helps avoid having to do repeated accumulation on these components
-          *out++ = 1.0;
-          for(int k = 0; k < ncomp_in; k++)
-            {
-            InputComponentType x_fix = iter.GetFixedLine()[k];
-            *out++ = x_fix;
-            *out++ = x_fix * x_fix;
-            }
-          }
-        else
-          {
-          out = iter.GetOutputLine() + ncomp_fixed;
-          }
+        OutputComponentType *out = iter.GetOutputLine();
 
         // Interpolate the moving image at the current position. The worker knows
         // whether to interpolate the gradient or not
         typename FastInterpolator::InOut status = iter.Interpolate();
 
-        // TODO: debugging border issues: setting mask=0 on the border
-        // TODO: i added this check for affine/non-affine. Seems like there were some problems previously
-        // with the NCC metric at the border in deformable mode, but in affine mode you need the border
-        // values to be included.
-        // Outside interpolations are ignored
-        if((m_Parent->GetComputeAffine() && status == FastInterpolator::OUTSIDE) ||
-           (!m_Parent->GetComputeAffine() && (status == FastInterpolator::OUTSIDE || status == FastInterpolator::BORDER)))
+        if(iter.GetIndex()[0] == 240 && iter.GetIndex()[1] == 210)
           {
-          // Iterate over the components
+          std::cout << "pos = " << iter.GetSamplePos() << std::endl;
+          std::cout << "mov = " << iter.GetMovingSample()[0] << std::endl;
+          }
+
+        // We may hit outside or on the border of the moving image. The moving image may also contain
+        // a NaN in any of the components. In both cases, we interpret this as missing data situation
+        // for the moving image.
+        //
+        // TODO: think about how to handle the gradients in the case of affine. It is not obvious.
+        if((need_affine && status == FastInterpolator::OUTSIDE) ||
+           (!need_affine && status != FastInterpolator::INSIDE))
+          {
+          // Zero out the entire output line
           for(int k = 0; k < ncomp_in; k++)
-            {
-            InputComponentType x_fix = iter.GetFixedLine()[k];
-            *out++ = 0.0;
-            *out++ = 0.0;
-            *out++ = 0.0;
-
-            int n = m_Parent->GetComputeGradient()
-                    ? ( m_Parent->GetComputeAffine()
-                        ? 3 * ImageDimension * (1 + ImageDimension)
-                        : 3 * ImageDimension)
-                    : 0;
-
-            for(int j = 0; j < n; j++)
+            for(int j = 0; j < n_out_comp_per_input_comp; j++)
               *out++ = 0.0;
-            }
           }
         else
           {
@@ -192,8 +160,24 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
             InputComponentType x_mov = iter.GetMovingSample()[k];
             InputComponentType x_fix = iter.GetFixedLine()[k];
 
-            // Write the five components
+            // Check for NaN, which indicates that the pixel should not contribute to the metric
+            if(isnan(x_mov) || isnan(x_fix))
+              {
+              // Zero out just this component
+              for(int j = 0; j < n_out_comp_per_input_comp; j++)
+                *out++ = 0.0;
+
+              continue;
+              }
+
+            // Mask value for this component, indicates that this voxel is being included
+            // in computing of cross-correlation
+            *out++ = 1.0;
+
+            // Write the five components that are averaged in the cross-correlation computation
+            *out++ = x_fix;
             *out++ = x_mov;
+            *out++ = x_fix * x_fix;
             *out++ = x_mov * x_mov;
             *out++ = x_fix * x_mov;
 
@@ -257,12 +241,6 @@ MultiImageNNCPostComputeFunction(
   // IMPORTANT: this code uses double precision because single precision float seems
   // to mess up and lead to unstable computations
 
-  // Get the size of the mean filter kernel
-  double n = *ptr++, one_over_n = 1.0 / n;
-
-  // Get the pointer for the fixed only components, and for the moving components
-  TPixel *ptr_fix = ptr; ptr += n_comp * 2;
-
   // Loop over components
   int i_wgt = 0;
   const double eps = 1e-8;
@@ -272,9 +250,21 @@ MultiImageNNCPostComputeFunction(
 
   for(; ptr < ptr_end; ++i_wgt)
     {
-    double x_fix = *ptr_fix++;
+    // Get the number of pixels going into the computation
+    double n = *ptr++;
+    if(n == 0.0)
+      {
+      // Increment the pointer to the next component
+      ptr += ptr_gradient ? 5 + 3 * ImageDimension : 5;
+      continue;
+      }
+
+    double one_over_n = 1.0 / n;
+
+    // Read the sums and sums of squared
+    double x_fix = *ptr++;
     double x_mov = *ptr++;
-    double x_fix_sq = *ptr_fix++;
+    double x_fix_sq = *ptr++;
     double x_mov_sq = *ptr++;
     double x_fix_mov = *ptr++;
 
@@ -298,6 +288,10 @@ MultiImageNNCPostComputeFunction(
 
     // Weight - includes scaling of squared covariance by direction
     TWeight w = (cov_fix_mov < 0) ? -weights[i_wgt] : weights[i_wgt];
+    
+    // Further scale by the size of the mask - this prevents oversize contribution
+    // of border pixels (added Feb 2020, part of NaN masking)
+    w *= n;
 
     if(ptr_gradient)
       {
@@ -345,12 +339,6 @@ MultiImageNNCPostComputeAffineGradientFunction(
     TMetric *ptr_metric, TMetric *ptr_comp_metrics,
     TGradient *ptr_affine_gradient, int ImageDimension)
 {
-  // Get the size of the mean filter kernel
-  TPixel n = *ptr++, one_over_n = 1.0 / n;
-
-  // Get the pointer for the fixed only components, and for the moving components
-  TPixel *ptr_fix = ptr; ptr += n_comp * 2;
-
   // Loop over components
   int i_wgt = 0;
   const TPixel eps = 1e-2;
@@ -360,9 +348,20 @@ MultiImageNNCPostComputeAffineGradientFunction(
 
   for(; ptr < ptr_end; ++i_wgt)
     {
-    TPixel x_fix = *ptr_fix++;
+    // Get the number of pixels going into the computation
+    double n = *ptr++;
+    if(n == 0.0)
+      {
+      // Increment the pointer to the next component
+      ptr += ptr_affine_gradient ? 5 + 3 * ImageDimension * (1 + ImageDimension) : 5;
+      continue;
+      }
+
+    double one_over_n = 1.0 / n;
+
+    TPixel x_fix = *ptr++;
     TPixel x_mov = *ptr++;
-    TPixel x_fix_sq = *ptr_fix++;
+    TPixel x_fix_sq = *ptr++;
     TPixel x_mov_sq = *ptr++;
     TPixel x_fix_mov = *ptr++;
 
@@ -379,6 +378,10 @@ MultiImageNNCPostComputeAffineGradientFunction(
 
     // Weight - includes scaling of squared covariance by direction
     TWeight w = (cov_fix_mov < 0) ? -weights[i_wgt] : weights[i_wgt];
+
+    // Further scale by the size of the mask - this prevents oversize contribution
+    // of border pixels (added Feb 2020, part of NaN masking)
+    w *= n;
 
     if(ptr_affine_gradient)
       {
@@ -453,31 +456,10 @@ MultiComponentNCCImageMetric<TMetricTraits>
       m_WorkingImage->SetNumberOfComponentsPerPixel(ncomp);
       m_WorkingImage->SetRegions(this->GetFixedImage()->GetBufferedRegion());
       m_WorkingImage->Allocate();
-
-      // Can't reuse the fixed components
-      flag_reuse = false;
       }
 
     // Graft the working image onto the filter's output
     preFilter->GraftOutput(m_WorkingImage);
-    }
-  else
-    {
-    // No working image, can't reuse anything
-    flag_reuse = false;
-    }
-
-  // Set reuse information
-  if(flag_reuse)
-    {
-    // Reuse the fixed components
-    preFilter->SetFlagGenerateFixedComponents(false);
-    ncomp_ignore = preFilter->GetNumberOfFixedOnlyOutputComponents();
-    }
-  else
-    {
-    // Tell the filter to compute the fixed components
-    preFilter->SetFlagGenerateFixedComponents(true);
     }
 
   // Execute the filter
@@ -558,6 +540,16 @@ MultiComponentNCCImageMetric<TMetricTraits>
         this->GetFixedMaskImage()
         ? this->GetFixedMaskImage()->GetBufferPointer() + offset_in_pixels
         : NULL;
+    
+    // Added in Feb 2020, part of NaN masking. We now scale the patch NCC by the
+    // number of non-background voxels in the mask, to prevent oversize contribution
+    // of border pixels. To account for this, the weights are scaled by the patch size
+    double one_over_patch_size = 1.0;
+    for(unsigned int i = 0; i < ImageDimension; i++)
+      one_over_patch_size /= (1 + 2.0 * this->m_Radius[i]);
+
+    typename Superclass::WeightVectorType wgt_scaled = this->m_Weights * one_over_patch_size;
+
 
     // Case 1 - dense gradient field requested
     if(!this->m_ComputeAffine)
@@ -573,7 +565,7 @@ MultiComponentNCCImageMetric<TMetricTraits>
 
           if(!fixed_mask_line || fixed_mask_line[i] > 0.5)
             {
-            p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, nc_img, this->m_Weights.data_block(),
+            p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, nc_img, wgt_scaled.data_block(),
                                                        p_metric, comp_metric.data_block(), p_grad_metric++, ImageDimension);
             }
           else
@@ -598,7 +590,7 @@ MultiComponentNCCImageMetric<TMetricTraits>
           // Apply the post computation
           if(!fixed_mask_line || fixed_mask_line[i] > 0.5)
             {
-            p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, nc_img, this->m_Weights.data_block(),
+            p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, nc_img, wgt_scaled.data_block(),
                                                        p_metric, comp_metric.data_block(), (GradientPixelType *)(NULL), ImageDimension);
             }
           else
@@ -633,7 +625,7 @@ MultiComponentNCCImageMetric<TMetricTraits>
 
           // Apply the post computation
           p_input = MultiImageNNCPostComputeAffineGradientFunction(
-                      p_input, p_input + nc, nc_img, this->m_Weights.data_block(),
+                      p_input, p_input + nc, nc_img, wgt_scaled.data_block(),
                       p_metric, comp_metric.data_block(), p_grad, ImageDimension);
 
           // Accumulate the total metric

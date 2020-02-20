@@ -285,6 +285,10 @@ public:
   /** After the filter ran, get the value of the upper quantile */
   InputComponentType GetUpperQuantileValue(int component) const
     { return m_UpperQuantileValues[component]; }
+  
+  /** After the filter ran, get the number of NaN pixels */
+  unsigned long GetNumberOfNaNs(int component) const
+    { return m_NumberOfNaNs[component]; }
 
 protected:
   MutualInformationPreprocessingFilter();
@@ -345,6 +349,7 @@ private:
     // Heaps for minimum and maximum intensities
     LowerHeap heap_lower;
     UpperHeap heap_upper;
+    unsigned long number_of_nans;
   };
 
   std::vector<ThreadData> m_ThreadData;
@@ -352,6 +357,7 @@ private:
   typename itk::Barrier::Pointer m_Barrier;
 
   std::vector<InputComponentType> m_LowerQuantileValues, m_UpperQuantileValues;
+  std::vector<unsigned int> m_NumberOfNaNs;
 
   bool m_NoRemapping;
 

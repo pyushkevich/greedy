@@ -222,17 +222,6 @@ public:
   /** Get the number of components in the output */
   int GetNumberOfOutputComponents();
 
-  /** Get the number of components in the output */
-  int GetNumberOfFixedOnlyOutputComponents();
-
-  /**
-   * Set whether the filter is being run for the first time. When run for the first
-   * time, fixed components and products will be stored in the output. Otherwise,
-   * these are skipped over in memory
-   */
-  itkSetMacro(FlagGenerateFixedComponents, bool)
-
-
 protected:
   MultiImageNCCPrecomputeFilter();
   ~MultiImageNCCPrecomputeFilter() {}
@@ -254,8 +243,6 @@ private:
   void operator=(const Self&); //purposely not implemented
 
   ParentType *m_Parent;
-
-  bool m_FlagGenerateFixedComponents;
 };
 
 

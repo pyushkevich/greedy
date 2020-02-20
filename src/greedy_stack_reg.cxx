@@ -1038,7 +1038,7 @@ public:
   void DoReslice(const GreedyParameters &param, 
     SlideImageType *ref, SlideImageType *src,
     std::string fn_matrix, WarpRef warp,
-    SlideImageType *resliced)
+    SlideImageType *resliced, double background_value)
     {
     // Each of the neighbor slices needs to be resliced using last iteration's transform. We
     // could cache these images, but then again, it does not take so much to do this on the
@@ -1049,7 +1049,13 @@ public:
     api_reslice.AddCachedInputObject("source", src);
     api_reslice.AddCachedOutputObject("output", resliced, false);
     my_param.reslice_param.ref_image = "reference";
-    my_param.reslice_param.images.push_back(ResliceSpec("source", "output"));
+
+    // Set up interpolation spec
+    InterpSpec interp_spec;
+    interp_spec.mode = InterpSpec::LINEAR;
+    interp_spec.outside_value = background_value;
+
+    my_param.reslice_param.images.push_back(ResliceSpec("source", "output", interp_spec));
 
     // Add the transforms
     warp.AddTo(&api_reslice, my_param.reslice_param, "warp");
@@ -1210,7 +1216,7 @@ public:
         // Do the reslicing by affine transform. We do not apply the previous warp
         // because composing warps over many iterations will mess with our regularization
         SlideImagePointer resliced_slide = SlideImageType::New();
-        DoReslice(gparam, vol_slice_2d, img_slide, fn_matrix, WarpRef(), resliced_slide);
+        DoReslice(gparam, vol_slice_2d, img_slide, fn_matrix, WarpRef(), resliced_slide, nan(""));
 
         MaskImagePointer mask_slide, resliced_mask;
         if(m_UseMasks)
@@ -1348,7 +1354,7 @@ public:
 
           // Do the reslicing. Here we do apply the previous warp, since we want the slide to
           // end up looking like it's current iteration neighbors
-          DoReslice(gparam, vol_slice_2d, native_neighbor, fn_matrix_j, prev_warp_j, resliced_neighbor);
+          DoReslice(gparam, vol_slice_2d, native_neighbor, fn_matrix_j, prev_warp_j, resliced_neighbor, nan(""));
 
           // Add the resliced neighbor to target list
           MovingImageData mid = {resliced_neighbor, w, 0.0, m_Slices[j].unique_id, false};
@@ -1442,7 +1448,7 @@ public:
             GreedyAPI::WriteAffineTransform(fn_result, t_phi);
 
             // Perform the reslicing
-            DoReslice(gparam, vol_slice_2d, img_slide, fn_result, WarpRef(), resliced_slide);
+            DoReslice(gparam, vol_slice_2d, img_slide, fn_result, WarpRef(), resliced_slide, nan(""));
             if(m_UseMasks)
               DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_result, WarpRef(), resliced_mask);
 
@@ -1539,7 +1545,7 @@ public:
             GreedyAPI::WriteAffineTransform(fn_result, t_phi);
 
             // Perform the reslicing
-            DoReslice(gparam, vol_slice_2d, img_slide, fn_result, WarpRef(), resliced_slide);
+            DoReslice(gparam, vol_slice_2d, img_slide, fn_result, WarpRef(), resliced_slide, nan(""));
             if(m_UseMasks)
               DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_result, WarpRef(), resliced_mask);
 
@@ -1621,7 +1627,7 @@ public:
             LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
 
             // Perform the reslicing (todo: this read the warp back from filem ugly)
-            DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide);
+            DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide, nan(""));
             if(m_UseMasks)
               DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
             }
@@ -1698,7 +1704,7 @@ public:
             LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
 
             // Perform the reslicing (todo: this read the warp back from filem ugly)
-            DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide);
+            DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide, nan(""));
             if(m_UseMasks)
               DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
             }

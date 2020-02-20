@@ -481,8 +481,10 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
   m_Barrier = itk::Barrier::New();
   m_Barrier->Initialize(nbOfThreads);
 
-  m_LowerQuantileValues.resize(this->GetInput()->GetNumberOfComponentsPerPixel());
-  m_UpperQuantileValues.resize(this->GetInput()->GetNumberOfComponentsPerPixel());
+  unsigned int ncomp = this->GetInput()->GetNumberOfComponentsPerPixel();
+  m_LowerQuantileValues.resize(ncomp);
+  m_UpperQuantileValues.resize(ncomp);
+  m_NumberOfNaNs.resize(ncomp);
 }
 
 template <class TInputImage, class TOutputImage>
@@ -491,10 +493,10 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
 ::ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread, itk::ThreadIdType threadId)
 {
   // Determine the size of the heap
-  int total_pixels = this->GetInput()->GetBufferedRegion().GetNumberOfPixels();
-  int heap_size_upper = 1 + (int)((1.0 - m_UpperQuantile) * total_pixels);
-  int heap_size_lower = 1 + (int)(m_LowerQuantile * total_pixels);
-  int line_length = outputRegionForThread.GetSize(0);
+  long total_pixels = this->GetInput()->GetBufferedRegion().GetNumberOfPixels();
+  long heap_size_upper = 1 + (int)((1.0 - m_UpperQuantile) * total_pixels);
+  long heap_size_lower = 1 + (int)(m_LowerQuantile * total_pixels);
+  long line_length = outputRegionForThread.GetSize(0);
 
   // Thread data for this thread
   ThreadData &td = m_ThreadData[threadId];
@@ -509,6 +511,7 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
     // Initialize the two heaps
     td.heap_lower = LowerHeap();
     td.heap_upper = UpperHeap();
+    td.number_of_nans = 0l;
 
     // Build up the heaps
     for(Iterator it(this->GetInput(), outputRegionForThread); !it.IsAtEnd(); it.NextLine())
@@ -520,8 +523,15 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
       for(int p = 0; p < line_length; p++, line+=ncomp)
         {
         InputComponentType v = *line;
-        heap_lower_push(td.heap_lower, heap_size_lower, v);
-        heap_upper_push(td.heap_upper, heap_size_upper, v);
+        if(!isnan(v))
+          {
+          heap_lower_push(td.heap_lower, heap_size_lower, v);
+          heap_upper_push(td.heap_upper, heap_size_upper, v);
+          }
+        else
+          {
+          td.number_of_nans++;
+          }
         }
       }
 
@@ -529,6 +539,8 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
     m_Barrier->Wait();
 
     // The main thread combines all the priority queues
+    // TODO: when computing quantiles, account for presence of NaNs, which affects
+    // the size of the heap
     if(threadId == 0)
       {
       // Combine the priority queues
@@ -548,11 +560,26 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
           heap_upper_push(td.heap_upper, heap_size_upper, v);
           tdq.heap_upper.pop();
           }
+        
+        td.number_of_nans += tdq.number_of_nans;
         }
+      
+      // Update the heap size based on the number of nans
+      long nonnan_pixels = total_pixels - td.number_of_nans;
+      long heap_size_upper_upd = 1 + (int)((1.0 - m_UpperQuantile) * nonnan_pixels);
+      long heap_size_lower_upd = 1 + (int)(m_LowerQuantile * nonnan_pixels);
+      
+      // Pop until the heap is the right size
+      while(td.heap_upper.size() > heap_size_upper_upd)
+        td.heap_upper.pop();
+
+      while(td.heap_lower.size() > heap_size_lower_upd)
+        td.heap_lower.pop();
 
       // Get the quantile values
       m_UpperQuantileValues[k] = td.heap_upper.top();
       m_LowerQuantileValues[k] = td.heap_lower.top();
+      m_NumberOfNaNs[k] = td.number_of_nans;
       }
 
     // Wait for all threads to catch up

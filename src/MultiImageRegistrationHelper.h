@@ -90,6 +90,9 @@ public:
   /** Set automatic mask generation radius */
   void SetGradientMaskTrimRadius(const std::vector<int> &radius);
 
+  /** Downsample an image, taking care of NaNs if necessary */
+  void DownsampleImage(VectorImageType *src, VectorImageType *dst, int factor, bool has_nans);
+  
   /** Compute the composite image - must be run before any sampling is done */
   void BuildCompositeImages(double noise_sigma_relative = 0.0);
 

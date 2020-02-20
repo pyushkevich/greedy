@@ -171,7 +171,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 }
 
-
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
@@ -209,6 +208,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       // Deal with additive noise
       double noise_sigma_fixed = 0.0, noise_sigma_moving = 0.0;
 
+      // Do the fixed and moving images have NaNs?
+      bool nans_fixed, nans_moving;
+
       if(noise_sigma_relative > 0.0)
         {
         // Figure out the quartiles of the fixed image
@@ -232,6 +234,29 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
         // Report noise levels
         printf("Noise on image %d component %d: fixed = %g, moving = %g\n", j, k, noise_sigma_fixed, noise_sigma_moving);
+
+        // Record the number of NaNs
+        nans_fixed = fltQuantileFixed->GetNumberOfNaNs(0);
+        nans_moving = fltQuantileMoving->GetNumberOfNaNs(0);
+        }
+      else
+        {
+        nans_fixed = isnan(LDDMMType::img_voxel_sum(fltExtractFixed->GetOutput()));
+        nans_moving = isnan(LDDMMType::img_voxel_sum(fltExtractMoving->GetOutput()));
+        }
+      
+      // Split the extracted images into a NaN mask and a non-NaN component
+      FloatImagePointer nanMaskFixed, nanMaskMoving;
+      if(nans_fixed)
+        {
+        nanMaskFixed = LDDMMType::new_img(fltExtractFixed->GetOutput());
+        LDDMMType::img_filter_nans_in_place(fltExtractFixed->GetOutput(), nanMaskFixed);
+        }
+      
+      if(nans_moving)
+        {
+        nanMaskMoving = LDDMMType::new_img(fltExtractMoving->GetOutput());
+        LDDMMType::img_filter_nans_in_place(fltExtractMoving->GetOutput(), nanMaskMoving);
         }
 
       // Compute the pyramid for this component
@@ -242,16 +267,39 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         if (m_PyramidFactors[i] == 1)
           {
           lFixed = fltExtractFixed->GetOutput();
+          if(nans_fixed)
+            LDDMMType::img_reconstitute_nans_in_place(lFixed, nanMaskFixed);
+
           lMoving = fltExtractMoving->GetOutput();
+          if(nans_moving)
+            LDDMMType::img_reconstitute_nans_in_place(lMoving, nanMaskMoving);
           }
         else
           {
+          // Downsample the images
           lFixed = FloatImageType::New();
           lMoving = FloatImageType::New();
           LDDMMType::img_downsample(fltExtractFixed->GetOutput(), lFixed, m_PyramidFactors[i]);
           LDDMMType::img_downsample(fltExtractMoving->GetOutput(), lMoving, m_PyramidFactors[i]);
 
-          // For the Mahalanobis metric, the fixed image needs to be scaled by the factor of the 
+          // Downsample the nan-masks
+          if(nans_fixed)
+            {
+            FloatImagePointer mask_ds = FloatImageType::New();
+            LDDMMType::img_downsample(nanMaskFixed, mask_ds, m_PyramidFactors[i]);
+            LDDMMType::img_threshold_in_place(mask_ds, 0.5, 100.0, 1, 0);
+            LDDMMType::img_reconstitute_nans_in_place(lFixed, mask_ds);
+            }
+
+          if(nans_moving)
+            {
+            FloatImagePointer mask_ds = FloatImageType::New();
+            LDDMMType::img_downsample(nanMaskMoving, mask_ds, m_PyramidFactors[i]);
+            LDDMMType::img_threshold_in_place(mask_ds, 0.5, 100.0, 1, 0);
+            LDDMMType::img_reconstitute_nans_in_place(lMoving, mask_ds);
+            }
+
+          // For the Mahalanobis metric, the fixed image needs to be scaled by the factor of the
           // pyramid level because it describes voxel coordinates
           if(m_ScaleFixedImageWithVoxelSize)
             LDDMMType::img_scale_in_place(lFixed, 1.0 / m_PyramidFactors[i]);
@@ -831,8 +879,79 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     grad->SetOffset(metric->GetAffineTransformGradient()->GetOffset());
     }
 
+  std::cout << "   metric " << metric->GetMetricValue() << std::endl;
   out_metric.TotalMetric = metric->GetMetricValue();
   out_metric.ComponentMetrics = metric->GetAllMetricValues();
+
+  // TODO: delete this sht
+  if(grad)
+    {
+
+
+    // Generate a phi from the affine transform
+    typedef LDDMMData<TFloat, VDim> LDDMMType;
+    VectorImagePointer phi = LDDMMType::new_vimg(m_FixedComposite[level]);
+    for(itk::ImageRegionIteratorWithIndex<VectorImageType>
+        it(phi, phi->GetBufferedRegion()); !it.IsAtEnd(); ++it)
+      {
+      typename VectorImageType::PixelType v;
+      for(int d = 0; d < VDim; d++)
+        {
+        v[d] = tran->GetOffset()[d] - it.GetIndex()[d];
+        for(int j = 0; j < VDim; j++)
+          v[d] += tran->GetMatrix()(d,j) * it.GetIndex()[j];
+        }
+      it.Set(v);
+      }
+
+    LDDMMType::vimg_write(phi, "/tmp/wtf.nii.gz");
+
+    MultiComponentMetricReport dummy;
+    FloatImagePointer tmp_met = LDDMMType::new_img(m_FixedComposite[level]);
+    VectorImagePointer grad_phi = LDDMMType::new_vimg(m_FixedComposite[level]);
+
+
+    typename MetricType::Pointer filter2 = MetricType::New();
+
+    // Run the filter
+    MultiComponentImagePointer work2 = MultiComponentImageType::New();
+
+    filter2->SetFixedImage(m_FixedComposite[level]);
+    filter2->SetMovingImage(m_MovingComposite[level]);
+    filter2->SetDeformationField(phi);
+    filter2->SetWeights(wscaled);
+    filter2->SetComputeGradient(true);
+    filter2->GetMetricOutput()->Graft(tmp_met);
+    filter2->GetDeformationGradientOutput()->Graft(grad_phi);
+    filter2->SetRadius(radius_fix);
+    filter2->SetWorkingImage(work2);
+    filter2->SetReuseWorkingImageFixedComponents(false);
+    filter2->SetFixedMaskImage(m_GradientMaskComposite[level]);
+
+    // TODO: support moving masks...
+    // filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
+    filter2->Update();
+
+    typename LinearTransformType::Pointer tran2 = LinearTransformType::New();
+    typename LinearTransformType::MatrixType A2; A2.Fill(0.0);
+    typename LinearTransformType::OffsetType b2; b2.Fill(0.0);
+
+    for(itk::ImageRegionIteratorWithIndex<VectorImageType>
+        it(grad_phi, grad_phi->GetBufferedRegion()); !it.IsAtEnd(); ++it)
+      {
+      for(int d = 0; d < VDim; d++)
+        {
+        b2[d] += it.Value()[d];
+        for(int j = 0; j < VDim; j++)
+          A2(d,j) += it.Value()[d] * it.GetIndex()[j];
+        }
+      }
+
+    std::cout << "COMPARE: " << std::endl;
+    std::cout << grad->GetMatrix() << "   vs   " << A2 << std::endl;
+    std::cout << grad->GetOffset() << "   vs   " << b2 << std::endl;
+    std::cout << out_metric.TotalMetric << "   vs   " << dummy.TotalMetric << std::endl;
+    }
 }
 
 template <class TFloat, unsigned int VDim>
