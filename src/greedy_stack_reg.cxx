@@ -241,6 +241,11 @@ int usage(const std::string &stage = std::string())
     0x00
   };
 
+  utext["volalt"] =  {
+    #include "stackg_usage_voladd.h"
+    0x00
+  };
+
   utext["voliter"] =  {
     #include "stackg_usage_voliter.h"
     0x00
@@ -293,7 +298,7 @@ public:
   /** Set of enums used to refer to files in the project directory */
   enum FileIntent {
     MANIFEST_FILE = 0, CONFIG_ENTRY, AFFINE_MATRIX, METRIC_VALUE, ACCUM_MATRIX, ACCUM_RESLICE,
-    VOL_INIT_MATRIX, VOL_SLIDE, VOL_MASK_SLIDE, VOL_BEST_INIT_MATRIX,
+    VOL_INIT_MATRIX, VOL_SLIDE, VOL_MASK_SLIDE, VOL_ALT_SLIDE, VOL_BEST_INIT_MATRIX,
     VOL_ITER_MATRIX, VOL_ITER_WARP, ITER_METRIC_DUMP, TEMP_FILE
   };
 
@@ -931,6 +936,29 @@ public:
       }
   }
 
+
+  void AppendVolume(const std::string &fn_volume, const std::string &name,
+                    const GreedyParameters &gparam)
+  {
+    // Configure the threads
+    GreedyAPI::ConfigThreads(gparam);
+
+    // Read the 3D volume into memory
+    LDDMMType3D::CompositeImagePointer vol = LDDMMType3D::cimg_read(fn_volume.c_str());
+
+    // Extract target slices from the 3D volume
+    for(unsigned int i = 0; i < m_Slices.size(); i++)
+      {
+      // Filename for the volume slice corresponding to current slide
+      std::string fn_vol_slide = GetFilenameForSlice(m_Slices[i], VOL_ALT_SLIDE, name.c_str());
+
+      // Extract the slice
+      SlideImagePointer vol_slice_2d = ExtractSliceFromVolume(vol, m_Slices[i].z_pos);
+      LDDMMType::cimg_write(vol_slice_2d, fn_vol_slide.c_str());
+      }
+  }
+
+
   /** Helper function to run an affine registration between two images and output the result */
   MultiComponentMetricReport DoAffineRegistration(const GreedyParameters &param, 
                                                   SlideImageType *fixed,
@@ -1163,9 +1191,11 @@ public:
   // that the proper approach would be to down-weigh certain slices by their metric, but then
   // again, do we want to do this based on initial metric or current metric. For now, we can start
   // by just using same weights.
-  void IterativeMatchToVolume(unsigned int n_affine, unsigned int n_deform, unsigned int i_first,
-                              unsigned int i_last, double w_volume, double w_volume_follower, 
+  void IterativeMatchToVolume(unsigned int n_affine, unsigned int n_deform,
+                              unsigned int i_first, unsigned int i_last, int i_init,
+                              double w_volume, double w_volume_follower,
                               bool dist_prop_weighting, bool multi_metric,
+                              const std::string &alt_volume,
                               const GreedyParameters &gparam)
   {
     // Set up a cache for loaded images. These images can be cycled in and out of memory
@@ -1198,6 +1228,11 @@ public:
       double total_nonleader_to_nbr_metric = 0.0;
       double total_nonleader_to_vol_metric = 0.0;
 
+      // What is the previous iteration for this iteration?
+      unsigned int prev_iter = iter-1;
+      if(iter == i_first && i_init >= 0)
+        prev_iter = (unsigned int) i_init;
+
       // Iterate over the ordering
       for(unsigned int k : ordering)
         {
@@ -1222,14 +1257,17 @@ public:
         SlideImagePointer img_slide = slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
 
         // Get the corresponding slice from the 3D volume (it's already saved in the project)
-        SlideImagePointer vol_slice_2d = slice_cache.GetImage<SlideImageType>(
-                                           GetFilenameForSlice(m_Slices[k], VOL_SLIDE));
+        std::string fn_vol_slice = alt_volume.size()
+                                   ? GetFilenameForSlice(m_Slices[k], VOL_ALT_SLIDE, alt_volume.c_str())
+                                   : GetFilenameForSlice(m_Slices[k], VOL_SLIDE);
+
+        SlideImagePointer vol_slice_2d = slice_cache.GetImage<SlideImageType>(fn_vol_slice);
 
         // Reslice the slide and the mask to the volume using the current transform, since
         // we are using the volume slice as the reference space.
 
         // Figure out which matrix/warp to use
-        std::string fn_matrix = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter-1);
+        std::string fn_matrix = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, prev_iter);
 
         // Do the reslicing by affine transform. We do not apply the previous warp
         // because composing warps over many iterations will mess with our regularization
@@ -1297,7 +1335,7 @@ public:
         GreedyParameters param_reg = gparam;
 
         // Get the filename of the previous iteration affine transform
-        std::string fn_last_affine = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter-1);
+        std::string fn_last_affine = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, prev_iter);
 
         // What kind of registration are we doing at this iteration?
         if(iter <= n_affine)
@@ -1361,7 +1399,7 @@ public:
           SlideImagePointer native_neighbor = slice_cache.GetImage<SlideImageType>(m_Slices[j].raw_filename.c_str());
 
           // Which iteration to use, current or previous
-          unsigned int nbr_iter = visited[j] ? iter : iter-1;
+          unsigned int nbr_iter = visited[j] ? iter : prev_iter;
 
           // Figure out which matrix/warp to use
           std::string fn_matrix_j = GetFilenameForSlice(m_Slices[j], VOL_ITER_MATRIX, nbr_iter);
@@ -2157,6 +2195,10 @@ private:
         (intent == VOL_ITER_MATRIX || intent == VOL_ITER_WARP || intent == ITER_METRIC_DUMP)
         ? va_arg(args, int) : 0;
 
+    const char *alt_name =
+        (intent == VOL_ALT_SLIDE)
+        ? va_arg(args, const char *) : NULL;
+
     switch(intent)
       {
       case ACCUM_MATRIX:
@@ -2173,6 +2215,9 @@ private:
         break;
       case VOL_MASK_SLIDE:
         sprintf(filename, "%s/vol/slides/vol_mask_slide_%s.%s", dir, sid, ext);
+        break;
+      case VOL_ALT_SLIDE:
+        sprintf(filename, "%s/vol/slides/alt/%s/vol_slide_%s_%s.%s", dir, alt_name, alt_name, sid, ext);
         break;
       case VOL_ITER_MATRIX:
         sprintf(filename, "%s/vol/iter%02d/affine_refvol_mov_%s_iter%02d.mat", dir, iter, sid, iter);
@@ -2357,6 +2402,54 @@ void volmatch(StackParameters &param, CommandLineHelper &cl)
   sgp.InitialMatchToVolume(fn_volume, fn_mask, gparam);
 }
 
+/**
+ * Add another volume to the project
+ */
+void voladd(StackParameters &param, CommandLineHelper &cl)
+{
+  // List of greedy commands that are recognized by this mode
+  std::set<std::string> greedy_cmd {};
+
+  // Greedy parameters for this mode
+  GreedyParameters gparam;
+
+  // Parse the parameters
+  std::string fn_volume, name;
+  std::string arg;
+  while(cl.read_command(arg))
+    {
+    if(arg == "-i")
+      {
+      fn_volume = cl.read_existing_filename();
+      }
+    else if(arg == "-n")
+      {
+      name = cl.read_string();
+      }
+    else if(greedy_cmd.find(arg) != greedy_cmd.end())
+      {
+      gparam.ParseCommandLine(arg, cl);
+      }
+    else
+      throw GreedyException("Unknown parameter to 'voladd': %s", arg.c_str());
+    }
+
+  // Check required parameters
+  if(fn_volume.size() == 0)
+    throw GreedyException("Missing volume file (-i) in 'voladd'");
+
+  if(name.size() == 0)
+    throw GreedyException("Missing volume name (-n) in 'voladd'");
+
+  // Configure the threads
+  GreedyApproach<2,double>::ConfigThreads(gparam);
+
+  // Create the project
+  StackGreedyProject sgp(param.output_dir, param);
+  sgp.RestoreProject();
+  sgp.AppendVolume(fn_volume, name, gparam);
+}
+
 
 /**
  * Run the iterative module
@@ -2374,26 +2467,32 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   // Parse the parameters
   unsigned int n_affine = 5, n_deform = 5;
   unsigned int i_first = 0, i_last = 0;
+  int i_init = -1;
   double w_volume = 4.0;
   double w_volume_follower = -1.0;
   bool dist_prop_wgt = false;
   bool multi_metric = false;
+  std::string alt_image;
 
   std::string arg;
   while(cl.read_command(arg))
     {
     if(arg == "-R")
       {
-      i_first = cl.read_integer();
-      i_last = cl.read_integer();
+      i_first = (unsigned int) cl.read_integer();
+      i_last = (unsigned int) cl.read_integer();
+      }
+    else if(arg == "-k")
+      {
+      i_init = cl.read_integer();
       }
     else if(arg == "-na")
       {
-      n_affine = cl.read_integer();
+      n_affine = (unsigned int) cl.read_integer();
       }
     else if(arg == "-nd")
       {
-      n_deform = cl.read_integer();
+      n_deform = (unsigned int) cl.read_integer();
       }
     else if(arg == "-w")
       {
@@ -2410,6 +2509,10 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
     else if(arg == "-mm")
       {
       multi_metric = true;
+      }
+    else if(arg == "-i")
+      {
+      alt_image = cl.read_string();
       }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
@@ -2436,7 +2539,7 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   // Create the project
   StackGreedyProject sgp(param.output_dir, param);
   sgp.RestoreProject();
-  sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, w_volume, w_volume_follower, dist_prop_wgt, multi_metric, gparam);
+  sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, i_init, w_volume, w_volume_follower, dist_prop_wgt, multi_metric, alt_image, gparam);
 }
 
 
@@ -2602,6 +2705,10 @@ int main(int argc, char *argv[])
   else if(cmd == "volmatch")
     {
     volmatch(param, cl);
+    }
+  else if(cmd == "voladd")
+    {
+    voladd(param, cl);
     }
   else if(cmd == "voliter")
     {

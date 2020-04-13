@@ -13,6 +13,11 @@ Command Options:
                            slices (default: neighbor slices have same weight)
   -R <first> <last>      : Only run a subset of iterations. Iterations
                            are counted starting with 1.
+  -k <iter>              : Use the results of iteration 'iter' to initialize the
+                           first registration. Use with -R to create a tree-like
+                           structure of registrations.
+  -i <name>              : Use an alternative image (registered via voladd) for
+                           the registration.
 Options Shared with Greedy (see Greedy docs for more info):
   -m metric              : Metric to use for slice matching
   -n NxNxN               : Number of iterations per level of multi-res

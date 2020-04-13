@@ -1,0 +1,8 @@
+stack_greedy: Paul's histology stack to MRI registration implementation
+Usage:
+  stack_greedy voladd [cmd_options] <project_dir>
+Required Command Options:
+  -i <image>             : 3D image to use as target of registration. Must have the
+                           same dimensions as the volume used in volmatch and must
+                           be registred to the volume used in volmatch.
+  -n <string>            : Name by which to refer to the new volume.
