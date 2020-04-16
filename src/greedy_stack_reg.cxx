@@ -104,12 +104,15 @@ struct SplatParameters
   // In-plane sigma
   double sigma_inplane;
 
+  // Output image spacing
+  double output_spacing_xy;
+
   SplatParameters()
     : z_first(0.0), z_last(0.0), z_step(0.0),
       source_stage(RAW), source_iter(0),
       mode(EXACT), z_exact_tol(1e-6), sigma(0.0),
       ignore_alt_headers(false), background(1, 0.0),
-      sigma_inplane(0.0) {}
+      sigma_inplane(0.0), output_spacing_xy(0.0) {}
 };
 
 
@@ -1916,6 +1919,26 @@ public:
       origin_3d[2] = sparam.z_first;
       spacing_3d[2] = sparam.z_step;
 
+      // If custom spacing was specified, we need to readjust the spacing and origin,
+      // so that the bounding box coincides as much as possible with the reference bb
+      if(sparam.output_spacing_xy > 0.0)
+        {
+        // Update the origin by subtracting 1/2 of current spacing and adding 1/2 of
+        // new spacing
+        for(unsigned int a = 0; a < 2; a++)
+          {
+          // Figure out the new dimensions
+          region_3d.SetSize(a, (unsigned long) ceil(region_3d.GetSize(a) * spacing_3d[a] / sparam.output_spacing_xy));
+
+          // Update the origing
+          for(unsigned int b = 0; b < 3; b++)
+            origin_3d[a] += 0.5 * dir_3d(a,b) * (sparam.output_spacing_xy - spacing_3d[a]);
+
+          // Change the spacing to the new spacing
+          spacing_3d[a] = sparam.output_spacing_xy;
+          }
+        }
+
       target->SetRegions(region_3d);
       target->SetOrigin(origin_3d);
       target->SetSpacing(spacing_3d);
@@ -2621,6 +2644,10 @@ void splat(StackParameters &param, CommandLineHelper &cl)
     else if(arg == "-si")
       {
       sparam.sigma_inplane = cl.read_double();
+      }
+    else if(arg == "-xy")
+      {
+      sparam.output_spacing_xy = cl.read_double();
       }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {

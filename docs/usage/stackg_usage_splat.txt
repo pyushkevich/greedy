@@ -20,6 +20,7 @@ Additional Command Options:
                            slide extents but with headers that don't match.
   -si <sigma>            : Apply in-plane Gaussian smoothing with given standard deviation (voxel
                            units) to images before splatting
+  -xy <value>            : Set custom x/y spacing for the output image (in mm units)
 Options Shared with Greedy (see Greedy docs for more info):
   -rb <value>            : Background value for 2D/3D interpolation
   -ri <mode> [sigma]     : Interpolation mode (for 2D interpolation)

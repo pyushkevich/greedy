@@ -402,3 +402,293 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
 
   return true;
 }
+
+template <class TAtomic>
+std::ostream &
+operator << (std::ostream &oss, const std::vector<TAtomic> &v)
+{
+  for(unsigned int i = 0; i < v.size(); i++)
+    {
+    if(i > 0)
+      oss << "x";
+    oss << v[i];
+    }
+  return oss;
+}
+
+std::ostream&
+operator << (std::ostream &oss, const PerLevelSpec<double> &val)
+{
+  if(val.m_UseCommon)
+    oss << val.m_CommonValue;
+  else
+    {
+    for(unsigned int i = 0; i < val.m_ValueArray.size(); i++)
+      {
+      if(i > 0) oss << "x";
+      oss << val.m_ValueArray[i];
+      }
+    }
+  return oss;
+}
+
+std::ostream &
+operator << (std::ostream &oss, const SmoothingParameters &sp)
+{
+  std::string unit = sp.physical_units ? "mm" : "vox";
+  oss << sp.sigma << unit;
+  return oss;
+}
+
+std::string GreedyParameters::GenerateCommandLine()
+{
+  // Generate default parameters
+  GreedyParameters def;
+
+  // Output stream
+  std::ostringstream oss;
+
+  // Go through options
+  oss << "-d " << this->dim;
+
+  if(this->flag_float_math)
+    oss << " -float ";
+
+  if(this->iter_per_level != def.iter_per_level)
+    oss << " -n " << this->iter_per_level;
+
+  if(this->epsilon_per_level != def.epsilon_per_level)
+    oss << " -e " << this->epsilon_per_level;
+
+  if(this->metric != def.metric || this->metric_radius != def.metric_radius)
+    {
+    switch(this->metric)
+      {
+      case GreedyParameters::SSD:
+        oss << "-m SSD";
+        break;
+      case GreedyParameters::NCC:
+        oss << "-m NCC " << this->metric_radius;
+        break;
+      case GreedyParameters::MI:
+        oss << "-m MI";
+        break;
+      case GreedyParameters::NMI:
+        oss << "-m NMI";
+        break;
+      case GreedyParameters::MAHALANOBIS:
+        oss << "-m MAHAL";
+        break;
+      }
+    }
+
+  if(this->time_step_mode != def.time_step_mode)
+    {
+    if(this->time_step_mode == GreedyParameters::SCALE)
+      oss << "-tscale SCALE";
+    else if(this->time_step_mode == GreedyParameters::SCALEDOWN)
+      oss << "-tscale SCALEDOWN";
+    }
+
+  if(this->ncc_noise_factor != def.ncc_noise_factor)
+    oss << " -noise " << this->ncc_noise_factor;
+
+  if(this->sigma_pre != def.sigma_pre || this->sigma_post != def.sigma_post)
+    {
+    oss << " -s " << this->sigma_pre << this->sigma_post;
+    }
+
+  for(const ImagePairSpec &ip : this->inputs)
+    {
+    oss << " -w " << ip.weight;
+    oss << " -i " << ip.fixed << " " << ip.moving;
+    }
+
+  if(this->initial_warp.size())
+    oss << " -id " << this->initial_warp;
+
+  else if(this->affine_init_mode == RAS_FILENAME)
+    {
+    oss << " -ia " << this->affine_init_transform.filename;
+    if(this->affine_init_transform.exponent != 1.0)
+      oss << "," << this->affine_init_transform.exponent;
+    }
+
+  else if(this->affine_init_mode == RAS_IDENTITY)
+    oss << " -ia-identity";
+
+  else if(this->affine_init_mode == IMG_CENTERS)
+    oss << " -ia-image-centers";
+
+  if(this->affine_dof != def.affine_dof)
+    oss << " -dof " << this->affine_dof;
+
+  if(this->affine_jitter != def.affine_jitter)
+    oss << " -jitter " << this->affine_jitter;
+
+  if(this->rigid_search.iterations > 0)
+    {
+    oss << " -search ";
+    if(this->rigid_search.mode == ANY_ROTATION)
+      oss << "ANY ";
+    else if(this->rigid_search.mode == ANY_ROTATION_AND_FLIP)
+      oss << "FLIP ";
+    else
+      oss << this->rigid_search.sigma_angle << " ";
+
+    oss << this->rigid_search.sigma_xyz;
+    }
+
+  if(this->moving_pre_transforms.size())
+    {
+    oss << " -it";
+    for(TransformSpec &ts : this->moving_pre_transforms)
+      {
+      oss << " " << ts.filename;
+      if(ts.exponent != 1.0)
+        oss << "," << ts.exponent;
+      }
+    }
+
+  if(this->gradient_mask.size())
+    oss << " -gm " << this->gradient_mask;
+
+  if(this->gradient_mask_trim_radius != def.gradient_mask_trim_radius)
+    oss << " -gm-trim " << this->gradient_mask_trim_radius;
+
+  if(this->moving_mask.size())
+    oss << " -mm " << this->moving_mask;
+
+  if(this->output.size())
+    oss << " -o " << this->output;
+
+  if(this->flag_dump_moving)
+    oss << " -dump-moving";
+
+  if(this->flag_powell)
+    oss << " -powell";
+
+  if(this->dump_frequency > 0)
+    oss << " -dump-frequency " << this->dump_frequency;
+
+  if(this->flag_debug_deriv)
+    oss << " -debug-deriv";
+
+  if(this->deriv_epsilon != def.deriv_epsilon)
+    oss << " -debug-deriv-eps " << this->deriv_epsilon;
+
+  if(this->flag_debug_aff_obj)
+    oss << " -debug-aff-obj";
+
+  if(this->threads != def.threads)
+    oss << " -threads " << this->threads;
+
+  if(this->mode == GreedyParameters::AFFINE)
+    {
+    oss << " -a";
+    }
+  else if(this->mode == GreedyParameters::MOMENTS)
+    {
+    if(this->moments_flip_determinant != def.moments_flip_determinant)
+      oss << " -det" << this->moments_flip_determinant;
+
+    if(this->flag_moments_id_covariance)
+      oss << " -cov-id";
+
+    oss << " -moments " << this->moments_order;
+    }
+  else if(this->mode == GreedyParameters::BRUTE)
+    {
+    oss << " -brute " << this->brute_search_radius;
+    }
+  else if(this->mode == GreedyParameters::RESLICE)
+    {
+    if(this->reslice_param.ref_image.size())
+      oss << " -rf " << this->reslice_param.ref_image;
+
+    if(this->reslice_param.out_composed_warp.size())
+      oss << " -rc " << this->reslice_param.out_composed_warp;
+
+    if(this->reslice_param.out_jacobian_image.size())
+      oss << " -rj " << this->reslice_param.out_jacobian_image;
+
+    for(const ResliceSpec &rs : this->reslice_param.images)
+      {
+      switch(rs.interp.mode)
+        {
+        case InterpSpec::LINEAR:
+          break;
+        case InterpSpec::NEAREST:
+          oss << " -ri NEAREST";
+          break;
+        case InterpSpec::LABELWISE:
+          oss << " -ri LABEL " << rs.interp.sigma;
+          break;
+        }
+      if(rs.interp.outside_value != 0)
+        oss << " -rb " << rs.interp.outside_value;
+
+      oss << " -rm " << rs.moving << " " << rs.output;
+      }
+
+    for(const ResliceMeshSpec &rm : this->reslice_param.meshes)
+      {
+      oss << " -rs " << rm.fixed << " " << rm.output;
+      }
+
+    if(this->reslice_param.transforms.size())
+      {
+      oss << " -r";
+      for(TransformSpec &ts : this->reslice_param.transforms)
+        {
+        oss << " " << ts.filename;
+        if(ts.exponent != 1.0)
+          oss << "," << ts.exponent;
+        }
+      }
+    }
+  else if(this->mode == GreedyParameters::INVERT_WARP)
+    {
+    oss << " -iw " << this->invwarp_param.in_warp << " " << this->invwarp_param.out_warp;
+    }
+  else if(this->mode == GreedyParameters::JACOBIAN_WARP)
+    {
+    oss << " -jac " << this->jacobian_param.in_warp << " " << this->jacobian_param.out_det_jac;
+    }
+  else if(this->mode == GreedyParameters::ROOT_WARP)
+    {
+    oss << " -root " << this->warproot_param.in_warp << " " << this->warproot_param.out_warp;
+    }
+  else if(this->mode == GreedyParameters::METRIC)
+    {
+    oss << " -metric";
+    }
+
+  if(this->inverse_warp.size())
+    oss << " -oinv " << this->inverse_warp;
+
+  if(this->root_warp.size())
+    oss << " -oroot " << this->root_warp;
+
+  if(this->warp_exponent != def.warp_exponent)
+    oss << " -exp " << this->warp_exponent;
+
+  if(this->flag_stationary_velocity_mode)
+    {
+    if(this->flag_stationary_velocity_mode_use_lie_bracket)
+      oss << " -svlb";
+    else
+      oss << " -sv";
+    }
+
+  if(this->flag_incompressibility_mode)
+    oss << " -sv-incompr";
+
+  if(this->warp_precision != def.warp_precision)
+    oss << " -wp " << this->warp_precision;
+
+  if(this->verbosity != def.verbosity)
+    oss << " -V " << this->verbosity;
+
+  return oss.str();
+}
