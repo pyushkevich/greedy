@@ -2281,6 +2281,14 @@ int GreedyApproach<VDim, TReal>
   return 0;
 }
 
+
+template <typename TReal, typename TLabel>
+class CompositeToLabelFunctor
+{
+  public:
+    short operator () (itk::VariableLengthVector<TReal> const &p) const { return (short) p[0]; }
+};
+
 /**
  * Run the reslice code - simply apply a warp or set of warps to images
  */
@@ -2335,16 +2343,24 @@ int GreedyApproach<VDim, TReal>
     // Handle the special case of multi-label images
     if(r_param.images[i].interp.mode == InterpSpec::LABELWISE)
       {
-      // The label image assumed to be an image of shortsC
-      typedef itk::Image<short, VDim> LabelImageType;
+      // The label image is assumed to have a finite set of labels
+      typename CompositeImageType::Pointer moving = ReadImageViaCache<CompositeImageType>(filename);
+      if(moving->GetNumberOfComponentsPerPixel() > 1)
+        throw GreedyException("Label wise interpolation not supported for multi-component images");
 
-      // Create a reader
-      typename LabelImageType::Pointer moving = ReadImageViaCache<LabelImageType>(filename);
+      // Cast the image to an image of shorts
+      typedef itk::Image<short, VDim> LabelImageType;
+      typedef CompositeToLabelFunctor<TReal, short> CastFunctor;
+      typedef itk::UnaryFunctorImageFilter<CompositeImageType, LabelImageType, CastFunctor> CastFilter;
+      typename CastFilter::Pointer fltCast = CastFilter::New();
+      fltCast->SetInput(moving);
+      fltCast->Update();
+      typename LabelImageType::Pointer label_image = fltCast->GetOutput();
 
       // Scan the unique labels in the image
       std::set<short> label_set;
-      short *labels = moving->GetBufferPointer();
-      int n_pixels = moving->GetPixelContainer()->Size();
+      short *labels = label_image->GetBufferPointer();
+      int n_pixels = label_image->GetPixelContainer()->Size();
 
       // Get the list of unique pixels
       short last_pixel = 0;
@@ -2378,7 +2394,7 @@ int GreedyApproach<VDim, TReal>
         // Set up a threshold filter for this label
         typedef itk::BinaryThresholdImageFilter<LabelImageType, ImageType> ThresholdFilterType;
         typename ThresholdFilterType::Pointer fltThreshold = ThresholdFilterType::New();
-        fltThreshold->SetInput(moving);
+        fltThreshold->SetInput(label_image);
         fltThreshold->SetLowerThreshold(label_array[j]);
         fltThreshold->SetUpperThreshold(label_array[j]);
         fltThreshold->SetInsideValue(1.0);
@@ -2398,7 +2414,7 @@ int GreedyApproach<VDim, TReal>
           {
           typename SmootherType::SigmaArrayType sigma_array;
           for(int d = 0; d < VDim; d++)
-            sigma_array[d] = r_param.images[i].interp.sigma.sigma * moving->GetSpacing()[d];
+            sigma_array[d] = r_param.images[i].interp.sigma.sigma * label_image->GetSpacing()[d];
           fltSmooth->SetSigmaArray(sigma_array);
           }
 
