@@ -2337,13 +2337,9 @@ int GreedyApproach<VDim, TReal>
       {
       // The label image assumed to be an image of shortsC
       typedef itk::Image<short, VDim> LabelImageType;
-      typedef itk::ImageFileReader<LabelImageType> LabelReaderType;
 
       // Create a reader
-      typename LabelReaderType::Pointer reader = LabelReaderType::New();
-      reader->SetFileName(filename);
-      reader->Update();
-      typename LabelImageType::Pointer moving = reader->GetOutput();
+      typename LabelImageType::Pointer moving = ReadImageViaCache<LabelImageType>(filename);
 
       // Scan the unique labels in the image
       std::set<short> label_set;
