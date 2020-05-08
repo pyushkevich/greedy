@@ -18,6 +18,10 @@ Command Options:
                            structure of registrations.
   -i <name>              : Use an alternative image (registered via voladd) for
                            the registration.
+  -M <manifest>          : Use an alternative set of slide images for this registration. The
+                           manifest is in the form ID,FILENAME and must contain images that
+                           match the input slides, although they are allowed to have different
+                           dimensions and voxel size.
 Options Shared with Greedy (see Greedy docs for more info):
   -m metric              : Metric to use for slice matching
   -n NxNxN               : Number of iterations per level of multi-res

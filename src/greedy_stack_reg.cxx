@@ -1185,6 +1185,38 @@ public:
 
 
 
+  // Helper function: get the i-th slide or if an anternative manifest is provided, the corresponding
+  // image from that manifest but remapped into the slide space
+  SlideImagePointer GetSlideOrAlternative(ImageCache &slice_cache, int k,
+                                          const std::map<std::string, std::string> &alternates)
+  {
+    // Load the main image no matter what
+    SlideImagePointer main = slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
+
+    // If no alternate, load the main slide
+    const auto &it = alternates.find(m_Slices[k].unique_id);
+    if(it == alternates.end())
+      return main;
+
+    // Otherwise load the main slide (for reference information)
+    SlideImagePointer alt = slice_cache.GetImage<SlideImageType>(it->second);
+
+    // We ignore the header of the alt, and use our current header, except that we want to adjust
+    // the origin and spacing so that the coordinates of the corners are indentical
+    alt->SetDirection(main->GetDirection());
+    auto spc_main = main->GetSpacing(), spc_alt = spc_main;
+    auto org_main = main->GetOrigin(), org_alt = org_main;
+    for(unsigned int d = 0; d < 2; d++)
+      spc_alt[d] = (main->GetBufferedRegion().GetSize()[d] * spc_main[d]) / alt->GetBufferedRegion().GetSize()[d];
+
+    org_alt = org_main + main->GetDirection() * ((spc_alt - spc_main) * 0.5);
+
+    alt->SetSpacing(spc_alt);
+    alt->SetOrigin(org_alt);
+
+    return alt;
+  }
+
 
   // Now that we have the affine initialization from the histology space to the volume space, we can
   // perform iterative optimization, where each slice is matched to its neighbors and to the
@@ -1199,6 +1231,7 @@ public:
                               double w_volume, double w_volume_follower,
                               bool dist_prop_weighting, bool multi_metric,
                               const std::string &alt_volume,
+                              const std::string &alt_slide_manifest,
                               const GreedyParameters &gparam)
   {
     // Set up a cache for loaded images. These images can be cycled in and out of memory
@@ -1213,6 +1246,9 @@ public:
     // Set the iteration specs
     SaveConfigKey("AffineIterations", n_affine);
     SaveConfigKey("DeformableIterations", n_deform);
+
+    // Read the alternative manifest
+    std::map<std::string, std::string> alt_source = ReadAlternativeManifest(alt_slide_manifest);
 
     // Iterate
     for(unsigned int iter = i_first; iter <= i_last; ++iter)
@@ -1257,7 +1293,7 @@ public:
           }
 
         // Get the pointer to the current slide (used as moving image)
-        SlideImagePointer img_slide = slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
+        SlideImagePointer img_slide = GetSlideOrAlternative(slice_cache, k, alt_source);
 
         // Get the corresponding slice from the 3D volume (it's already saved in the project)
         std::string fn_vol_slice = alt_volume.size()
@@ -1399,7 +1435,7 @@ public:
 
           // Reslice the neighbor using previous iteration results
           SlideImagePointer resliced_neighbor = SlideImageType::New();
-          SlideImagePointer native_neighbor = slice_cache.GetImage<SlideImageType>(m_Slices[j].raw_filename.c_str());
+          SlideImagePointer native_neighbor = GetSlideOrAlternative(slice_cache, j, alt_source);
 
           // Which iteration to use, current or previous
           unsigned int nbr_iter = visited[j] ? iter : prev_iter;
@@ -1803,30 +1839,14 @@ public:
       }
   }
 
-  void Splat(const SplatParameters &sparam, const GreedyParameters &gparam)
+
+  std::map<std::string, std::string> ReadAlternativeManifest(const std::string &fn_manifest)
   {
-    // The target volume into which we will be doing the splatting. It must either
-    // be read from file or generated based on the 2D slices in the project
-    LDDMMType3D::CompositeImagePointer target;
-
-    // Use an image cache
-    ImageCache icache(0, 20);
-
-    // Before allocating the target, we need to know how many components to use. For
-    // this we need to load the reference (root) slide
-    unsigned int i_root = GetRootSlide();
-    LDDMMType::CompositeImagePointer root_slide =
-        icache.GetImage<LDDMMType::CompositeImageType>(m_Slices[i_root].raw_filename);
-
-    // Set the number of components to that from the root slide. However, when using
-    // an alternative manifest, we will get this from one of the input images instead
-    unsigned int n_comp_out = root_slide->GetNumberOfComponentsPerPixel();
-
     // Determine which images and which ids to use for splatting.
     std::map<std::string, std::string> alt_source;
-    if(sparam.fn_manifest.length())
+    if(fn_manifest.length())
       {
-      std::ifstream fin(sparam.fn_manifest);
+      std::ifstream fin(fn_manifest);
       std::string f_line;
       while(std::getline(fin, f_line))
         {
@@ -1854,6 +1874,31 @@ public:
         alt_source[id] = fn_alt_slice;
         }
       }
+
+    return alt_source;
+  }
+
+  void Splat(const SplatParameters &sparam, const GreedyParameters &gparam)
+  {
+    // The target volume into which we will be doing the splatting. It must either
+    // be read from file or generated based on the 2D slices in the project
+    LDDMMType3D::CompositeImagePointer target;
+
+    // Use an image cache
+    ImageCache icache(0, 20);
+
+    // Before allocating the target, we need to know how many components to use. For
+    // this we need to load the reference (root) slide
+    unsigned int i_root = GetRootSlide();
+    LDDMMType::CompositeImagePointer root_slide =
+        icache.GetImage<LDDMMType::CompositeImageType>(m_Slices[i_root].raw_filename);
+
+    // Set the number of components to that from the root slide. However, when using
+    // an alternative manifest, we will get this from one of the input images instead
+    unsigned int n_comp_out = root_slide->GetNumberOfComponentsPerPixel();
+
+    // Determine which images and which ids to use for splatting.
+    std::map<std::string, std::string> alt_source = ReadAlternativeManifest(sparam.fn_manifest);
 
     // Check if the number of components should be updated
     if(alt_source.size())
@@ -2495,7 +2540,7 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   double w_volume_follower = -1.0;
   bool dist_prop_wgt = false;
   bool multi_metric = false;
-  std::string alt_image;
+  std::string alt_image, alt_slide_manifest;
 
   std::string arg;
   while(cl.read_command(arg))
@@ -2537,6 +2582,10 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
       {
       alt_image = cl.read_string();
       }
+    else if(arg == "-M")
+      {
+      alt_slide_manifest = cl.read_existing_filename();
+      }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
       gparam.ParseCommandLine(arg, cl);
@@ -2562,7 +2611,8 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   // Create the project
   StackGreedyProject sgp(param.output_dir, param);
   sgp.RestoreProject();
-  sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, i_init, w_volume, w_volume_follower, dist_prop_wgt, multi_metric, alt_image, gparam);
+  sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, i_init, w_volume, w_volume_follower, dist_prop_wgt,
+                             multi_metric, alt_image, alt_slide_manifest, gparam);
 }
 
 
