@@ -750,15 +750,39 @@ int GreedyApproach<VDim, TReal>
 }
 */
 
+template <unsigned int VDim, typename TReal>
+typename GreedyApproach<VDim, TReal>::AffineCostFunctionPair
+GreedyApproach<VDim, TReal>
+::CreateAffineCostFunctions(GreedyParameters &param, OFHelperType &of_helper, unsigned int level)
+{
+  // Define the affine cost function
+  AbstractAffineCostFunction *pure_acf, *acf;
+  if(param.affine_dof == GreedyParameters::DOF_RIGID)
+    {
+    RigidCostFunction *rigid_acf = new RigidCostFunction(&param, this, level, &of_helper);
+    acf = new ScalingCostFunction(
+            rigid_acf,
+            rigid_acf->GetOptimalParameterScaling(
+              of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()));
+    pure_acf = rigid_acf;
+    }
+  else
+    {
+    //  PureAffineCostFunction *affine_acf = new PureAffineCostFunction(&param, level, &of_helper);
+    PhysicalSpaceAffineCostFunction *affine_acf = new PhysicalSpaceAffineCostFunction(&param, this, level, &of_helper);
+    acf = new ScalingCostFunction(
+            affine_acf,
+            affine_acf->GetOptimalParameterScaling(
+              of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()));
+    pure_acf = affine_acf;
+    }
+}
+
 
 template <unsigned int VDim, typename TReal>
 int GreedyApproach<VDim, TReal>
 ::RunAffine(GreedyParameters &param)
 {
-  typedef AbstractAffineCostFunction<VDim, TReal> AbstractAffineCostFunction;
-  typedef RigidCostFunction<VDim, TReal> RigidCostFunction;
-  typedef ScalingCostFunction<VDim, TReal> ScalingCostFunction;
-  typedef PhysicalSpaceAffineCostFunction<VDim, TReal> PhysicalSpaceAffineCostFunction;
 
   // Create an optical flow helper object
   OFHelperType of_helper;

@@ -41,6 +41,7 @@
 #include "itkZeroFluxNeumannPadImageFilter.h"
 #include "itkImageFileReader.h"
 #include "itkImageSliceIteratorWithIndex.h"
+#include "MultiImageRegistrationHelper.h"
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"
@@ -1838,7 +1839,195 @@ public:
              total_nonleader_to_vol_metric, total_nonleader_to_nbr_metric);
       }
   }
+  
 
+  
+  // Now that we have the affine initialization from the histology space to the volume space, we can
+  // perform iterative optimization, where each slice is matched to its neighbors and to the
+  // corresponding MRI slice. The only issue here is how do we want to use the graph in this
+  // process: we don't want the bad neighbors to pull the registration away from the good
+  // solution. On the other hand, we can expect the bad slices to eventually auto-correct. It seems
+  // that the proper approach would be to down-weigh certain slices by their metric, but then
+  // again, do we want to do this based on initial metric or current metric. For now, we can start
+  // by just using same weights.
+  void InitializeSlideRegData(std::vector<SlideRegData> &reg_data,
+                              double w_volume, double w_volume_follower,
+                              bool dist_prop_weighting,
+                              const std::string &alt_volume,
+                              const std::string &alt_slide_manifest,
+                              const GreedyParameters &gparam)
+  {
+    // Set up a cache for loaded images. These images can be cycled in and out of memory
+    // depending on need. TODO: let user configure cache sizes
+    ImageCache slice_cache(0, 400);
+
+    // Read the alternative manifest
+    std::map<std::string, std::string> alt_source = ReadAlternativeManifest(alt_slide_manifest);
+    
+    // All registration data for a slide
+
+    // Configure all the registration pairs
+    std::vector<SlideRegData> reg_data(m_Slices.size());
+    
+    // Set up the prototype parameters (shared by all registrations) and parameters
+    // specific for each registration that will need to be done
+    GreedyParameters param_reg = gparam;    
+    
+    // First pass: set up registrations to the volume
+    for(unsigned int k = 0; k < m_Slices.size(); k++)
+      {
+      // Create a registration pair between this slide and the volume slide
+      RegistrationPair rp_vol;
+      rp_vol.flag_to_vol = true;
+      
+      // Get the pointer to the current histology slide
+      SlideImagePointer img_slide = GetSlideOrAlternative(slice_cache, k, alt_source);
+
+      // Get the corresponding slice from the 3D volume (it's already saved in the project)
+      std::string fn_vol_slice = alt_volume.size()
+                                 ? GetFilenameForSlice(m_Slices[k], VOL_ALT_SLIDE, alt_volume.c_str())
+                                 : GetFilenameForSlice(m_Slices[k], VOL_SLIDE);
+
+      rp_vol.moving = slice_cache.GetImage<SlideImageType>(fn_vol_slice);
+
+      // Reslice the slide and the mask to the volume using the transform computed at the
+      // last recon stage
+      std::string fn_matrix = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, 0);
+      rp_vol.fixed = SlideImageType::New();
+      DoReslice(gparam, rp_vol.moving, img_slide, fn_matrix, WarpRef(), rp_vol.fixed);
+      
+      // Set up the mask
+      MaskImagePointer mask_slide, resliced_mask;
+      if(m_UseMasks)
+        {
+        // Get the pointer to the mask for the current slide
+        mask_slide = slice_cache.GetImage<MaskImageType>(m_Slices[k].mask_filename);
+
+        // Reslice the mask
+        // TODO: use correct interpolation scheme
+        rp_vol.mask = MaskImageType::New();
+        DoResliceMask(gparam, rp_vol.moving, mask_slide, fn_matrix, WarpRef(), rp_vol.mask);
+        }
+      
+      // Set up the first registration, to the volume
+      rp_vol.weight = m_Slices[k].is_leader ? w_volume : w_volume_follower;
+      
+      // Store the 
+      reg_data[k].pairs.push_back(rp_vol);
+      }
+    
+    // Second pass: set up registrations to the neighbors
+    for(unsigned int k = 0; k < m_Slices.size(); k++)
+      {
+      // Keep track of total weight when using distance proportional weighting
+      double tot_dist_wgt = 0.0;
+
+      // Find slice before k that is a leader slice
+      for(auto itr = m_SortedSlices.rbegin(); itr != m_SortedSlices.rend(); itr++)
+        {
+        if(itr->first < m_Slices[k].z_pos && m_Slices[itr->second].is_leader)
+          {
+          reg_data[k].k_nbr.insert(*itr);
+          tot_dist_wgt += 1.0 / (m_Slices[k].z_pos - itr->first);
+          break;
+          }
+        }
+
+      // Find slice after k that is a leader slice
+      for(auto itf = m_SortedSlices.begin(); itf != m_SortedSlices.end(); itf++)
+        {
+        if(itf->first > m_Slices[k].z_pos && m_Slices[itf->second].is_leader)
+          {
+          reg_data[k].k_nbr.insert(*itf);
+          tot_dist_wgt += 1.0 / (itf->first - m_Slices[k].z_pos);
+          break;
+          }
+        }
+
+      // Set up the registrations to neighbor slices
+      for(auto nbr : reg_data[k].k_nbr)
+        {
+        unsigned int j = nbr.second;
+
+        // Calculate the weight
+        double w = 1.0 / reg_data[k].k_nbr.size();
+        if(dist_prop_weighting && reg_data[k].k_nbr.size() > 1) 
+          {
+          double dz = fabs(m_Slices[k].z_pos - m_Slices[j].z_pos);
+          w = (1.0 / dz) / tot_dist_wgt;
+          }
+
+        // If zero weight, then skip this registration
+        if(w <= 0.0)
+          continue;
+        
+        // Get the resliced neighbor (already loaded)
+        SlideImagePointer resliced_neighbor = reg_data[j].pairs[0].fixed;
+        
+        // Set up the registration
+        RegistrationPair rp_nbr;
+        rp_nbr.fixed = reg_data[k].pairs[0].fixed;
+        rp_nbr.mask = reg_data[k].pairs[0].mask;
+        rp_nbr.moving = reg_data[j].pairs[0].moving;
+        rp_nbr.flag_to_vol = false;
+        rp_nbr.weight = w;
+        reg_data[k].pairs.push_back(rp_nbr);        
+        }
+      }
+
+    // Third pass: configure registration helpers and offload raw images
+    for(unsigned int k = 0; k < m_Slices.size(); k++)
+      {    
+      // Renormalize the weights
+      double w_sum = 0.0;
+      for(auto &p : reg_data[k].pairs)
+        w_sum += p.weight;
+      
+      // Set up all the helpers
+      for(auto &p : reg_data[k].pairs)
+        {
+        p.weight /= w_sum;        
+        p.helper.AddImagePair(p.fixed, p.moving, 1.0);
+        if(m_UseMasks)
+          p.helper.SetGradientMask(p.mask);
+        
+        // Set the scaling factors for multi-resolution
+        p.helper.SetDefaultPyramidFactors(gparam.iter_per_level.size());
+      
+        // Add random sampling jitter for affine stability at voxel edges
+        p.helper.SetJitterSigma(gparam.affine_jitter);
+        
+        // Build the composite images
+        double noise = (gparam.metric == GreedyParameters::NCC) ? gparam.ncc_noise_factor : 0.0;
+        p.helper.BuildCompositeImages(noise);
+        
+        // Remove raw images to conserve memory
+        p.moving = NULL;
+        p.fixed = NULL;
+        p.mask = NULL;
+        }
+      }
+        
+
+  }
+
+  
+  void OptimizeToVolumeAffine(double w_volume, double w_volume_follower,
+                              bool dist_prop_weighting,
+                              const std::string &alt_volume,
+                              const std::string &alt_slide_manifest,
+                              const GreedyParameters &gparam)
+  {
+    // Initialize all the helpers
+    std::vector<SlideRegData> reg_data(m_Slices.size());
+    InitializeSlideRegData(w_volume, w_volume_follower, dist_prop_weighting,
+                           alt_volume, alt_slide_manifest, gparam);
+
+    /
+
+
+    
+  }
 
   std::map<std::string, std::string> ReadAlternativeManifest(const std::string &fn_manifest)
   {
@@ -2224,6 +2413,31 @@ private:
   typedef std::pair<double, unsigned int> slice_ref;
   typedef std::set<slice_ref> slice_ref_set;
   slice_ref_set m_SortedSlices;
+  
+  // Structure represneting a slide to volume or slide to slide registration
+  struct RegistrationPair {
+    // Helper object
+    typedef MultiImageOpticalFlowHelper<double, 2> HelperType;
+    HelperType helper;
+
+    // Images (allocated temporarily)    
+    SlideImagePointer fixed, moving;
+    MaskImagePointer mask;
+    
+    // Weights, metrics, etc.
+    double weight, direct_reg_metric;
+    std::string desc;
+    bool flag_to_vol;
+  };
+  
+  // Struct representing a set of slide-to-volume and slide-to-slide registrations performed during
+  // iterative affine and iterative deformable stages
+  struct SlideRegData 
+  {
+    std::vector<RegistrationPair> pairs;
+    slice_ref_set k_nbr;
+  };
+  
 
   std::string GetFilenameForSlicePair(
       const SliceData &ref, const SliceData &mov, FileIntent intent)

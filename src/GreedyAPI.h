@@ -176,11 +176,23 @@ public:
       vnl_matrix<double> &Qp,
       LinearTransformType *tran);
 
+  typedef AbstractAffineCostFunction<VDim, TReal> AbstractAffineCostFunction;
+  typedef RigidCostFunction<VDim, TReal> RigidCostFunction;
+  typedef ScalingCostFunction<VDim, TReal> ScalingCostFunction;
+  typedef PhysicalSpaceAffineCostFunction<VDim, TReal> PhysicalSpaceAffineCostFunction;
+  typedef std::pair<AbstractAffineCostFunction *, AbstractAffineCostFunction *> AffineCostFunctionPair;
+
+  /** Create a pair of affine cost functions used internally by RunAffine */
+  AffineCostFunctionPair CreateAffineCostFunctions(
+      GreedyParameters &param,  OFHelperType &of_helper, unsigned int level) const;
+
+
   void RecordMetricValue(const MultiComponentMetricReport &metric);
 
   // Helper method to print iteration reports
   std::string PrintIter(int level, int iter, const MultiComponentMetricReport &metric) const;
 
+  template<unsigned int VDim, typename TReal>
 protected:
 
   struct CacheEntry {

@@ -47,6 +47,7 @@ class AbstractAffineCostFunction : public vnl_cost_function
 {
 public:
   typedef itk::MatrixOffsetTransformBase<TReal, VDim, VDim> LinearTransformType;
+  typedef typename LinearTransformType::Pointer LinearTransformPointer;
   typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
   typedef GreedyApproach<VDim, TReal> ParentType;
 
@@ -54,6 +55,9 @@ public:
   virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran) = 0;
   virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) = 0;
   virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) = 0;
+
+  virtual void GetJacobianOfTransformOnCeofficients(
+      const vnl_vector<double> &coeff, std::vector<LinearTransformPointer> tran) = 0;
 };
 
 /**
@@ -68,15 +72,22 @@ public:
   typedef typename Superclass::ParentType ParentType;
   typedef typename Superclass::OFHelperType OFHelperType;
   typedef typename Superclass::LinearTransformType LinearTransformType;
+  typedef typename Superclass::LinearTransformPointer LinearTransformPointer;
 
   // Construct the function
-  PureAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
+  PureAffineCostFunction(const GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
 
   // Get the parameters for the specified initial transform
   vnl_vector<double> GetCoefficients(LinearTransformType *tran);
 
   // Get the transform for the specificed coefficients
   void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran);
+
+  // Get the Jacobian of the transform, i.e., for each coefficient, the derivative
+  // of the transform w.r.t. the coefficients
+  virtual void GetJacobianOfTransformOnCeofficients(
+      const vnl_vector<double> &coeff, std::vector<LinearTransformPointer> tran);
+
 
   // Get the preferred scaling for this function given image dimensions
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
@@ -91,7 +102,7 @@ protected:
   typedef typename ParentType::VectorImagePointer VectorImagePointer;
 
   // Data needed to compute the cost function
-  GreedyParameters *m_Param;
+  const GreedyParameters *m_Param;
   OFHelperType *m_OFHelper;
   GreedyApproach<VDim, TReal> *m_Parent;
   bool m_Allocated;
@@ -118,11 +129,14 @@ public:
   typedef typename Superclass::OFHelperType OFHelperType;
   typedef typename Superclass::LinearTransformType LinearTransformType;
 
-  PhysicalSpaceAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
+  PhysicalSpaceAffineCostFunction(const GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
   virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran);
   virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran);
   virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
+
+  virtual void GetJacobianOfTransformOnCeofficients(
+      const vnl_vector<double> &coeff, std::vector<LinearTransformPointer> tran);
 
   void map_phys_to_vox(const vnl_vector<double> &x_phys, vnl_vector<double> &x_vox);
 
@@ -160,6 +174,9 @@ public:
   // Get the transform for the specificed coefficients
   void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran);
 
+  virtual void GetJacobianOfTransformOnCeofficients(
+      const vnl_vector<double> &coeff, std::vector<LinearTransformPointer> tran);
+
   // Cost function computation
   virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
 
@@ -185,9 +202,11 @@ public:
   typedef vnl_vector_fixed<double, VDim> Vec;
   typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
 
-  RigidCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
+  RigidCostFunction(const GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
   vnl_vector<double> GetCoefficients(LinearTransformType *tran);
   void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran);
+  virtual void GetJacobianOfTransformOnCeofficients(
+      const vnl_vector<double> &coeff, std::vector<LinearTransformPointer> tran);
   virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
 
   // Get the preferred scaling for this function given image dimensions
@@ -198,8 +217,11 @@ public:
 
 protected:
 
-  static Mat GetRotationMatrix(const Vec &q);
+  static Mat GetRotationMatrix(const Vec &q, Mat *d_R = NULL);
   static Vec GetAxisAngle(const Mat &R);
+
+  vnl_vector<double> GetAffineCoefficientsAndJacobian(
+      const vnl_vector<double> &x, vnl_matrix<double> *jac = NULL);
 
   // We wrap around a physical space affine function, since rigid in physical space is not
   // the same as rigid in voxel space
@@ -227,10 +249,13 @@ public:
   typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
 
 
-  RigidCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
+  RigidCostFunction(const GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
   vnl_vector<double> GetCoefficients(LinearTransformType *tran);
   void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran);
   virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+
+  virtual void GetJacobianOfTransformOnCeofficients(
+      const vnl_vector<double> &coeff, std::vector<LinearTransformPointer> tran);
 
   // Get the preferred scaling for this function given image dimensions
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
@@ -240,8 +265,11 @@ public:
 
 protected:
 
-  static Mat GetRotationMatrix(double theta);
+  static Mat GetRotationMatrix(double theta, Mat *d_R = NULL);
   static double GetRotationAngle(const Mat &R);
+
+  vnl_vector<double> GetAffineCoefficientsAndJacobian(
+      const vnl_vector<double> &x, vnl_matrix<double> *jac = NULL);
 
   // We wrap around a physical space affine function, since rigid in physical space is not
   // the same as rigid in voxel space
@@ -252,6 +280,10 @@ protected:
   Mat flip;
 
 };
+
+
+/** Some test functionality */
+void TestAffineCompositionDerivatives();
 
 
 

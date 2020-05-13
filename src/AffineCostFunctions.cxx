@@ -30,7 +30,7 @@
 
 template <unsigned int VDim, typename TReal>
 PureAffineCostFunction<VDim, TReal>
-::PureAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
+::PureAffineCostFunction(const GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
   : Superclass(VDim * (VDim + 1))
 {
   // Store the data
@@ -215,7 +215,7 @@ PureAffineCostFunction<VDim, TReal>
  */
 template <unsigned int VDim, typename TReal>
 PhysicalSpaceAffineCostFunction<VDim, TReal>
-::PhysicalSpaceAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
+::PhysicalSpaceAffineCostFunction(const GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
   : Superclass(VDim * (VDim + 1)), m_PureFunction(param, parent, level, helper)
 {
   // The rigid transformation must be rigid in physical space, not in voxel space
@@ -395,7 +395,7 @@ ScalingCostFunction<VDim, TReal>
  */
 template <unsigned int VDim, typename TReal>
 RigidCostFunction<VDim, TReal>
-::RigidCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
+::RigidCostFunction(const GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
   : Superclass(VDim * 2), m_AffineFn(param, parent, level, helper)
 {
   // Store the flipped status of the matrix
@@ -690,7 +690,7 @@ RigidCostFunction<VDim, TReal>
  */
 template <typename TReal>
 RigidCostFunction<2, TReal>
-::RigidCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
+::RigidCostFunction(const GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
   : Superclass(3), m_AffineFn(param, parent, level, helper)
 {
   // Store the flipped status of the matrix
