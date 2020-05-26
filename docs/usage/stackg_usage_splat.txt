@@ -21,6 +21,11 @@ Additional Command Options:
   -si <sigma>            : Apply in-plane Gaussian smoothing with given standard deviation (voxel
                            units) to images before splatting
   -xy <value>            : Set custom x/y spacing for the output image (in mm units)
+  -hm <pts>              : Perform histogram matching to root slide using the given
+                           number of histogram remapping points. The inv parameter specifies
+                           whether the image should be inverted before running the filter.
+  -hm-invert             : Whether to invert the histogram for matching. Do this if the slide
+                           background is brighter than the foreground.
 Options Shared with Greedy (see Greedy docs for more info):
   -rb <value>            : Background value for 2D/3D interpolation
   -ri <mode> [sigma]     : Interpolation mode (for 2D interpolation)
