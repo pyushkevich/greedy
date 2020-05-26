@@ -171,20 +171,42 @@ public:
       OFHelperType &of_helper, int level,
       LinearTransformType *tran);
 
+  static vnl_matrix<double> MapAffineToPhysicalRASSpace(
+      OFHelperType &of_helper, int level,
+      const vnl_matrix_fixed<double, VDim, VDim> &A,
+      const vnl_vector_fixed<double, VDim> &b);
+
   static void MapPhysicalRASSpaceToAffine(
       OFHelperType &of_helper, int level,
       vnl_matrix<double> &Qp,
       LinearTransformType *tran);
 
-  typedef AbstractAffineCostFunction<VDim, TReal> AbstractAffineCostFunction;
-  typedef RigidCostFunction<VDim, TReal> RigidCostFunction;
-  typedef ScalingCostFunction<VDim, TReal> ScalingCostFunction;
-  typedef PhysicalSpaceAffineCostFunction<VDim, TReal> PhysicalSpaceAffineCostFunction;
-  typedef std::pair<AbstractAffineCostFunction *, AbstractAffineCostFunction *> AffineCostFunctionPair;
+  static void MapPhysicalRASSpaceToAffine(
+      OFHelperType &of_helper, int level,
+      vnl_matrix<double> &Qp,
+      vnl_matrix_fixed<double, VDim, VDim> &A,
+      vnl_vector_fixed<double, VDim> &b);
+
+  static void UpdateLinearTransform(
+      const vnl_matrix_fixed<double, VDim, VDim> &A,
+      const vnl_vector_fixed<double, VDim> &b,
+      LinearTransformType *T);
+
+
+  typedef AbstractAffinePipelineBlock<VDim, TReal> AbstractAffinePipelineBlock;
+  typedef AffineInVoxelSpaceBlock<VDim, TReal> AffineInVoxelSpaceBlock;
+  typedef RigidBlock<VDim, TReal> RigidBlock;
+  typedef PhysicalAffineToVoxelAffineBlock<VDim, TReal> PhysicalAffineToVoxelAffineBlock;
+  typedef CoefficientScalingBlock<VDim, TReal> CoefficientScalingBlock;
 
   /** Create a pair of affine cost functions used internally by RunAffine */
-  AffineCostFunctionPair CreateAffineCostFunctions(
-      GreedyParameters &param,  OFHelperType &of_helper, unsigned int level) const;
+  std::shared_ptr<AbstractAffinePipelineBlock> CreateAffineCostFunctions(
+      const GreedyParameters &param,  OFHelperType &of_helper, unsigned int level);
+
+  /** Create initial affine transform */
+  typename LinearTransformType::Pointer ComputeInitialAffineTransform(
+      const GreedyParameters &param, OFHelperType &of_helper,
+      unsigned int level, AbstractAffinePipelineBlock *acf);
 
 
   void RecordMetricValue(const MultiComponentMetricReport &metric);
@@ -192,7 +214,6 @@ public:
   // Helper method to print iteration reports
   std::string PrintIter(int level, int iter, const MultiComponentMetricReport &metric) const;
 
-  template<unsigned int VDim, typename TReal>
 protected:
 
   struct CacheEntry {
@@ -241,10 +262,6 @@ protected:
 
   // Compute the moments of a composite image (mean and covariance matrix of coordinate weighted by intensity)
   void ComputeImageMoments(CompositeImageType *image, const std::vector<double> &weights, VecFx &m1, MatFx &m2);
-
-
-
-  // friend class PureAffineCostFunction<VDim, TReal>;
 
 };
 

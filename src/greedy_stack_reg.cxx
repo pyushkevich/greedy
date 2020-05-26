@@ -42,6 +42,7 @@
 #include "itkImageFileReader.h"
 #include "itkImageSliceIteratorWithIndex.h"
 #include "MultiImageRegistrationHelper.h"
+#include "AffineCostFunctions.h"
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"
@@ -298,6 +299,50 @@ public:
   // Mask typedefs
   typedef LDDMMType::ImageType MaskImageType;
   typedef LDDMMType::ImagePointer MaskImagePointer;
+
+  // Slice references
+  typedef std::pair<double, unsigned int> slice_ref;
+  typedef std::set<slice_ref> slice_ref_set;
+
+  // Data for affine registration. TODO: it may be cleaner to template
+  // the registration pair below over the type of registration but for
+  // now this is included as a field
+  struct RegistrationPairAffineData
+  {
+    typedef typename GreedyAPI::AbstractAffinePipelineBlock AffineBlock;
+    std::shared_ptr<AffineBlock> acf;
+    typename GreedyAPI::LinearTransformType::Pointer tLevel;
+    vnl_matrix<double> Q_physical;
+    std::vector<typename GreedyAPI::LinearTransformType::Pointer> jac_coeff;
+  };
+
+  // Structure represneting a slide to volume or slide to slide registration
+  struct RegistrationPair {
+    // Helper object
+    typedef MultiImageOpticalFlowHelper<double, 2> HelperType;
+    HelperType helper;
+
+    // Images (allocated temporarily)
+    SlideImagePointer fixed, moving;
+    MaskImagePointer mask;
+
+    // Weights, metrics, etc.
+    double weight, direct_reg_metric;
+    std::string desc;
+    bool flag_to_vol;
+
+    // Affine cost function (used during affine registration)
+    RegistrationPairAffineData aff;
+  };
+
+  // Struct representing a set of slide-to-volume and slide-to-slide registrations performed during
+  // iterative affine and iterative deformable stages
+  struct SlideRegData
+  {
+    std::vector<RegistrationPair> pairs;
+    slice_ref_set k_nbr;
+  };
+
 
   /** Set of enums used to refer to files in the project directory */
   enum FileIntent {
@@ -1863,12 +1908,7 @@ public:
 
     // Read the alternative manifest
     std::map<std::string, std::string> alt_source = ReadAlternativeManifest(alt_slide_manifest);
-    
-    // All registration data for a slide
-
-    // Configure all the registration pairs
-    std::vector<SlideRegData> reg_data(m_Slices.size());
-    
+        
     // Set up the prototype parameters (shared by all registrations) and parameters
     // specific for each registration that will need to be done
     GreedyParameters param_reg = gparam;    
@@ -2023,7 +2063,160 @@ public:
     InitializeSlideRegData(w_volume, w_volume_follower, dist_prop_weighting,
                            alt_volume, alt_slide_manifest, gparam);
 
-    /
+    // The number of resolution levels
+    unsigned int nlevels = gparam.iter_per_level.size();
+
+    // Define the objective function for registration
+    class Objective : public vnl_cost_function
+    {
+    public:
+      Objective(std::vector<SlideRegData> &in_reg_data) : reg_data(in_reg_data)
+      {
+        n_unk_per_slide = reg_data.front().pairs.front().aff.acf_pair.second.get_number_of_unknowns();
+        n_unk = n_unk_per_slide *reg_data.size();
+        this->set_number_of_unknowns(n_unk);
+      }
+
+      virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g)
+      {
+        // Objective value
+        *f = 0.0;
+
+        // Iterate over the slides
+        for(unsigned int k = 0; k < reg_data.size(); k++)
+          {
+          // Read chunk of coefficients
+          vnl_vector<double> coeff = x.extract(n_unk_per_slide, n_unk_per_slide * k);
+
+          // Convert the coefficients into an ITK transform object
+          auto &rp_vol = reg_data[k].pairs.front();
+          GreedyAPI::AbstractAffineCostFunction *acf_vol = rp_vol.aff.acf_pair.second;
+          acf_vol->GetTransform(coeff, rp_vol.aff.tLevel);
+
+          // Compute the objective with the volume
+          double f_vol = 0.0;
+          vnl_vector<double> g_vol(n_unk_per_slide, 0.0);
+          acf_vol->compute(coeff, &f_vol, &g_vol);
+
+          // Accumulate objective and gradient
+          *f += rp_vol.weight * f_vol;
+          if(g)
+            {
+            // Compute the gradient
+            g->update(g_vol * rp_vol.weight, n_unk_per_slide * k);
+
+            // Also collect the Jacobian of transform with respect to coefficients
+            acf_vol->GetJacobianOfTransformOnCeofficients(coeff, rp_vol.aff.jac_coeff);
+            }
+          }
+
+        // Second pass, compute objective for neighbors
+        for(unsigned int k = 0; k < reg_data.size(); k++)
+          {
+          auto &rp_vol = reg_data[k].pairs.front();
+
+          // Iterate over the neighbors
+          for(auto nbr : reg_data[k].k_nbr)
+            {
+            unsigned int j = nbr.second;
+            auto &rp_nbr = reg_data[k].pairs[1+j];
+
+            // Get the transform for the neighbor
+            typename GreedyAPI::LinearTransformType::Pointer tSelf = rp_vol.aff.tLevel;
+            typename GreedyAPI::LinearTransformType::Pointer tNbr = reg_data[j].pairs.front().aff.tLevel;
+
+            // The transform for the neighbor is a concatenation
+            typename GreedyAPI::LinearTransformType::Pointer tNbrInv = GreedyAPI::LinearTransformType::New();
+            typename GreedyAPI::LinearTransformType::Pointer tComp = tSelf->Clone();
+            tNbr->GetInverse(tNbrInv);
+            tComp->Compose(tNbrInv, false);
+
+            // Get the coefficients corresponding to this transform
+            GreedyAPI::AbstractAffineCostFunction *acf_nbr = rp_nbr.aff.acf_pair.second;
+            vnl_vector<double> coeff_nbr = acf_nbr->GetCoefficients(tComp);
+
+            // Compute the metric and gradient
+            double f_nbr = 0.0;
+            vnl_vector<double> g_nbr(n_unk_per_slide, 0.0);
+            acf_nbr->compute(coeff_nbr, &f_nbr, &g_nbr);
+
+            // Add metric to overall
+            *f += rp_nbr.weight * f_nbr;
+
+            // Allocate the gradient to the two transforms
+            if(g)
+              {
+              // Get own and neighbor's Jacobians
+              auto &J_nbr = reg_data[j].pairs.front().aff.jac_coeff;
+              auto &J_self = reg_data[k].pairs.front().aff.jac_coeff;
+
+
+              }
+
+            }
+
+          }
+
+
+
+      }
+
+
+    protected:
+      unsigned int n_unk_per_slide, n_unk;
+      std::vector<SlideRegData> &reg_data;
+    };
+
+    // Create a Greedy API
+    GreedyAPI api;
+
+    // Iterate over the resolution levels
+    for(unsigned int level = 0; level < nlevels; ++level)
+      {
+      // Set up the affine cost functions for all registration pairs
+      for(unsigned int k = 0; k < m_Slices.size(); k++)
+        {
+        for(auto &p : reg_data[k].pairs)
+          {
+          // Define the affine cost function for this iteration
+          p.aff.acf_pair = api.CreateAffineCostFunctions(gparam, p.helper, level);
+          p.aff.jac_coeff.set_size(p.aff.acf_pair->get_number_of_unknowns());
+
+          // Obtain the initial affine transform for this level. We only do this for the
+          if(p.flag_to_vol)
+            {
+            if(level == 0)
+              p.aff.tLevel = api.ComputeInitialAffineTransform(gparam, p.helper, p.aff.acf_pair.second);
+            else
+              api.MapPhysicalRASSpaceToAffine(p.helper, level, p.aff.Q_physical, p.aff.tLevel);
+            }
+          }
+        }
+
+      // Create the objective for this level
+      Objective combo_obj(reg_data);
+
+      // Now do the optimization
+      if(gparam.iter_per_level[level] > 0)
+        {
+        // Set up the optimizer
+        vnl_lbfgs *optimizer = new vnl_lbfgs(*acf);
+
+        // Using defaults from scipy
+        optimizer->set_f_tolerance(2.220446049250313e-9);
+        optimizer->set_g_tolerance(1e-05);
+        optimizer->set_trace(param.verbosity > GreedyParameters::VERB_NONE);
+        optimizer->set_verbose(param.verbosity > GreedyParameters::VERB_DEFAULT);
+        optimizer->set_max_function_evals(param.iter_per_level[level]);
+
+        optimizer->minimize(xLevel);
+        delete optimizer;
+
+        }
+
+
+      }
+
 
 
     
@@ -2410,34 +2603,9 @@ private:
   std::vector<SliceData> m_Slices;
 
   // A list of slices sorted by the z-position
-  typedef std::pair<double, unsigned int> slice_ref;
-  typedef std::set<slice_ref> slice_ref_set;
   slice_ref_set m_SortedSlices;
-  
-  // Structure represneting a slide to volume or slide to slide registration
-  struct RegistrationPair {
-    // Helper object
-    typedef MultiImageOpticalFlowHelper<double, 2> HelperType;
-    HelperType helper;
 
-    // Images (allocated temporarily)    
-    SlideImagePointer fixed, moving;
-    MaskImagePointer mask;
-    
-    // Weights, metrics, etc.
-    double weight, direct_reg_metric;
-    std::string desc;
-    bool flag_to_vol;
-  };
-  
-  // Struct representing a set of slide-to-volume and slide-to-slide registrations performed during
-  // iterative affine and iterative deformable stages
-  struct SlideRegData 
-  {
-    std::vector<RegistrationPair> pairs;
-    slice_ref_set k_nbr;
-  };
-  
+
 
   std::string GetFilenameForSlicePair(
       const SliceData &ref, const SliceData &mov, FileIntent intent)

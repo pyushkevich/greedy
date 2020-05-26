@@ -27,17 +27,299 @@
 #ifndef AFFINECOSTFUNCTIONS_H
 #define AFFINECOSTFUNCTIONS_H
 
-#include "GreedyAPI.h"
 #include <vnl/vnl_cost_function.h>
 #include <vnl/vnl_random.h>
 #include <vnl/vnl_trace.h>
+#include <itkSmartPointer.h>
 
 namespace itk {
   template <typename T, unsigned int D1, unsigned int D2> class MatrixOffsetTransformBase;
+  template <typename T, unsigned int D> class Image;
+  template <typename T, unsigned int D> class CovariantVector;
+  template <unsigned int D> class Size;
 }
 
 template <unsigned int VDim, typename TReal> class GreedyApproach;
 template <typename T, unsigned int V> class MultiImageOpticalFlowHelper;
+class GreedyParameters;
+
+/**
+ * Abstract block in the affine registration pipeline
+ */
+template <unsigned int VDim, typename TReal>
+class AbstractAffinePipelineBlock : public vnl_cost_function
+{
+public:
+
+  typedef vnl_vector_fixed<double, VDim> Vec;
+  typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
+  typedef vnl_vector<double> CoeffVec;
+  typedef vnl_matrix<double> JacMat;
+
+  AbstractAffinePipelineBlock()
+  {
+    this->m_Downstream = NULL;
+  }
+
+  void SetDownstreamBlock(AbstractAffinePipelineBlock *f)
+  {
+    assert(f->GetInputSize() == this->GetOutputSize());
+    this->m_Downstream.reset(f);
+  }
+
+  virtual unsigned int GetOutputSize() const = 0;
+  virtual unsigned int GetInputSize() const { return this->get_number_of_unknowns(); }
+
+  // Get the voxel-space transform corresponding to a set of coefficients
+  // by sending these coefficients along the chain of downstream blocks
+  virtual void GetTransform(const CoeffVec &x, Mat &A, Vec &b) = 0;
+
+  // Get the coefficients corresponding to a final transform (A,b)
+  // in voxel space. To do this, the chain of downstream blocks is
+  // traversed, and each block determines the input coefficients that
+  // correspond to its outout
+  virtual CoeffVec GetCoefficients(const Mat &A, const Vec &b) = 0;
+
+protected:
+
+  std::shared_ptr<AbstractAffinePipelineBlock> m_Downstream;
+};
+
+
+/**
+ * The block that actually computes the metric using images and a voxel-space
+ * affine transform
+ */
+/**
+ * Pure affine cost function - parameters are elements of N x N matrix M.
+ * Transformation takes place in voxel coordinates - not physical coordinates (for speed)
+ */
+template <unsigned int VDim, typename TReal = double>
+class AffineInVoxelSpaceBlock : public AbstractAffinePipelineBlock<VDim, TReal>
+{
+public:
+  typedef itk::MatrixOffsetTransformBase<TReal, VDim, VDim> LinearTransformType;
+  typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
+  typedef GreedyApproach<VDim, TReal> ParentType;
+  typedef vnl_vector_fixed<double, VDim> Vec;
+  typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
+  typedef vnl_vector<double> CoeffVec;
+
+  // Construct the function
+  AffineInVoxelSpaceBlock()
+  {
+    this->set_number_of_unknowns(VDim * (VDim + 1));
+  }
+
+  // Set the imaging data parameters
+  void SetImageData(
+      const GreedyParameters *param, ParentType *parent,
+      int level, OFHelperType *helper);
+
+  // Cost function computation
+  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+
+  virtual void GetTransform(const CoeffVec &x, Mat &A, Vec &b);
+
+  // No output is produced, this is a terminal block
+  virtual unsigned int GetOutputSize() const { return 0; }
+
+  // Get coefficients corresponding to a given voxel-space transform
+  virtual CoeffVec GetCoefficients(const Mat &A, const Vec &b);
+
+
+
+protected:
+  typedef itk::Image<TReal, VDim> ImageType;
+  typedef itk::SmartPointer<ImageType> ImagePointer;
+  typedef itk::Image<itk::CovariantVector<TReal, VDim>, VDim> VectorImageType;
+  typedef itk::SmartPointer<VectorImageType> VectorImagePointer;
+
+  // Data needed to compute the cost function
+  const GreedyParameters *m_Param;
+  OFHelperType *m_OFHelper;
+  GreedyApproach<VDim, TReal> *m_Parent;
+  bool m_Allocated;
+  int m_Level;
+
+  // Storage for the gradient of the similarity map
+  VectorImagePointer m_Phi, m_GradMetric, m_GradMask;
+  ImagePointer m_Metric, m_Mask;
+
+  // Last set of coefficients evaluated
+  vnl_vector<double> last_coeff;
+};
+
+
+/**
+ * Optimization block mapping physical space coefficient to voxel space
+ * coefficient
+ */
+template <unsigned int VDim, typename TReal>
+class PhysicalAffineToVoxelAffineBlock
+    : public AbstractAffinePipelineBlock<VDim,TReal>
+{
+public:
+
+  typedef vnl_vector_fixed<double, VDim> Vec;
+  typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
+  typedef vnl_vector<double> CoeffVec;
+  typedef vnl_matrix<double> JacMat;
+
+  typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
+
+  PhysicalAffineToVoxelAffineBlock()
+  {
+    this->set_number_of_unknowns(VDim * (VDim + 1));
+  }
+
+  virtual unsigned int GetOutputSize() const {
+    return this->get_number_of_unknowns();
+  }
+
+  void map_phys_to_vox(const CoeffVec &x_phys, CoeffVec &x_vox);
+
+  void SetImageData(OFHelperType *helper, int level);
+
+  void compute(const CoeffVec &x, double *f, CoeffVec *g);
+
+  virtual void GetTransform(const CoeffVec &x, Mat &A, Vec &b);
+
+  virtual CoeffVec GetCoefficients(const Mat &A, const Vec &b);
+
+  CoeffVec GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
+
+private:
+  Mat Q_fix, Q_fix_inv, Q_mov, Q_mov_inv;
+  Vec b_fix, b_fix_inv, b_mov, b_mov_inv;
+  JacMat J_phys_vox;
+};
+
+
+
+
+/**
+ * Optimization network block that inputs a six-parameter rigid vector and outputs a
+ * twelve-parameter affine vector
+ */
+template <unsigned int VDim, typename TReal>
+class RigidBlock
+    : public AbstractAffinePipelineBlock<VDim,TReal>
+{
+public:
+
+  typedef vnl_vector_fixed<double, VDim> Vec;
+  typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
+  typedef vnl_vector<double> CoeffVec;
+  typedef vnl_matrix<double> JacMat;
+
+  RigidBlock();
+
+  virtual unsigned int GetOutputSize() const
+  {
+    return VDim * (VDim + 1);
+  }
+
+  void SetFlipMatrix(const Mat &flip)
+  {
+    m_Flip = flip;
+  }
+
+  virtual void compute(const CoeffVec &x, double *f, CoeffVec* g);
+
+  virtual CoeffVec GetCoefficients(const Mat &A, const Vec &b);
+
+  virtual void GetTransform(const CoeffVec &x, Mat &A, Vec &b);
+
+  CoeffVec GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
+
+  static Mat GetRandomRotation(vnl_random &randy, double alpha);
+
+protected:
+
+  // Flip, which is not optimized over but
+  Mat m_Flip;
+};
+
+
+
+
+template <unsigned int VDim, typename TReal>
+class AffineBInverseABlock
+    : public AbstractAffinePipelineBlock<VDim,TReal>
+{
+public:
+  typedef vnl_vector_fixed<double, VDim> Vec;
+  typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
+  typedef vnl_vector<double> CoeffVec;
+
+
+  AffineBInverseABlock()
+  {
+    this->set_number_of_unknowns(2 * VDim * (VDim + 1));
+  }
+
+  virtual unsigned int GetOutputSize() const
+  {
+    return VDim * (VDim + 1);
+  }
+
+  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+
+  virtual void GetTransform(const CoeffVec &x, Mat &A, Vec &b);
+
+  // This is not implemented for this class
+  virtual CoeffVec GetCoefficients(const Mat &A, const Vec &b)
+  {
+    return CoeffVec();
+  }
+
+};
+
+
+
+template <unsigned int VDim, typename TReal>
+class CoefficientScalingBlock
+    : public AbstractAffinePipelineBlock<VDim,TReal>
+{
+public:
+  typedef vnl_vector_fixed<double, VDim> Vec;
+  typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
+  typedef vnl_vector<double> CoeffVec;
+  typedef AbstractAffinePipelineBlock<VDim,TReal> Superclass;
+
+  virtual void SetDownstreamBlock(Superclass *f)
+  {
+    this->set_number_of_unknowns(f->get_number_of_unknowns());
+    Superclass::SetDownstreamBlock(f);
+  }
+
+  virtual void SetScalingFactors(const CoeffVec &s) { m_Scaling = s; }
+
+  virtual CoeffVec GetScalingFactors() { return m_Scaling; }
+
+
+  virtual unsigned int GetOutputSize() const
+  {
+    return this->get_number_of_unknowns();
+  }
+
+  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+
+  virtual void GetTransform(const CoeffVec &x, Mat &A, Vec &b);
+
+  virtual CoeffVec GetCoefficients(const Mat &A, const Vec &b);
+
+protected:
+
+  CoeffVec m_Scaling;
+
+};
+
+
+
+
+#ifdef __OLD__
 
 /**
  * Parent of all affine/rigid cost functions
@@ -280,6 +562,9 @@ protected:
   Mat flip;
 
 };
+
+#endif
+
 
 
 /** Some test functionality */
