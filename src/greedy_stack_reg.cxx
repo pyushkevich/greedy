@@ -41,6 +41,10 @@
 #include "itkZeroFluxNeumannPadImageFilter.h"
 #include "itkImageFileReader.h"
 #include "itkImageSliceIteratorWithIndex.h"
+#include "itkHistogramMatchingImageFilter.h"
+#include "itkVectorIndexSelectionCastImageFilter.h"
+#include "itkComposeImageFilter.h"
+#include "itkInvertIntensityImageFilter.h"
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"
@@ -107,12 +111,18 @@ struct SplatParameters
   // Output image spacing
   double output_spacing_xy;
 
+  // Histogram normalization
+  bool histogram_normalize;
+  unsigned int histogram_points;
+  bool histogram_invert;
+
   SplatParameters()
     : z_first(0.0), z_last(0.0), z_step(0.0),
       source_stage(RAW), source_iter(0),
       mode(EXACT), z_exact_tol(1e-6), sigma(0.0),
       ignore_alt_headers(false), background(1, 0.0),
-      sigma_inplane(0.0), output_spacing_xy(0.0) {}
+      sigma_inplane(0.0), output_spacing_xy(0.0),
+      histogram_normalize(false), histogram_points(7), histogram_invert(false) {}
 };
 
 
@@ -438,7 +448,7 @@ public:
 
     // This array represents the slice graph structure. Each slice uses one or more
     // neighbors as references for registration. However, some of the slices are
-    // leaders and some are followers. The follower slices use leader slices as 
+    // leaders and some are followers. The follower slices use leader slices as
     // references, but leader slices ignore the follower slices. In the graph,
     // we represent this by having edges from reference images to moving images,
     // thus edges L->F, L->L but not F->F or F->L
@@ -612,7 +622,7 @@ public:
     double best_root_dist = 0.0;
     for(unsigned int i = 0; i < m_Slices.size(); i++)
       {
-      if(m_Slices[i].is_leader) 
+      if(m_Slices[i].is_leader)
         {
         dijkstra.ComputePathsFromSource(i);
         double root_dist = 0.0;
@@ -857,7 +867,7 @@ public:
       }
 
     // Now we have a large set of per-slice matrices. We next try each matrix on each pair of
-    // slices and store the metric, with the goal of finding a matrix that will provide the 
+    // slices and store the metric, with the goal of finding a matrix that will provide the
     // best possible match.
     std::vector<double> accum_metric(m_Slices.size(), 0.0);
     for(unsigned int i = 0; i < m_Slices.size(); i++)
@@ -866,10 +876,10 @@ public:
         continue;
 
       // Load the images to avoid N^2 IO operations
-      LDDMMType::CompositeImagePointer vol_slice = 
+      LDDMMType::CompositeImagePointer vol_slice =
         LDDMMType::cimg_read(GetFilenameForSlice(m_Slices[i], VOL_SLIDE).c_str());
 
-      LDDMMType::CompositeImagePointer acc_slice = 
+      LDDMMType::CompositeImagePointer acc_slice =
         LDDMMType::cimg_read(GetFilenameForSlice(m_Slices[i], ACCUM_RESLICE).c_str());
 
       // Loop over matrices
@@ -908,11 +918,11 @@ public:
     int k_best = -1; double m_best = 0.0;
     for(unsigned int k = 0; k < m_Slices.size(); k++)
       {
-      if(!m_Slices[k].is_leader) 
+      if(!m_Slices[k].is_leader)
         continue;
 
       printf("Across-slice metric for matrix %04d: %8.4f\n", k, accum_metric[k]);
-      if(k_best < 0 || accum_metric[k] > m_best) 
+      if(k_best < 0 || accum_metric[k] > m_best)
         {
         k_best = k;
         m_best = accum_metric[k];
@@ -963,7 +973,7 @@ public:
 
 
   /** Helper function to run an affine registration between two images and output the result */
-  MultiComponentMetricReport DoAffineRegistration(const GreedyParameters &param, 
+  MultiComponentMetricReport DoAffineRegistration(const GreedyParameters &param,
                                                   SlideImageType *fixed,
                                                   SlideImageType *moving,
                                                   MaskImageType *mask,
@@ -994,7 +1004,7 @@ public:
 
     // Run affine registration
     api_reg.RunAffine(my_param);
-  
+
     // Get the metric
     return api_reg.GetLastMetricReport();
   }
@@ -1031,7 +1041,7 @@ public:
 
     // Run affine registration
     api_reg.RunDeformable(my_param);
-  
+
     // Get the metric
     return api_reg.GetLastMetricReport();
   }
@@ -1066,7 +1076,7 @@ public:
 
 
   /** Reslice an image using an affine transformation and an optional warp */
-  void DoReslice(const GreedyParameters &param, 
+  void DoReslice(const GreedyParameters &param,
     SlideImageType *ref, SlideImageType *src,
     std::string fn_matrix, WarpRef warp,
     SlideImageType *resliced)
@@ -1188,31 +1198,36 @@ public:
   // Helper function: get the i-th slide or if an anternative manifest is provided, the corresponding
   // image from that manifest but remapped into the slide space
   SlideImagePointer GetSlideOrAlternative(ImageCache &slice_cache, int k,
-                                          const std::map<std::string, std::string> &alternates)
+                                          const std::map<std::string, std::string> &alternates,
+                                          bool ignore_alt_header = true,
+                                          bool return_null_if_no_alternate = false)
   {
-    // Load the main image no matter what
-    SlideImagePointer main = slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
-
     // If no alternate, load the main slide
     const auto &it = alternates.find(m_Slices[k].unique_id);
     if(it == alternates.end())
-      return main;
+      return return_null_if_no_alternate
+          ? NULL
+          : slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
 
     // Otherwise load the main slide (for reference information)
     SlideImagePointer alt = slice_cache.GetImage<SlideImageType>(it->second);
 
     // We ignore the header of the alt, and use our current header, except that we want to adjust
     // the origin and spacing so that the coordinates of the corners are indentical
-    alt->SetDirection(main->GetDirection());
-    auto spc_main = main->GetSpacing(), spc_alt = spc_main;
-    auto org_main = main->GetOrigin(), org_alt = org_main;
-    for(unsigned int d = 0; d < 2; d++)
-      spc_alt[d] = (main->GetBufferedRegion().GetSize()[d] * spc_main[d]) / alt->GetBufferedRegion().GetSize()[d];
+    if(ignore_alt_header)
+      {
+      SlideImagePointer main = slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
+      alt->SetDirection(main->GetDirection());
+      auto spc_main = main->GetSpacing(), spc_alt = spc_main;
+      auto org_main = main->GetOrigin(), org_alt = org_main;
+      for(unsigned int d = 0; d < 2; d++)
+        spc_alt[d] = (main->GetBufferedRegion().GetSize()[d] * spc_main[d]) / alt->GetBufferedRegion().GetSize()[d];
 
-    org_alt = org_main + main->GetDirection() * ((spc_alt - spc_main) * 0.5);
+      org_alt = org_main + main->GetDirection() * ((spc_alt - spc_main) * 0.5);
 
-    alt->SetSpacing(spc_alt);
-    alt->SetOrigin(org_alt);
+      alt->SetSpacing(spc_alt);
+      alt->SetOrigin(org_alt);
+      }
 
     return alt;
   }
@@ -1420,7 +1435,7 @@ public:
 
           // Calculate the weight
           double w = 1.0 / k_nbr.size();
-          if(dist_prop_weighting && k_nbr.size() > 1) 
+          if(dist_prop_weighting && k_nbr.size() > 1)
             {
             double dz = fabs(m_Slices[k].z_pos - m_Slices[j].z_pos);
             w = (1.0 / dz) / tot_dist_wgt;
@@ -1812,14 +1827,14 @@ public:
           fprintf(f_dump, "%s\t%8.4f\t%8.4f\n", targets[i].desc.c_str(), targets[i].direct_reg_metric, mval);
 
           // Add the metric to the appropriate column
-          if(m_Slices[k].is_leader) 
+          if(m_Slices[k].is_leader)
             {
             if(targets[i].flag_to_vol)
               total_leader_to_vol_metric += mval;
             else
               total_leader_to_nbr_metric += mval;
             }
-          else 
+          else
             {
             if(targets[i].flag_to_vol)
               total_nonleader_to_vol_metric += mval;
@@ -1878,6 +1893,7 @@ public:
     return alt_source;
   }
 
+
   void Splat(const SplatParameters &sparam, const GreedyParameters &gparam)
   {
     // The target volume into which we will be doing the splatting. It must either
@@ -1906,6 +1922,20 @@ public:
       std::string fn_alt = alt_source.begin()->second;
       n_comp_out = icache.GetImage<LDDMMType::CompositeImageType>(fn_alt)
                    ->GetNumberOfComponentsPerPixel();
+      }
+
+    // If using histology normalization, get a slide for that from the alternative
+    // manifest if possible
+    SlideImagePointer hist_norm_target;
+    if(sparam.histogram_normalize)
+      {
+      int k_norm = FindSlideByZ(m_Slices[i_root].z_pos,
+                                std::numeric_limits<double>::infinity(), alt_source);
+      if(k_norm >= 0)
+        hist_norm_target = GetSlideOrAlternative(
+                             icache, k_norm, alt_source,
+                             sparam.ignore_alt_headers,
+                             alt_source.size());
       }
 
     // Was a referene volume specified?
@@ -2020,14 +2050,90 @@ public:
         if(i_slice < 0)
           continue;
 
-        // Get the filename to read
-        std::string fn_source = alt_source.size() == 0
-                                ? m_Slices[i_slice].raw_filename
-                                : alt_source[m_Slices[i_slice].unique_id];
+        // Read the image
+        SlideImagePointer img_source = GetSlideOrAlternative(
+                                         icache, i_slice, alt_source,
+                                         sparam.ignore_alt_headers,
+                                         alt_source.size());
+        if(!img_source)
+          continue;
 
-        // Read the source image
-        LDDMMType::CompositeImagePointer img_source =
-            icache.GetImage<LDDMMType::CompositeImageType>(fn_source);
+        // Also need the filename
+        const auto &italt = alt_source.find(m_Slices[i_slice].unique_id);
+        std::string fn_source = italt==alt_source.end()
+                                ? m_Slices[i_slice].raw_filename
+                                : italt->second;
+
+        // Check the number of components
+        if(img_source->GetNumberOfComponentsPerPixel() != n_comp_out)
+          throw GreedyException("Number of components in slide '%s' does not match %d",
+                                fn_source.c_str(), n_comp_out);
+
+        // Perform histogram matching. For this we will need to extract every component
+        // and match it to the corresponding component of the reference slide
+        if(hist_norm_target)
+          {
+          typedef LDDMMType::ImageType CompType;
+          typedef itk::VectorIndexSelectionCastImageFilter<SlideImageType, CompType> CompCast;
+          typedef itk::HistogramMatchingImageFilter<CompType, CompType> HistFilter;
+          typedef itk::ComposeImageFilter<CompType, SlideImageType> ComposeFilter;
+          typedef itk::InvertIntensityImageFilter<CompType,CompType> InvertFilter;
+          typename ComposeFilter::Pointer compose = ComposeFilter::New();
+
+          for(unsigned int i_comp = 0; i_comp < n_comp_out; i_comp++)
+            {
+            typename CompCast::Pointer cmp_ref = CompCast::New();
+            typename CompCast::Pointer cmp_src = CompCast::New();
+            cmp_ref->SetInput(hist_norm_target);
+            cmp_ref->SetIndex(i_comp);
+            cmp_src->SetInput(img_source);
+            cmp_src->SetIndex(i_comp);
+
+            typename HistFilter::Pointer hist = HistFilter::New();
+            hist->SetNumberOfHistogramLevels(128);
+            hist->SetThresholdAtMeanIntensity(true);
+            hist->SetNumberOfMatchPoints(sparam.histogram_points);
+
+            if(sparam.histogram_invert)
+              {
+              typename InvertFilter::Pointer inv_ref = InvertFilter::New();
+              inv_ref->SetInput(cmp_ref->GetOutput());
+              inv_ref->SetMaximum(255);
+              inv_ref->Update();
+
+              typename InvertFilter::Pointer inv_src = InvertFilter::New();
+              inv_src->SetInput(cmp_src->GetOutput());
+              inv_src->SetMaximum(255);
+              inv_src->Update();
+
+              hist->SetInput(inv_src->GetOutput());
+              hist->SetReferenceImage(inv_ref->GetOutput());
+              }
+            else
+              {
+              hist->SetInput(cmp_src->GetOutput());
+              hist->SetReferenceImage(cmp_ref->GetOutput());
+              }
+
+            hist->Update();
+
+            if(sparam.histogram_invert)
+              {
+              typename InvertFilter::Pointer inv_out = InvertFilter::New();
+              inv_out->SetInput(hist->GetOutput());
+              inv_out->SetMaximum(255);
+              inv_out->Update();
+              compose->SetInput(i_comp, inv_out->GetOutput());
+              }
+            else
+              {
+              compose->SetInput(i_comp, hist->GetOutput());
+              }
+            }
+
+          compose->Update();
+          img_source = compose->GetOutput();
+          }
 
         // Smooth the image if needed
         if(sparam.sigma_inplane > 0.0)
@@ -2037,36 +2143,6 @@ public:
             sigma_phys[a] = sparam.sigma_inplane * img_source->GetSpacing()[a];
           LDDMMType::cimg_smooth(img_source, img_source, sigma_phys);
           }
-
-        // Should we override the image header?
-        if(fn_source != m_Slices[i_slice].raw_filename && sparam.ignore_alt_headers)
-          {
-          // Read the raw image
-          LDDMMType::CompositeImagePointer img_raw =
-              icache.GetImage<LDDMMType::CompositeImageType>(m_Slices[i_slice].raw_filename);
-
-          // Adjust the header so that everything matches up
-          LDDMMType::CompositeImageType::SpacingType spacing_adj;
-          LDDMMType::CompositeImageType::PointType origin_adj;
-          for(unsigned int a = 0; a < 2; a++)
-            {
-            double s1 = img_raw->GetSpacing()[a];
-            double o1 = img_raw->GetOrigin()[a];
-            unsigned long d1 = img_raw->GetBufferedRegion().GetSize()[a];
-            unsigned long d2 = img_source->GetBufferedRegion().GetSize()[a];
-            spacing_adj[a] = (d1 * s1) / d2;
-            origin_adj[a] = o1 + 0.5 * (spacing_adj[a] - s1);
-            }
-
-          img_source->SetSpacing(spacing_adj);
-          img_source->SetOrigin(origin_adj);
-          img_source->SetDirection(img_raw->GetDirection());
-          }
-
-        // Check the number of components
-        if(img_source->GetNumberOfComponentsPerPixel() != n_comp_out)
-          throw GreedyException("Number of components in '%s' does not match %d",
-                                fn_source.c_str(), n_comp_out);
 
         // Reslice into the target space
         GreedyAPI reslice_api;
@@ -2698,6 +2774,15 @@ void splat(StackParameters &param, CommandLineHelper &cl)
     else if(arg == "-xy")
       {
       sparam.output_spacing_xy = cl.read_double();
+      }
+    else if(arg == "-hm")
+      {
+      sparam.histogram_normalize = true;
+      sparam.histogram_points = (unsigned int) cl.read_integer();
+      }
+    else if(arg == "-hm-invert")
+      {
+      sparam.histogram_invert = true;
       }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
