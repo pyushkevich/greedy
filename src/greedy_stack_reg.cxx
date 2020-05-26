@@ -581,6 +581,7 @@ public:
           printf("#############################\n");
           printf("### Fixed :%s   Moving %s ###\n", m_Slices[it.second].unique_id.c_str(),m_Slices[it_n.second].unique_id.c_str());
           printf("#############################\n");
+          std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
           greedy_api.RunAffine(my_param);
 
           // Get the metric for the affine registration
@@ -734,6 +735,7 @@ public:
         greedy_api.AddCachedInputObject(m_Slices[i].raw_filename,
                                         slice_cache.GetImage<SlideImageType>(m_Slices[i].raw_filename));
         greedy_api.AddCachedOutputObject(fn_accum_reslice, img_reslice.GetPointer(), true);
+        std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
         greedy_api.RunReslice(my_param);
         }
       else
@@ -865,6 +867,7 @@ public:
           my_param.output = fn_vol_init_matrix;
 
           // Run the affine registration
+          std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
           greedy_api.RunAffine(my_param);
           }
         }
@@ -912,6 +915,7 @@ public:
 
         // Run affine to get the metric value
         MultiComponentMetricReport metric_report;
+        std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
         greedy_api.ComputeMetric(my_param, metric_report);
         printf("Slide %03d matrix %03d metric %8.4f\n", i, k, metric_report.TotalMetric);
         accum_metric[k] += metric_report.TotalMetric;
@@ -1007,6 +1011,7 @@ public:
     my_param.output = "output";
 
     // Run affine registration
+    std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
     api_reg.RunAffine(my_param);
   
     // Get the metric
@@ -1044,6 +1049,7 @@ public:
     my_param.root_warp = "output";
 
     // Run affine registration
+    std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
     api_reg.RunDeformable(my_param);
   
     // Get the metric
@@ -1102,6 +1108,7 @@ public:
       my_param.reslice_param.transforms.push_back(TransformSpec(fn_matrix));
 
     // Perform the reslicing. We will use the resliced neighbor as the fixed image in registration
+    std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
     api_reslice.RunReslice(my_param);
     }
 
@@ -1138,6 +1145,7 @@ public:
       my_param.reslice_param.transforms.push_back(TransformSpec(fn_matrix));
 
     // Perform the reslicing. We will use the resliced neighbor as the fixed image in registration
+    std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
     api_reslice.RunReslice(my_param);
 
     // Construct the mask image
@@ -1167,6 +1175,7 @@ public:
     my_param.reslice_param.transforms.push_back(TransformSpec("rootwarp", exponent));
 
     // Perform the reslicing. We will use the resliced neighbor as the fixed image in registration
+    std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
     api_reslice.RunReslice(my_param);
   }
 
@@ -1618,6 +1627,7 @@ public:
             my_param.output = "output";
 
             // Run affine registration
+            std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
             api_reg.RunAffine(my_param);
 
             // Get the metric
@@ -1750,6 +1760,7 @@ public:
             my_param.root_warp = "output";
 
             // Run affine registration
+            std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
             api_reg.RunDeformable(my_param);
 
             // Get the metric
@@ -1816,6 +1827,7 @@ public:
             m_param.gradient_mask = "mask";
             }
 
+          std::cout << "greedy " << m_param.GenerateCommandLine() << std::endl;
           api_metric.ComputeMetric(m_param, rpt);
 
           // Get the total metric value
@@ -2135,6 +2147,7 @@ public:
           }
 
         // Run the reslice operation
+        std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
         reslice_api.RunReslice(my_param);
 
         // Get an iterator into the result
