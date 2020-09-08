@@ -133,11 +133,13 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
         // whether to interpolate the gradient or not
         typename FastInterpolator::InOut status = iter.Interpolate();
 
+        /*
         if(iter.GetIndex()[0] == 240 && iter.GetIndex()[1] == 210)
           {
           std::cout << "pos = " << iter.GetSamplePos() << std::endl;
           std::cout << "mov = " << iter.GetMovingSample()[0] << std::endl;
           }
+          */
 
         // We may hit outside or on the border of the moving image. The moving image may also contain
         // a NaN in any of the components. In both cases, we interpret this as missing data situation
@@ -557,7 +559,7 @@ MultiComponentNCCImageMetric<TMetricTraits>
       if(this->m_ComputeGradient)
         {
         // Loop over the pixels in the line
-        for(int i = 0; i < line_len; ++i)
+        for(int i = 0; i < line_len; ++i, ++p_metric)
           {
           // Clear the metric and the gradient
           *p_metric = itk::NumericTraits<MetricPixelType>::ZeroValue();
@@ -567,22 +569,21 @@ MultiComponentNCCImageMetric<TMetricTraits>
             {
             p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, nc_img, wgt_scaled.data_block(),
                                                        p_metric, comp_metric.data_block(), p_grad_metric++, ImageDimension);
+            // Accumulate the total metric
+            td.metric += *p_metric;
+            td.mask += 1.0;
             }
           else
             {
             p_grad_metric++;
             p_input+=nc;
             }
-
-          // Accumulate the total metric
-          td.metric += *p_metric;
-          td.mask += 1.0;
           }
         }
       else
         {
         // Loop over the pixels in the line
-        for(int i = 0; i < line_len; ++i)
+        for(int i = 0; i < line_len; ++i, ++p_metric)
           {
           // Clear the metric and the gradient
           *p_metric = itk::NumericTraits<MetricPixelType>::Zero;
@@ -592,15 +593,15 @@ MultiComponentNCCImageMetric<TMetricTraits>
             {
             p_input = MultiImageNNCPostComputeFunction(p_input, p_input + nc, nc_img, wgt_scaled.data_block(),
                                                        p_metric, comp_metric.data_block(), (GradientPixelType *)(NULL), ImageDimension);
+
+            // Accumulate the total metric
+            td.metric += *p_metric;
+            td.mask += 1.0;
             }
           else
             {
             p_input+=nc;
             }
-
-          // Accumulate the total metric
-          td.metric += *p_metric;
-          td.mask += 1.0;
           }
         }
       }

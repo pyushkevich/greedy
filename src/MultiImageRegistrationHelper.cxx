@@ -879,7 +879,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     grad->SetOffset(metric->GetAffineTransformGradient()->GetOffset());
     }
 
-  std::cout << "   metric " << metric->GetMetricValue() << std::endl;
   out_metric.TotalMetric = metric->GetMetricValue();
   out_metric.ComponentMetrics = metric->GetAllMetricValues();
 
@@ -904,11 +903,12 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       it.Set(v);
       }
 
-    LDDMMType::vimg_write(phi, "/tmp/wtf.nii.gz");
+    // LDDMMType::vimg_write(phi, "/tmp/wtf.nii.gz");
 
     MultiComponentMetricReport dummy;
     FloatImagePointer tmp_met = LDDMMType::new_img(m_FixedComposite[level]);
     VectorImagePointer grad_phi = LDDMMType::new_vimg(m_FixedComposite[level]);
+    tmp_met->FillBuffer(0.0);
 
 
     typename MetricType::Pointer filter2 = MetricType::New();
@@ -931,26 +931,48 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     // TODO: support moving masks...
     // filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
     filter2->Update();
+    dummy.TotalMetric = filter2->GetMetricValue();
 
     typename LinearTransformType::Pointer tran2 = LinearTransformType::New();
     typename LinearTransformType::MatrixType A2; A2.Fill(0.0);
     typename LinearTransformType::OffsetType b2; b2.Fill(0.0);
 
+    double mtx = 0.0, msk = 0.0;
     for(itk::ImageRegionIteratorWithIndex<VectorImageType>
         it(grad_phi, grad_phi->GetBufferedRegion()); !it.IsAtEnd(); ++it)
       {
-      for(int d = 0; d < VDim; d++)
+      if(!m_GradientMaskComposite[level] || m_GradientMaskComposite[level]->GetPixel(it.GetIndex()) > 0.5)
         {
-        b2[d] += it.Value()[d];
-        for(int j = 0; j < VDim; j++)
-          A2(d,j) += it.Value()[d] * it.GetIndex()[j];
+        mtx += tmp_met->GetPixel(it.GetIndex());
+
+        msk += 1.0;
+        for(int d = 0; d < VDim; d++)
+          {
+          b2[d] += it.Value()[d];
+          for(int j = 0; j < VDim; j++)
+            A2(d,j) += it.Value()[d] * it.GetIndex()[j];
+          }
         }
       }
 
+    for(int d = 0; d < VDim; d++)
+      {
+      b2[d] /= msk;
+      for(int j = 0; j < VDim; j++)
+        A2(d,j) /= msk;
+      }
+
+    //grad->SetMatrix(A2);
+    //grad->SetOffset(b2);
+    //out_metric.TotalMetric = mtx / msk;
+    //out_metric.ComponentMetrics = filter2->GetAllMetricValues();
+
+    /*
     std::cout << "COMPARE: " << std::endl;
-    std::cout << grad->GetMatrix() << "   vs   " << A2 << std::endl;
-    std::cout << grad->GetOffset() << "   vs   " << b2 << std::endl;
-    std::cout << out_metric.TotalMetric << "   vs   " << dummy.TotalMetric << std::endl;
+    std::cout << grad->GetMatrix() << "   vs   " << std::endl << A2;
+    std::cout << "Offset: " << grad->GetOffset() << "   vs   " << b2 << std::endl;
+    std::cout << "Metric: " << out_metric.TotalMetric << "   vs   " << dummy.TotalMetric << std::endl;
+    */
     }
 }
 

@@ -209,6 +209,7 @@ public:
 
   /** Summary results after running the filter */
   itkGetConstMacro(MetricValue, double)
+  itkGetConstMacro(MaskValue, double)
 
   /** Get the metric values per component (each component weighted) */
   vnl_vector<double> GetAllMetricValues() const;
@@ -264,7 +265,7 @@ protected:
   ThreadData m_AccumulatedData;
 
   // Accumulated metric value
-  double m_MetricValue;
+  double m_MetricValue, m_MaskValue;
 
   // Affine transform
   typename TransformType::Pointer m_AffineTransform, m_AffineTransformGradient;

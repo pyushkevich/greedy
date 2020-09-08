@@ -146,6 +146,7 @@ MultiComponentImageMetricBase<TMetricTraits>
 
   // Report the normalized value
   m_MetricValue = m_AccumulatedData.metric / m_AccumulatedData.mask;
+  m_MaskValue = m_AccumulatedData.mask;
 
   // Compute the affine gradient
   if(m_ComputeAffine)
