@@ -41,6 +41,10 @@
 #include "itkZeroFluxNeumannPadImageFilter.h"
 #include "itkImageFileReader.h"
 #include "itkImageSliceIteratorWithIndex.h"
+#include "itkHistogramMatchingImageFilter.h"
+#include "itkVectorIndexSelectionCastImageFilter.h"
+#include "itkComposeImageFilter.h"
+#include "itkInvertIntensityImageFilter.h"
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"
@@ -104,12 +108,21 @@ struct SplatParameters
   // In-plane sigma
   double sigma_inplane;
 
+  // Output image spacing
+  double output_spacing_xy;
+
+  // Histogram normalization
+  bool histogram_normalize;
+  unsigned int histogram_points;
+  bool histogram_invert;
+
   SplatParameters()
     : z_first(0.0), z_last(0.0), z_step(0.0),
       source_stage(RAW), source_iter(0),
       mode(EXACT), z_exact_tol(1e-6), sigma(0.0),
       ignore_alt_headers(false), background(1, 0.0),
-      sigma_inplane(0.0) {}
+      sigma_inplane(0.0), output_spacing_xy(0.0),
+      histogram_normalize(false), histogram_points(7), histogram_invert(false) {}
 };
 
 
@@ -241,6 +254,11 @@ int usage(const std::string &stage = std::string())
     0x00
   };
 
+  utext["volalt"] =  {
+    #include "stackg_usage_voladd.h"
+    0x00
+  };
+
   utext["voliter"] =  {
     #include "stackg_usage_voliter.h"
     0x00
@@ -293,7 +311,7 @@ public:
   /** Set of enums used to refer to files in the project directory */
   enum FileIntent {
     MANIFEST_FILE = 0, CONFIG_ENTRY, AFFINE_MATRIX, METRIC_VALUE, ACCUM_MATRIX, ACCUM_RESLICE,
-    VOL_INIT_MATRIX, VOL_SLIDE, VOL_MASK_SLIDE, VOL_BEST_INIT_MATRIX,
+    VOL_INIT_MATRIX, VOL_SLIDE, VOL_MASK_SLIDE, VOL_ALT_SLIDE, VOL_BEST_INIT_MATRIX,
     VOL_ITER_MATRIX, VOL_ITER_WARP, ITER_METRIC_DUMP, TEMP_FILE
   };
 
@@ -430,7 +448,7 @@ public:
 
     // This array represents the slice graph structure. Each slice uses one or more
     // neighbors as references for registration. However, some of the slices are
-    // leaders and some are followers. The follower slices use leader slices as 
+    // leaders and some are followers. The follower slices use leader slices as
     // references, but leader slices ignore the follower slices. In the graph,
     // we represent this by having edges from reference images to moving images,
     // thus edges L->F, L->L but not F->F or F->L
@@ -604,7 +622,7 @@ public:
     double best_root_dist = 0.0;
     for(unsigned int i = 0; i < m_Slices.size(); i++)
       {
-      if(m_Slices[i].is_leader) 
+      if(m_Slices[i].is_leader)
         {
         dijkstra.ComputePathsFromSource(i);
         double root_dist = 0.0;
@@ -849,7 +867,7 @@ public:
       }
 
     // Now we have a large set of per-slice matrices. We next try each matrix on each pair of
-    // slices and store the metric, with the goal of finding a matrix that will provide the 
+    // slices and store the metric, with the goal of finding a matrix that will provide the
     // best possible match.
     std::vector<double> accum_metric(m_Slices.size(), 0.0);
     for(unsigned int i = 0; i < m_Slices.size(); i++)
@@ -858,10 +876,10 @@ public:
         continue;
 
       // Load the images to avoid N^2 IO operations
-      LDDMMType::CompositeImagePointer vol_slice = 
+      LDDMMType::CompositeImagePointer vol_slice =
         LDDMMType::cimg_read(GetFilenameForSlice(m_Slices[i], VOL_SLIDE).c_str());
 
-      LDDMMType::CompositeImagePointer acc_slice = 
+      LDDMMType::CompositeImagePointer acc_slice =
         LDDMMType::cimg_read(GetFilenameForSlice(m_Slices[i], ACCUM_RESLICE).c_str());
 
       // Loop over matrices
@@ -900,11 +918,11 @@ public:
     int k_best = -1; double m_best = 0.0;
     for(unsigned int k = 0; k < m_Slices.size(); k++)
       {
-      if(!m_Slices[k].is_leader) 
+      if(!m_Slices[k].is_leader)
         continue;
 
       printf("Across-slice metric for matrix %04d: %8.4f\n", k, accum_metric[k]);
-      if(k_best < 0 || accum_metric[k] > m_best) 
+      if(k_best < 0 || accum_metric[k] > m_best)
         {
         k_best = k;
         m_best = accum_metric[k];
@@ -931,8 +949,31 @@ public:
       }
   }
 
+
+  void AppendVolume(const std::string &fn_volume, const std::string &name,
+                    const GreedyParameters &gparam)
+  {
+    // Configure the threads
+    GreedyAPI::ConfigThreads(gparam);
+
+    // Read the 3D volume into memory
+    LDDMMType3D::CompositeImagePointer vol = LDDMMType3D::cimg_read(fn_volume.c_str());
+
+    // Extract target slices from the 3D volume
+    for(unsigned int i = 0; i < m_Slices.size(); i++)
+      {
+      // Filename for the volume slice corresponding to current slide
+      std::string fn_vol_slide = GetFilenameForSlice(m_Slices[i], VOL_ALT_SLIDE, name.c_str());
+
+      // Extract the slice
+      SlideImagePointer vol_slice_2d = ExtractSliceFromVolume(vol, m_Slices[i].z_pos);
+      LDDMMType::cimg_write(vol_slice_2d, fn_vol_slide.c_str());
+      }
+  }
+
+
   /** Helper function to run an affine registration between two images and output the result */
-  MultiComponentMetricReport DoAffineRegistration(const GreedyParameters &param, 
+  MultiComponentMetricReport DoAffineRegistration(const GreedyParameters &param,
                                                   SlideImageType *fixed,
                                                   SlideImageType *moving,
                                                   MaskImageType *mask,
@@ -963,7 +1004,7 @@ public:
 
     // Run affine registration
     api_reg.RunAffine(my_param);
-  
+
     // Get the metric
     return api_reg.GetLastMetricReport();
   }
@@ -1000,7 +1041,7 @@ public:
 
     // Run affine registration
     api_reg.RunDeformable(my_param);
-  
+
     // Get the metric
     return api_reg.GetLastMetricReport();
   }
@@ -1035,7 +1076,7 @@ public:
 
 
   /** Reslice an image using an affine transformation and an optional warp */
-  void DoReslice(const GreedyParameters &param, 
+  void DoReslice(const GreedyParameters &param,
     SlideImageType *ref, SlideImageType *src,
     std::string fn_matrix, WarpRef warp,
     SlideImageType *resliced, double background_value)
@@ -1107,6 +1148,30 @@ public:
     resliced->SetPixelContainer(resliced_vimg->GetPixelContainer());
     }
 
+
+  /** Reslice an image using an affine transformation and an optional warp */
+  void DoScalingAndSquaring(const GreedyParameters &param,
+                            WarpImagePointer rootwarp, WarpImagePointer out_warp,
+                            int exponent)
+  {
+    // Each of the neighbor slices needs to be resliced using last iteration's transform. We
+    // could cache these images, but then again, it does not take so much to do this on the
+    // fly. For now we will do this on the fly.
+    GreedyAPI api_reslice;
+    GreedyParameters my_param = param;
+    api_reslice.AddCachedInputObject("reference", rootwarp);
+    api_reslice.AddCachedInputObject("rootwarp", rootwarp);
+    api_reslice.AddCachedOutputObject("output", out_warp, false);
+    my_param.reslice_param.ref_image = "reference";
+    my_param.reslice_param.out_composed_warp = "output";
+
+    // Add the transforms
+    my_param.reslice_param.transforms.push_back(TransformSpec("rootwarp", exponent));
+
+    // Perform the reslicing. We will use the resliced neighbor as the fixed image in registration
+    api_reslice.RunReslice(my_param);
+  }
+
   /** Reslice an image using an affine transformation and an optional warp
   void DoReslice(const GreedyParameters &param,
     SlideImageType *ref, SlideImageType *src,
@@ -1136,6 +1201,43 @@ public:
 
 
 
+  // Helper function: get the i-th slide or if an anternative manifest is provided, the corresponding
+  // image from that manifest but remapped into the slide space
+  SlideImagePointer GetSlideOrAlternative(ImageCache &slice_cache, int k,
+                                          const std::map<std::string, std::string> &alternates,
+                                          bool ignore_alt_header = true,
+                                          bool return_null_if_no_alternate = false)
+  {
+    // If no alternate, load the main slide
+    const auto &it = alternates.find(m_Slices[k].unique_id);
+    if(it == alternates.end())
+      return return_null_if_no_alternate
+          ? NULL
+          : slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
+
+    // Otherwise load the main slide (for reference information)
+    SlideImagePointer alt = slice_cache.GetImage<SlideImageType>(it->second);
+
+    // We ignore the header of the alt, and use our current header, except that we want to adjust
+    // the origin and spacing so that the coordinates of the corners are indentical
+    if(ignore_alt_header)
+      {
+      SlideImagePointer main = slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
+      alt->SetDirection(main->GetDirection());
+      auto spc_main = main->GetSpacing(), spc_alt = spc_main;
+      auto org_main = main->GetOrigin(), org_alt = org_main;
+      for(unsigned int d = 0; d < 2; d++)
+        spc_alt[d] = (main->GetBufferedRegion().GetSize()[d] * spc_main[d]) / alt->GetBufferedRegion().GetSize()[d];
+
+      org_alt = org_main + main->GetDirection() * ((spc_alt - spc_main) * 0.5);
+
+      alt->SetSpacing(spc_alt);
+      alt->SetOrigin(org_alt);
+      }
+
+    return alt;
+  }
+
 
   // Now that we have the affine initialization from the histology space to the volume space, we can
   // perform iterative optimization, where each slice is matched to its neighbors and to the
@@ -1145,9 +1247,12 @@ public:
   // that the proper approach would be to down-weigh certain slices by their metric, but then
   // again, do we want to do this based on initial metric or current metric. For now, we can start
   // by just using same weights.
-  void IterativeMatchToVolume(unsigned int n_affine, unsigned int n_deform, unsigned int i_first,
-                              unsigned int i_last, double w_volume, double w_volume_follower, 
+  void IterativeMatchToVolume(unsigned int n_affine, unsigned int n_deform,
+                              unsigned int i_first, unsigned int i_last, int i_init,
+                              double w_volume, double w_volume_follower,
                               bool dist_prop_weighting, bool multi_metric,
+                              const std::string &alt_volume,
+                              const std::string &alt_slide_manifest,
                               const GreedyParameters &gparam)
   {
     // Set up a cache for loaded images. These images can be cycled in and out of memory
@@ -1162,6 +1267,9 @@ public:
     // Set the iteration specs
     SaveConfigKey("AffineIterations", n_affine);
     SaveConfigKey("DeformableIterations", n_deform);
+
+    // Read the alternative manifest
+    std::map<std::string, std::string> alt_source = ReadAlternativeManifest(alt_slide_manifest);
 
     // Iterate
     for(unsigned int iter = i_first; iter <= i_last; ++iter)
@@ -1179,6 +1287,11 @@ public:
       double total_leader_to_vol_metric = 0.0;
       double total_nonleader_to_nbr_metric = 0.0;
       double total_nonleader_to_vol_metric = 0.0;
+
+      // What is the previous iteration for this iteration?
+      unsigned int prev_iter = iter-1;
+      if(iter == i_first && i_init >= 0)
+        prev_iter = (unsigned int) i_init;
 
       // Iterate over the ordering
       for(unsigned int k : ordering)
@@ -1201,17 +1314,20 @@ public:
           }
 
         // Get the pointer to the current slide (used as moving image)
-        SlideImagePointer img_slide = slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
+        SlideImagePointer img_slide = GetSlideOrAlternative(slice_cache, k, alt_source);
 
         // Get the corresponding slice from the 3D volume (it's already saved in the project)
-        SlideImagePointer vol_slice_2d = slice_cache.GetImage<SlideImageType>(
-                                           GetFilenameForSlice(m_Slices[k], VOL_SLIDE));
+        std::string fn_vol_slice = alt_volume.size()
+                                   ? GetFilenameForSlice(m_Slices[k], VOL_ALT_SLIDE, alt_volume.c_str())
+                                   : GetFilenameForSlice(m_Slices[k], VOL_SLIDE);
+
+        SlideImagePointer vol_slice_2d = slice_cache.GetImage<SlideImageType>(fn_vol_slice);
 
         // Reslice the slide and the mask to the volume using the current transform, since
         // we are using the volume slice as the reference space.
 
         // Figure out which matrix/warp to use
-        std::string fn_matrix = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter-1);
+        std::string fn_matrix = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, prev_iter);
 
         // Do the reslicing by affine transform. We do not apply the previous warp
         // because composing warps over many iterations will mess with our regularization
@@ -1279,7 +1395,7 @@ public:
         GreedyParameters param_reg = gparam;
 
         // Get the filename of the previous iteration affine transform
-        std::string fn_last_affine = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter-1);
+        std::string fn_last_affine = GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, prev_iter);
 
         // What kind of registration are we doing at this iteration?
         if(iter <= n_affine)
@@ -1325,7 +1441,7 @@ public:
 
           // Calculate the weight
           double w = 1.0 / k_nbr.size();
-          if(dist_prop_weighting && k_nbr.size() > 1) 
+          if(dist_prop_weighting && k_nbr.size() > 1)
             {
             double dz = fabs(m_Slices[k].z_pos - m_Slices[j].z_pos);
             w = (1.0 / dz) / tot_dist_wgt;
@@ -1340,10 +1456,10 @@ public:
 
           // Reslice the neighbor using previous iteration results
           SlideImagePointer resliced_neighbor = SlideImageType::New();
-          SlideImagePointer native_neighbor = slice_cache.GetImage<SlideImageType>(m_Slices[j].raw_filename.c_str());
+          SlideImagePointer native_neighbor = GetSlideOrAlternative(slice_cache, j, alt_source);
 
           // Which iteration to use, current or previous
-          unsigned int nbr_iter = visited[j] ? iter : iter-1;
+          unsigned int nbr_iter = visited[j] ? iter : prev_iter;
 
           // Figure out which matrix/warp to use
           std::string fn_matrix_j = GetFilenameForSlice(m_Slices[j], VOL_ITER_MATRIX, nbr_iter);
@@ -1565,16 +1681,16 @@ public:
           }
         else
           {
+          // Allocate image to hold the root warp
+          LDDMMType::ImageBaseType *ref_space = targets[0].image;
+          WarpImageType::Pointer avg_root = LDDMMType::new_vimg(ref_space);
+          WarpImageType::Pointer work_img = LDDMMType::new_vimg(ref_space);
+
           // There are two ways to skin this cat. One is to register every slice to its neighbors using
           // a single deformation and three image match terms. The other is to match the fixed image to
           // the moving image three times, and then average the transforms
           if(!multi_metric)
             {
-            // Create the average root warp image
-            LDDMMType::ImageBaseType *ref_space = targets[0].image;
-            WarpImageType::Pointer avg_root = LDDMMType::new_vimg(ref_space);
-            WarpImageType::Pointer work_img = LDDMMType::new_vimg(ref_space);
-
             // Repeat over all target images
             for(unsigned int i = 0; i < targets.size(); i++)
               {
@@ -1602,45 +1718,12 @@ public:
                 LDDMMType::vimg_write(work_img, buffer);
                 }
               }
-
-            // Exponentiate the negative average root warp. This gives us psi_inverse, which is the
-            // transform that takes the resliced slide image into volume space.
-            WarpImageType::Pointer psi_inv = LDDMMType::new_vimg(ref_space);
-            LDDMMType::vimg_exp(avg_root, psi_inv, work_img, gparam.warp_exponent, -1.0);
-
-            if(m_GlobalParam.debug)
-              {
-              char buffer[256];
-              sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
-              LDDMMType::vimg_write(avg_root, buffer);
-
-              sprintf(buffer, "/tmp/sg_%s_invavgwarp.nii.gz", m_Slices[k].unique_id.c_str());
-              LDDMMType::vimg_write(psi_inv, buffer);
-              }
-
-            // Propagate the matrix from last iteration
-            GreedyAPI::WriteAffineMatrix(
-              GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
-              GreedyAPI::ReadAffineMatrix(fn_last_affine));
-
-            // Save the warp at this iteration
-            LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
-
-            // Perform the reslicing (todo: this read the warp back from filem ugly)
-            DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide, nan(""));
-            if(m_UseMasks)
-              DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
             }
           else
             {
             // Create a copy of the parameters for this task
             GreedyParameters my_param = param_reg;
             GreedyAPI api_reg;
-
-            // Allocate image to hold the root warp
-            LDDMMType::ImageBaseType *ref_space = targets[0].image;
-            WarpImageType::Pointer avg_root = LDDMMType::new_vimg(ref_space);
-            WarpImageType::Pointer work_img = LDDMMType::new_vimg(ref_space);
 
             // Set up the moving/fixed pairs
             for(unsigned int i = 0; i < targets.size(); i++)
@@ -1679,35 +1762,41 @@ public:
             MultiComponentMetricReport mrpt = api_reg.GetLastMetricReport();
             for(unsigned int i = 0; i < targets.size(); i++)
               targets[i].direct_reg_metric = mrpt.ComponentMetrics[i];
-
-            // Exponentiate the negative average root warp. This gives us psi_inverse, which is the
-            // transform that takes the resliced slide image into volume space.
-            WarpImageType::Pointer psi_inv = LDDMMType::new_vimg(ref_space);
-            LDDMMType::vimg_exp(avg_root, psi_inv, work_img, gparam.warp_exponent, -1.0);
-
-            if(m_GlobalParam.debug)
-              {
-              char buffer[256];
-              sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
-              LDDMMType::vimg_write(avg_root, buffer);
-
-              sprintf(buffer, "/tmp/sg_%s_invavgwarp.nii.gz", m_Slices[k].unique_id.c_str());
-              LDDMMType::vimg_write(psi_inv, buffer);
-              }
-
-            // Propagate the matrix from last iteration
-            GreedyAPI::WriteAffineMatrix(
-              GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
-              GreedyAPI::ReadAffineMatrix(fn_last_affine));
-
-            // Save the warp at this iteration
-            LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
-
-            // Perform the reslicing (todo: this read the warp back from filem ugly)
-            DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide, nan(""));
-            if(m_UseMasks)
-              DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
             }
+
+          // Write the average warp
+          if(m_GlobalParam.debug)
+            {
+            char buffer[256];
+            sprintf(buffer, "/tmp/sg_%s_avgroot.nii.gz", m_Slices[k].unique_id.c_str());
+            LDDMMType::vimg_write(avg_root, buffer);
+            }
+
+          // Exponentiate the negative average root warp. This gives us psi_inverse, which is the
+          // transform that takes the resliced slide image into volume space.
+          WarpImageType::Pointer psi_inv = LDDMMType::new_vimg(ref_space);
+          DoScalingAndSquaring(param_reg, avg_root, psi_inv, -(1 << param_reg.warp_exponent));
+
+          // Write the inverse warp
+          if(m_GlobalParam.debug)
+            {
+            char buffer[256];
+            sprintf(buffer, "/tmp/sg_%s_invavgwarp.nii.gz", m_Slices[k].unique_id.c_str());
+            LDDMMType::vimg_write(psi_inv, buffer);
+            }
+
+          // Propagate the matrix from last iteration
+          GreedyAPI::WriteAffineMatrix(
+            GetFilenameForSlice(m_Slices[k], VOL_ITER_MATRIX, iter),
+            GreedyAPI::ReadAffineMatrix(fn_last_affine));
+
+          // Save the warp at this iteration
+          LDDMMType::vimg_write(psi_inv, GetFilenameForSlice(m_Slices[k], VOL_ITER_WARP, iter).c_str());
+
+          // Perform the reslicing (todo: this read the warp back from filem ugly)
+          DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide, nan(""));
+          if(m_UseMasks)
+            DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
           }
         
         // Create a metric dump file (useful for debugging, tracking convergence)
@@ -1744,14 +1833,14 @@ public:
           fprintf(f_dump, "%s\t%8.4f\t%8.4f\n", targets[i].desc.c_str(), targets[i].direct_reg_metric, mval);
 
           // Add the metric to the appropriate column
-          if(m_Slices[k].is_leader) 
+          if(m_Slices[k].is_leader)
             {
             if(targets[i].flag_to_vol)
               total_leader_to_vol_metric += mval;
             else
               total_leader_to_nbr_metric += mval;
             }
-          else 
+          else
             {
             if(targets[i].flag_to_vol)
               total_nonleader_to_vol_metric += mval;
@@ -1771,30 +1860,14 @@ public:
       }
   }
 
-  void Splat(const SplatParameters &sparam, const GreedyParameters &gparam)
+
+  std::map<std::string, std::string> ReadAlternativeManifest(const std::string &fn_manifest)
   {
-    // The target volume into which we will be doing the splatting. It must either
-    // be read from file or generated based on the 2D slices in the project
-    LDDMMType3D::CompositeImagePointer target;
-
-    // Use an image cache
-    ImageCache icache(0, 20);
-
-    // Before allocating the target, we need to know how many components to use. For
-    // this we need to load the reference (root) slide
-    unsigned int i_root = GetRootSlide();
-    LDDMMType::CompositeImagePointer root_slide =
-        icache.GetImage<LDDMMType::CompositeImageType>(m_Slices[i_root].raw_filename);
-
-    // Set the number of components to that from the root slide. However, when using
-    // an alternative manifest, we will get this from one of the input images instead
-    unsigned int n_comp_out = root_slide->GetNumberOfComponentsPerPixel();
-
     // Determine which images and which ids to use for splatting.
     std::map<std::string, std::string> alt_source;
-    if(sparam.fn_manifest.length())
+    if(fn_manifest.length())
       {
-      std::ifstream fin(sparam.fn_manifest);
+      std::ifstream fin(fn_manifest);
       std::string f_line;
       while(std::getline(fin, f_line))
         {
@@ -1823,12 +1896,52 @@ public:
         }
       }
 
+    return alt_source;
+  }
+
+
+  void Splat(const SplatParameters &sparam, const GreedyParameters &gparam)
+  {
+    // The target volume into which we will be doing the splatting. It must either
+    // be read from file or generated based on the 2D slices in the project
+    LDDMMType3D::CompositeImagePointer target;
+
+    // Use an image cache
+    ImageCache icache(0, 20);
+
+    // Before allocating the target, we need to know how many components to use. For
+    // this we need to load the reference (root) slide
+    unsigned int i_root = GetRootSlide();
+    LDDMMType::CompositeImagePointer root_slide =
+        icache.GetImage<LDDMMType::CompositeImageType>(m_Slices[i_root].raw_filename);
+
+    // Set the number of components to that from the root slide. However, when using
+    // an alternative manifest, we will get this from one of the input images instead
+    unsigned int n_comp_out = root_slide->GetNumberOfComponentsPerPixel();
+
+    // Determine which images and which ids to use for splatting.
+    std::map<std::string, std::string> alt_source = ReadAlternativeManifest(sparam.fn_manifest);
+
     // Check if the number of components should be updated
     if(alt_source.size())
       {
       std::string fn_alt = alt_source.begin()->second;
       n_comp_out = icache.GetImage<LDDMMType::CompositeImageType>(fn_alt)
                    ->GetNumberOfComponentsPerPixel();
+      }
+
+    // If using histology normalization, get a slide for that from the alternative
+    // manifest if possible
+    SlideImagePointer hist_norm_target;
+    if(sparam.histogram_normalize)
+      {
+      int k_norm = FindSlideByZ(m_Slices[i_root].z_pos,
+                                std::numeric_limits<double>::infinity(), alt_source);
+      if(k_norm >= 0)
+        hist_norm_target = GetSlideOrAlternative(
+                             icache, k_norm, alt_source,
+                             sparam.ignore_alt_headers,
+                             alt_source.size());
       }
 
     // Was a referene volume specified?
@@ -1887,6 +2000,26 @@ public:
       origin_3d[2] = sparam.z_first;
       spacing_3d[2] = sparam.z_step;
 
+      // If custom spacing was specified, we need to readjust the spacing and origin,
+      // so that the bounding box coincides as much as possible with the reference bb
+      if(sparam.output_spacing_xy > 0.0)
+        {
+        // Update the origin by subtracting 1/2 of current spacing and adding 1/2 of
+        // new spacing
+        for(unsigned int a = 0; a < 2; a++)
+          {
+          // Figure out the new dimensions
+          region_3d.SetSize(a, (unsigned long) ceil(region_3d.GetSize(a) * spacing_3d[a] / sparam.output_spacing_xy));
+
+          // Update the origing
+          for(unsigned int b = 0; b < 3; b++)
+            origin_3d[a] += 0.5 * dir_3d(a,b) * (sparam.output_spacing_xy - spacing_3d[a]);
+
+          // Change the spacing to the new spacing
+          spacing_3d[a] = sparam.output_spacing_xy;
+          }
+        }
+
       target->SetRegions(region_3d);
       target->SetOrigin(origin_3d);
       target->SetSpacing(spacing_3d);
@@ -1923,14 +2056,90 @@ public:
         if(i_slice < 0)
           continue;
 
-        // Get the filename to read
-        std::string fn_source = alt_source.size() == 0
-                                ? m_Slices[i_slice].raw_filename
-                                : alt_source[m_Slices[i_slice].unique_id];
+        // Read the image
+        SlideImagePointer img_source = GetSlideOrAlternative(
+                                         icache, i_slice, alt_source,
+                                         sparam.ignore_alt_headers,
+                                         alt_source.size());
+        if(!img_source)
+          continue;
 
-        // Read the source image
-        LDDMMType::CompositeImagePointer img_source =
-            icache.GetImage<LDDMMType::CompositeImageType>(fn_source);
+        // Also need the filename
+        const auto &italt = alt_source.find(m_Slices[i_slice].unique_id);
+        std::string fn_source = italt==alt_source.end()
+                                ? m_Slices[i_slice].raw_filename
+                                : italt->second;
+
+        // Check the number of components
+        if(img_source->GetNumberOfComponentsPerPixel() != n_comp_out)
+          throw GreedyException("Number of components in slide '%s' does not match %d",
+                                fn_source.c_str(), n_comp_out);
+
+        // Perform histogram matching. For this we will need to extract every component
+        // and match it to the corresponding component of the reference slide
+        if(hist_norm_target)
+          {
+          typedef LDDMMType::ImageType CompType;
+          typedef itk::VectorIndexSelectionCastImageFilter<SlideImageType, CompType> CompCast;
+          typedef itk::HistogramMatchingImageFilter<CompType, CompType> HistFilter;
+          typedef itk::ComposeImageFilter<CompType, SlideImageType> ComposeFilter;
+          typedef itk::InvertIntensityImageFilter<CompType,CompType> InvertFilter;
+          typename ComposeFilter::Pointer compose = ComposeFilter::New();
+
+          for(unsigned int i_comp = 0; i_comp < n_comp_out; i_comp++)
+            {
+            typename CompCast::Pointer cmp_ref = CompCast::New();
+            typename CompCast::Pointer cmp_src = CompCast::New();
+            cmp_ref->SetInput(hist_norm_target);
+            cmp_ref->SetIndex(i_comp);
+            cmp_src->SetInput(img_source);
+            cmp_src->SetIndex(i_comp);
+
+            typename HistFilter::Pointer hist = HistFilter::New();
+            hist->SetNumberOfHistogramLevels(128);
+            hist->SetThresholdAtMeanIntensity(true);
+            hist->SetNumberOfMatchPoints(sparam.histogram_points);
+
+            if(sparam.histogram_invert)
+              {
+              typename InvertFilter::Pointer inv_ref = InvertFilter::New();
+              inv_ref->SetInput(cmp_ref->GetOutput());
+              inv_ref->SetMaximum(255);
+              inv_ref->Update();
+
+              typename InvertFilter::Pointer inv_src = InvertFilter::New();
+              inv_src->SetInput(cmp_src->GetOutput());
+              inv_src->SetMaximum(255);
+              inv_src->Update();
+
+              hist->SetInput(inv_src->GetOutput());
+              hist->SetReferenceImage(inv_ref->GetOutput());
+              }
+            else
+              {
+              hist->SetInput(cmp_src->GetOutput());
+              hist->SetReferenceImage(cmp_ref->GetOutput());
+              }
+
+            hist->Update();
+
+            if(sparam.histogram_invert)
+              {
+              typename InvertFilter::Pointer inv_out = InvertFilter::New();
+              inv_out->SetInput(hist->GetOutput());
+              inv_out->SetMaximum(255);
+              inv_out->Update();
+              compose->SetInput(i_comp, inv_out->GetOutput());
+              }
+            else
+              {
+              compose->SetInput(i_comp, hist->GetOutput());
+              }
+            }
+
+          compose->Update();
+          img_source = compose->GetOutput();
+          }
 
         // Smooth the image if needed
         if(sparam.sigma_inplane > 0.0)
@@ -1940,36 +2149,6 @@ public:
             sigma_phys[a] = sparam.sigma_inplane * img_source->GetSpacing()[a];
           LDDMMType::cimg_smooth(img_source, img_source, sigma_phys);
           }
-
-        // Should we override the image header?
-        if(fn_source != m_Slices[i_slice].raw_filename && sparam.ignore_alt_headers)
-          {
-          // Read the raw image
-          LDDMMType::CompositeImagePointer img_raw =
-              icache.GetImage<LDDMMType::CompositeImageType>(m_Slices[i_slice].raw_filename);
-
-          // Adjust the header so that everything matches up
-          LDDMMType::CompositeImageType::SpacingType spacing_adj;
-          LDDMMType::CompositeImageType::PointType origin_adj;
-          for(unsigned int a = 0; a < 2; a++)
-            {
-            double s1 = img_raw->GetSpacing()[a];
-            double o1 = img_raw->GetOrigin()[a];
-            unsigned long d1 = img_raw->GetBufferedRegion().GetSize()[a];
-            unsigned long d2 = img_source->GetBufferedRegion().GetSize()[a];
-            spacing_adj[a] = (d1 * s1) / d2;
-            origin_adj[a] = o1 + 0.5 * (spacing_adj[a] - s1);
-            }
-
-          img_source->SetSpacing(spacing_adj);
-          img_source->SetOrigin(origin_adj);
-          img_source->SetDirection(img_raw->GetDirection());
-          }
-
-        // Check the number of components
-        if(img_source->GetNumberOfComponentsPerPixel() != n_comp_out)
-          throw GreedyException("Number of components in '%s' does not match %d",
-                                fn_source.c_str(), n_comp_out);
 
         // Reslice into the target space
         GreedyAPI reslice_api;
@@ -2166,6 +2345,10 @@ private:
         (intent == VOL_ITER_MATRIX || intent == VOL_ITER_WARP || intent == ITER_METRIC_DUMP)
         ? va_arg(args, int) : 0;
 
+    const char *alt_name =
+        (intent == VOL_ALT_SLIDE)
+        ? va_arg(args, const char *) : NULL;
+
     switch(intent)
       {
       case ACCUM_MATRIX:
@@ -2182,6 +2365,9 @@ private:
         break;
       case VOL_MASK_SLIDE:
         sprintf(filename, "%s/vol/slides/vol_mask_slide_%s.%s", dir, sid, ext);
+        break;
+      case VOL_ALT_SLIDE:
+        sprintf(filename, "%s/vol/slides/alt/%s/vol_slide_%s_%s.%s", dir, alt_name, alt_name, sid, ext);
         break;
       case VOL_ITER_MATRIX:
         sprintf(filename, "%s/vol/iter%02d/affine_refvol_mov_%s_iter%02d.mat", dir, iter, sid, iter);
@@ -2366,6 +2552,54 @@ void volmatch(StackParameters &param, CommandLineHelper &cl)
   sgp.InitialMatchToVolume(fn_volume, fn_mask, gparam);
 }
 
+/**
+ * Add another volume to the project
+ */
+void voladd(StackParameters &param, CommandLineHelper &cl)
+{
+  // List of greedy commands that are recognized by this mode
+  std::set<std::string> greedy_cmd {};
+
+  // Greedy parameters for this mode
+  GreedyParameters gparam;
+
+  // Parse the parameters
+  std::string fn_volume, name;
+  std::string arg;
+  while(cl.read_command(arg))
+    {
+    if(arg == "-i")
+      {
+      fn_volume = cl.read_existing_filename();
+      }
+    else if(arg == "-n")
+      {
+      name = cl.read_string();
+      }
+    else if(greedy_cmd.find(arg) != greedy_cmd.end())
+      {
+      gparam.ParseCommandLine(arg, cl);
+      }
+    else
+      throw GreedyException("Unknown parameter to 'voladd': %s", arg.c_str());
+    }
+
+  // Check required parameters
+  if(fn_volume.size() == 0)
+    throw GreedyException("Missing volume file (-i) in 'voladd'");
+
+  if(name.size() == 0)
+    throw GreedyException("Missing volume name (-n) in 'voladd'");
+
+  // Configure the threads
+  GreedyApproach<2,double>::ConfigThreads(gparam);
+
+  // Create the project
+  StackGreedyProject sgp(param.output_dir, param);
+  sgp.RestoreProject();
+  sgp.AppendVolume(fn_volume, name, gparam);
+}
+
 
 /**
  * Run the iterative module
@@ -2383,26 +2617,32 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   // Parse the parameters
   unsigned int n_affine = 5, n_deform = 5;
   unsigned int i_first = 0, i_last = 0;
+  int i_init = -1;
   double w_volume = 4.0;
   double w_volume_follower = -1.0;
   bool dist_prop_wgt = false;
   bool multi_metric = false;
+  std::string alt_image, alt_slide_manifest;
 
   std::string arg;
   while(cl.read_command(arg))
     {
     if(arg == "-R")
       {
-      i_first = cl.read_integer();
-      i_last = cl.read_integer();
+      i_first = (unsigned int) cl.read_integer();
+      i_last = (unsigned int) cl.read_integer();
+      }
+    else if(arg == "-k")
+      {
+      i_init = cl.read_integer();
       }
     else if(arg == "-na")
       {
-      n_affine = cl.read_integer();
+      n_affine = (unsigned int) cl.read_integer();
       }
     else if(arg == "-nd")
       {
-      n_deform = cl.read_integer();
+      n_deform = (unsigned int) cl.read_integer();
       }
     else if(arg == "-w")
       {
@@ -2419,6 +2659,14 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
     else if(arg == "-mm")
       {
       multi_metric = true;
+      }
+    else if(arg == "-i")
+      {
+      alt_image = cl.read_string();
+      }
+    else if(arg == "-M")
+      {
+      alt_slide_manifest = cl.read_existing_filename();
       }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
@@ -2445,7 +2693,8 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   // Create the project
   StackGreedyProject sgp(param.output_dir, param);
   sgp.RestoreProject();
-  sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, w_volume, w_volume_follower, dist_prop_wgt, multi_metric, gparam);
+  sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, i_init, w_volume, w_volume_follower, dist_prop_wgt,
+                             multi_metric, alt_image, alt_slide_manifest, gparam);
 }
 
 
@@ -2527,6 +2776,19 @@ void splat(StackParameters &param, CommandLineHelper &cl)
     else if(arg == "-si")
       {
       sparam.sigma_inplane = cl.read_double();
+      }
+    else if(arg == "-xy")
+      {
+      sparam.output_spacing_xy = cl.read_double();
+      }
+    else if(arg == "-hm")
+      {
+      sparam.histogram_normalize = true;
+      sparam.histogram_points = (unsigned int) cl.read_integer();
+      }
+    else if(arg == "-hm-invert")
+      {
+      sparam.histogram_invert = true;
       }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
@@ -2611,6 +2873,10 @@ int main(int argc, char *argv[])
   else if(cmd == "volmatch")
     {
     volmatch(param, cl);
+    }
+  else if(cmd == "voladd")
+    {
+    voladd(param, cl);
     }
   else if(cmd == "voliter")
     {

@@ -13,6 +13,15 @@ Command Options:
                            slices (default: neighbor slices have same weight)
   -R <first> <last>      : Only run a subset of iterations. Iterations
                            are counted starting with 1.
+  -k <iter>              : Use the results of iteration 'iter' to initialize the
+                           first registration. Use with -R to create a tree-like
+                           structure of registrations.
+  -i <name>              : Use an alternative image (registered via voladd) for
+                           the registration.
+  -M <manifest>          : Use an alternative set of slide images for this registration. The
+                           manifest is in the form ID,FILENAME and must contain images that
+                           match the input slides, although they are allowed to have different
+                           dimensions and voxel size.
 Options Shared with Greedy (see Greedy docs for more info):
   -m metric              : Metric to use for slice matching
   -n NxNxN               : Number of iterations per level of multi-res

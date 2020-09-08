@@ -94,7 +94,8 @@ SET_PROPERTY(TARGET text_to_hex APPEND PROPERTY COMPILE_DEFINITIONS "HEXDUMP_MAI
 # List of docs that we want to generate
 SET(HARDCODED_DOCS
   stackg_usage_main stackg_usage_init stackg_usage_recon
-  stackg_usage_volmatch stackg_usage_voliter stackg_usage_splat)
+  stackg_usage_volmatch stackg_usage_voladd stackg_usage_voliter
+  stackg_usage_splat)
 
 UNSET(HARDCODED_DOCS_HEADERS)
 FOREACH(doc ${HARDCODED_DOCS})
