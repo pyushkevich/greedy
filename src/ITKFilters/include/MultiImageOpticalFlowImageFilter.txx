@@ -86,7 +86,7 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
         {
         // Interpolate the moving image at the current position. The worker knows
         // whether to interpolate the gradient or not
-        typedef FastLinearInterpolator<InputImageType, RealType, ImageDimension> FastInterpolator;
+        typedef typename InterpType::InterpType FastInterpolator;
         typename FastInterpolator::InOut status = iter.Interpolate();
 
         // Outside interpolations are ignored

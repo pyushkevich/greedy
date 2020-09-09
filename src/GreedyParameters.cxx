@@ -213,6 +213,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->moving_mask = cl.read_existing_filename();
     }
+  else if(cmd == "-fm")
+    {
+    this->fixed_mask = cl.read_existing_filename();
+    }
   else if(cmd == "-o")
     {
     this->output = cl.read_output_filename();
@@ -558,6 +562,9 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->moving_mask.size())
     oss << " -mm " << this->moving_mask;
+
+  if(this->moving_mask.size())
+    oss << " -fm " << this->fixed_mask;
 
   if(this->output.size())
     oss << " -o " << this->output;

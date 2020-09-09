@@ -134,6 +134,9 @@ public:
   /** Set the optional mask input */
   itkNamedInputMacro(FixedMaskImage, MaskImageType, "fixed_mask")
 
+  /** Set the optional moving mask input */
+  itkNamedInputMacro(MovingMaskImage, MaskImageType, "moving_mask")
+
   /** Set the optional jitter input - for affine images*/
   itkNamedInputMacro(JitterImage, DeformationFieldType, "jitter")
 

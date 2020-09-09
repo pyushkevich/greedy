@@ -27,6 +27,7 @@
 #ifndef __FastLinearInterpolator_h_
 #define __FastLinearInterpolator_h_
 
+#include "itkImage.h"
 #include "itkVectorImage.h"
 #include "itkNumericTraits.h"
 #include "itkNumericTraitsCovariantVectorPixel.h"
@@ -72,12 +73,15 @@ struct FastWarpCompositeImageFilterInputImageTraits< itk::VectorImage<TPixel, VD
 /**
  * Base class for the fast linear interpolators
  */
-template<class TImage, class TFloat, unsigned int VDim>
+template<class TImage, class TFloat, unsigned int VDim,
+         class TMaskImage = itk::Image<float, VDim> >
 class FastLinearInterpolatorBase
 {
 public:
   typedef TImage                                                  ImageType;
+  typedef TMaskImage                                              MaskImageType;
   typedef TFloat                                                  RealType;
+  typedef typename MaskImageType::PixelType                       MaskPixelType;
   typedef typename ImageType::InternalPixelType                   InputComponentType;
   typedef FastLinearInterpolatorOutputTraits<TFloat, InputComponentType>  OutputTraits;
   typedef typename OutputTraits::OutputComponentType              OutputComponentType;
@@ -93,7 +97,7 @@ public:
    */
   int GetPointerIncrement() const { return nComp; }
 
-  FastLinearInterpolatorBase(ImageType *image)
+  FastLinearInterpolatorBase(ImageType *image, MaskImageType *mask = NULL)
   {
     buffer = image->GetBufferPointer();
     nComp = FastWarpCompositeImageFilterInputImageTraits<TImage>::GetPointerIncrementSize(image);
@@ -101,6 +105,9 @@ public:
     for(int i = 0; i < nComp; i++)
       def_value_store[i] = itk::NumericTraits<InputComponentType>::ZeroValue();
     def_value = def_value_store;
+
+    // Store the moving mask pointer
+    mask_buffer = mask ? mask->GetBufferPointer() : NULL;
   }
 
   ~FastLinearInterpolatorBase()
@@ -119,6 +126,7 @@ protected:
 
   int nComp;
   const InputComponentType *buffer;
+  const MaskPixelType *mask_buffer;
 
   // Default value - for interpolation outside of the image bounds
   const InputComponentType *def_value;
@@ -138,18 +146,20 @@ protected:
 /**
  * Arbitrary dimension fast linear interpolator - meant to be slow
  */
-template<class TImage, class TFloat, unsigned int VDim>
-class FastLinearInterpolator : public FastLinearInterpolatorBase<TImage, TFloat, VDim>
+template<class TImage, class TFloat, unsigned int VDim,
+         class TMaskImage = itk::Image<float, VDim> >
+class FastLinearInterpolator : public FastLinearInterpolatorBase<TImage, TFloat, VDim, TMaskImage>
 {
 public:
-  typedef FastLinearInterpolatorBase<TImage, TFloat, VDim>   Superclass;
+  typedef FastLinearInterpolatorBase<TImage, TFloat, VDim, TMaskImage>   Superclass;
   typedef typename Superclass::ImageType               ImageType;
+  typedef typename Superclass::MaskImageType           MaskImageType;
   typedef typename Superclass::InputComponentType      InputComponentType;
   typedef typename Superclass::OutputComponentType     OutputComponentType;
   typedef typename Superclass::RealType                RealType;
   typedef typename Superclass::InOut                   InOut;
 
-  FastLinearInterpolator(ImageType *image) : Superclass(image) {}
+  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : Superclass(image, mask) {}
 
   InOut InterpolateWithGradient(RealType *cix, OutputComponentType *out, OutputComponentType **grad)
     { return Superclass::INSIDE; }
@@ -179,19 +189,21 @@ protected:
 /**
  * 3D fast linear interpolator - optimized for speed
  */
-template <class TImage, class TFloat>
-class FastLinearInterpolator<TImage, TFloat, 3>
-    : public FastLinearInterpolatorBase<TImage, TFloat, 3>
+template <class TImage, class TFloat, class TMaskImage>
+class FastLinearInterpolator<TImage, TFloat, 3, TMaskImage>
+    : public FastLinearInterpolatorBase<TImage, TFloat, 3, TMaskImage>
 {
 public:
-  typedef TImage                                             ImageType;
-  typedef FastLinearInterpolatorBase<ImageType, TFloat, 3>   Superclass;
-  typedef typename Superclass::InputComponentType            InputComponentType;
-  typedef typename Superclass::OutputComponentType           OutputComponentType;
-  typedef typename Superclass::RealType                      RealType;
-  typedef typename Superclass::InOut                         InOut;
+  typedef TImage                                                           ImageType;
+  typedef TMaskImage                                                       MaskImageType;
+  typedef FastLinearInterpolatorBase<ImageType, TFloat, 3, MaskImageType>  Superclass;
+  typedef typename Superclass::InputComponentType                          InputComponentType;
+  typedef typename Superclass::OutputComponentType                         OutputComponentType;
+  typedef typename Superclass::RealType                                    RealType;
+  typedef typename Superclass::InOut                                       InOut;
+  typedef typename Superclass::MaskPixelType                               MaskPixelType;
 
-  FastLinearInterpolator(ImageType *image) : Superclass(image)
+  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : Superclass(image, mask)
   {
     xsize = image->GetLargestPossibleRegion().GetSize()[0];
     ysize = image->GetLargestPossibleRegion().GetSize()[1];
@@ -231,8 +243,44 @@ public:
       d001 = dp;
       d101 = dp+this->nComp;
 
-      // The mask is one
-      this->status = Superclass::INSIDE;
+      // Is there a mask? If so, sample the mask
+      if(this->mask_buffer)
+        {
+        // Sample the mask
+        const MaskPixelType *mp = mens(x0, y0, z0);
+        m000 = *mp;
+        m100 = *(mp+1);
+        mp += xsize;
+        m010 = *mp;
+        m110 = *(mp+1);
+        mp += xsize*ysize;
+        m011 = *mp;
+        m111 = *(mp+1);
+        mp -= xsize;
+        m001 = *mp;
+        m101 = *(mp+1);
+
+        // Check the mask - if != 1 for any pixel, this is considered a border pixel
+        if(m000 == 1 && m001 == 1 && m010 == 1 && m011 == 1 &&
+           m100 == 1 && m101 == 1 && m110 == 1 && m111 == 1)
+          {
+          this->status = Superclass::INSIDE;
+          }
+        else if (m000 == 0 && m001 == 0 && m010 == 0 && m011 == 0 &&
+                 m100 == 0 && m101 == 0 && m110 == 0 && m111 == 0)
+          {
+          this->status = Superclass::OUTSIDE;
+          }
+        else
+          {
+          this->status = Superclass::BORDER;
+          }
+        }
+      else
+        {
+        // The mask is one
+        this->status = Superclass::INSIDE;
+        }
       }
     else if (x0 >= -1 && x1 <= xsize &&
              y0 >= -1 && y1 <= ysize &&
@@ -248,8 +296,12 @@ public:
       d110 = border_check(x1, y1, z0, m110);
       d111 = border_check(x1, y1, z1, m111);
 
-      // The mask is between 0 and 1
-      this->status = Superclass::BORDER;
+      if(this->mask_buffer &&
+         (m000 == 0 && m001 == 0 && m010 == 0 && m011 == 0 &&
+          m100 == 0 && m101 == 0 && m110 == 0 && m111 == 0))
+        this->status = Superclass::OUTSIDE;
+      else
+        this->status = Superclass::BORDER;
       }
     else
       {
@@ -556,7 +608,7 @@ protected:
   {
     if(X >= 0 && X < xsize && Y >= 0 && Y < ysize && Z >= 0 && Z < zsize)
       {
-      mask = 1.0;
+      mask = this->mask_buffer ? *(mens(X,Y,Z)) : 1.0;
       return dens(X,Y,Z);
       }
     else
@@ -569,6 +621,11 @@ protected:
   inline const InputComponentType *dens(int X, int Y, int Z)
   {
     return this->buffer + this->nComp * (X+xsize*(Y+ysize*Z));
+  }
+
+  inline const MaskPixelType *mens(int X, int Y, int Z)
+  {
+    return this->mask_buffer + X+xsize*(Y+ysize*Z);
   }
 
   // Image size
@@ -588,19 +645,21 @@ protected:
 /**
  * 2D fast linear interpolator - optimized for speed
  */
-template <class TImage, class TFloat>
-class FastLinearInterpolator<TImage, TFloat, 2>
-    : public FastLinearInterpolatorBase<TImage, TFloat, 2>
+template <class TImage, class TFloat, class TMaskImage>
+class FastLinearInterpolator<TImage, TFloat, 2, TMaskImage>
+    : public FastLinearInterpolatorBase<TImage, TFloat, 2, TMaskImage>
 {
 public:
-  typedef TImage                                             ImageType;
-  typedef FastLinearInterpolatorBase<ImageType, TFloat, 2>   Superclass;
-  typedef typename Superclass::InputComponentType            InputComponentType;
-  typedef typename Superclass::OutputComponentType           OutputComponentType;
-  typedef typename Superclass::RealType                      RealType;
-  typedef typename Superclass::InOut                         InOut;
+  typedef TImage                                                            ImageType;
+  typedef TMaskImage                                                        MaskImageType;
+  typedef FastLinearInterpolatorBase<ImageType, TFloat, 2, MaskImageType>   Superclass;
+  typedef typename Superclass::InputComponentType                           InputComponentType;
+  typedef typename Superclass::OutputComponentType                          OutputComponentType;
+  typedef typename Superclass::RealType                                     RealType;
+  typedef typename Superclass::InOut                                        InOut;
+  typedef typename Superclass::MaskPixelType                                MaskPixelType;
 
-  FastLinearInterpolator(ImageType *image) : Superclass(image)
+  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : Superclass(image, mask)
   {
     xsize = image->GetLargestPossibleRegion().GetSize()[0];
     ysize = image->GetLargestPossibleRegion().GetSize()[1];
@@ -630,8 +689,36 @@ public:
       d01 = dp;
       d11 = dp+this->nComp;
 
-      // The mask is one
-      this->status = Superclass::INSIDE;
+      // Is there a mask? If so, sample the mask
+      if(this->mask_buffer)
+        {
+        // Sample the mask
+        const MaskPixelType *mp = mens(x0, y0);
+        m00 = *mp;
+        m10 = *(mp+1);
+        mp += xsize;
+        m01 = *mp;
+        m11 = *(mp+1);
+
+        // Check the mask - if != 1 for any pixel, this is considered a border pixel
+        if(m00 == 1 && m01 == 1 && m10 == 1 && m11 == 1)
+          {
+          this->status = Superclass::INSIDE;
+          }
+        else if (m00 == 0 && m01 == 0 && m10 == 0 && m11 == 0)
+          {
+          this->status = Superclass::OUTSIDE;
+          }
+        else
+          {
+          this->status = Superclass::BORDER;
+          }
+        }
+      else
+        {
+        // The mask is one
+        this->status = Superclass::INSIDE;
+        }
       }
     else if (x0 >= -1 && x1 <= xsize &&
              y0 >= -1 && y1 <= ysize)
@@ -643,7 +730,11 @@ public:
       d11 = border_check(x1, y1, m11);
 
       // The mask is between 0 and 1
-      this->status = Superclass::BORDER;
+      if(this->mask_buffer &&
+         (m00 == 0 && m01 == 0 && m10 == 0 && m11 == 0))
+        this->status = Superclass::OUTSIDE;
+      else
+        this->status = Superclass::BORDER;
       }
     else
       {
@@ -870,7 +961,7 @@ protected:
   {
     if(X >= 0 && X < xsize && Y >= 0 && Y < ysize)
       {
-      mask = 1.0;
+      mask = this->mask_buffer ? *(mens(X,Y)) : 1.0;
       return dens(X,Y);
       }
     else
@@ -883,6 +974,11 @@ protected:
   inline const InputComponentType *dens(int X, int Y)
   {
     return this->buffer + this->nComp * (X+xsize*Y);
+  }
+
+  inline const MaskPixelType *mens(int X, int Y)
+  {
+    return this->mask_buffer + X+xsize*Y;
   }
 
   // Image size

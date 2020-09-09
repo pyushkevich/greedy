@@ -185,6 +185,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   m_FixedComposite.resize(m_PyramidFactors.size());
   m_MovingComposite.resize(m_PyramidFactors.size());
 
+  // The fixed mask is binarized
+  if(m_FixedMaskImage)
+    LDDMMType::img_threshold_in_place(m_FixedMaskImage, 0.5, 1e100, 0.0, 1.0);
+
   // Repeat for each of the input images
   for(int j = 0; j < m_Fixed.size(); j++)
     {
@@ -210,6 +214,13 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
       // Do the fixed and moving images have NaNs?
       bool nans_fixed, nans_moving;
+
+      // If the fixed mask is present, we use it to set nans in the fixed image
+      if(m_FixedMaskImage)
+        {
+        LDDMMType::img_reconstitute_nans_in_place(fltExtractFixed->GetOutput(), m_FixedMaskImage);
+        LDDMMType::img_write(fltExtractFixed->GetOutput(), "/tmp/testnan.mha");
+        }
 
       if(noise_sigma_relative > 0.0)
         {
@@ -243,6 +254,12 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         {
         nans_fixed = isnan(LDDMMType::img_voxel_sum(fltExtractFixed->GetOutput()));
         nans_moving = isnan(LDDMMType::img_voxel_sum(fltExtractMoving->GetOutput()));
+        }
+
+      // Report number of NaNs in fixed and moving images
+      if(j==0 && k==0)
+        {
+        printf("Number of NaNs: fixed: %d, moving %d\n", nans_fixed, nans_moving);
         }
       
       // Split the extracted images into a NaN mask and a non-NaN component
@@ -416,8 +433,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         // Downsampling the mask involves smoothing, so the mask will no longer be binary
         LDDMMType::img_downsample(m_MovingMaskImage, m_MovingMaskComposite[i], m_PyramidFactors[i]);
 
-        // We don't need the moving mask to be binary, we can leave it be floating point...
-        // LDDMMType::img_threshold_in_place(m_MovingMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
+        // We might not need the moving mask to be binary, we can leave it be floating point
+        // but for now we binarize it
+        LDDMMType::img_threshold_in_place(m_MovingMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
         }
       }
     }
@@ -671,6 +689,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetWorkingImage(m_NCCWorkingImage);
   filter->SetReuseWorkingImageFixedComponents(!first_run);
   filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
+  filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
+
 
   // TODO: support moving masks...
   // filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
@@ -699,6 +719,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->GetMetricOutput()->Graft(out_metric_image);
   filter->GetDeformationGradientOutput()->Graft(out_gradient);
   filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
+  filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
 
   filter->Update();
 
@@ -738,6 +759,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad != NULL);
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
+  metric->SetMovingMaskImage(m_MovingMaskComposite[level]);
   metric->SetJitterImage(m_JitterComposite[level]);
   metric->Update();
 
@@ -805,6 +827,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad != NULL);
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
+  metric->SetMovingMaskImage(m_MovingMaskComposite[level]);
   metric->SetBins(128);
   metric->SetJitterImage(m_JitterComposite[level]);
   metric->Update();
@@ -869,6 +892,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetWorkingImage(m_NCCWorkingImage);
   metric->SetReuseWorkingImageFixedComponents(!first_run);
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
+  metric->SetMovingMaskImage(m_MovingMaskComposite[level]);
   metric->SetJitterImage(m_JitterComposite[level]);
   metric->Update();
 
@@ -883,6 +907,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   out_metric.ComponentMetrics = metric->GetAllMetricValues();
 
   // TODO: delete this sht
+  /*
   if(grad)
     {
 
@@ -967,13 +992,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     //out_metric.TotalMetric = mtx / msk;
     //out_metric.ComponentMetrics = filter2->GetAllMetricValues();
 
-    /*
-    std::cout << "COMPARE: " << std::endl;
-    std::cout << grad->GetMatrix() << "   vs   " << std::endl << A2;
-    std::cout << "Offset: " << grad->GetOffset() << "   vs   " << b2 << std::endl;
-    std::cout << "Metric: " << out_metric.TotalMetric << "   vs   " << dummy.TotalMetric << std::endl;
-    */
     }
+    */
 }
 
 template <class TFloat, unsigned int VDim>

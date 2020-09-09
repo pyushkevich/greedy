@@ -81,6 +81,9 @@ public:
   /** Set the gradient image mask */
   void SetGradientMask(FloatImageType *maskImage) { m_GradientMaskImage = maskImage; }
 
+  /** Set the fixed image mask. It will just be used to set NaNs in the fixed image. */
+  void SetFixedMask(FloatImageType *maskImage) { m_FixedMaskImage = maskImage; }
+
   /** Set the moving image mask */
   void SetMovingMask(FloatImageType *maskImage) { m_MovingMaskImage = maskImage; }
 
@@ -261,6 +264,9 @@ protected:
 
   // Moving mask image - used to reduce region where metric is computed
   typename FloatImageType::Pointer m_MovingMaskImage;
+
+  // Fixed mask image - used to reduce region where metric is computed
+  typename FloatImageType::Pointer m_FixedMaskImage;
 
   // Mask composites
   FloatImageSet m_GradientMaskComposite, m_MovingMaskComposite;

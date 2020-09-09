@@ -590,6 +590,15 @@ void GreedyApproach<VDim, TReal>
       }
     }
 
+  // Set the fixed mask (distinct from gradient mask)
+  if(param.fixed_mask.size())
+    {
+    typedef typename OFHelperType::FloatImageType MaskType;
+    typename MaskType::Pointer imgFixMask =
+        ReadImageViaCache<MaskType>(param.fixed_mask);
+    ofhelper.SetFixedMask(imgFixMask);
+    }
+
   // Generate the optimized composite images. For the NCC metric, we add random noise to
   // the composite images, specified in units of the interquartile intensity range.
   double noise = (param.metric == GreedyParameters::NCC) ? param.ncc_noise_factor : 0.0;

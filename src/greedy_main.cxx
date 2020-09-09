@@ -92,7 +92,8 @@ int usage()
   printf("                           of the fixed image by given radius. This is useful during affine\n");
   printf("                           registration with the NCC metric when the background of your images\n");
   printf("                           is non-zero. The radius should match that of the NCC metric.");
-  printf("  -mm mask.nii           : mask for the moving image\n");
+  printf("  -fm mask.nii           : metric calculation exclusion mask for the fixed image\n");
+  printf("  -mm mask.nii           : metric calculation exclusion mask for the moving image\n");
   printf("  -it filenames          : sequence of transforms to apply to the moving image first \n");
   printf("Specific to deformable mode: \n");
   printf("  -tscale MODE           : time step behavior mode: CONST, SCALE [def], SCALEDOWN\n");

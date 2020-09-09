@@ -226,7 +226,7 @@ public:
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, InputImageType::ImageDimension );
 
-  typedef FastLinearInterpolator<InputImageType, RealType, ImageDimension> InterpType;
+  typedef FastLinearInterpolator<InputImageType, RealType, ImageDimension, MaskImageType> InterpType;
 
   typedef typename InputImageType::IndexType IndexType;
   typedef itk::ContinuousIndex<double, ImageDimension>  ContIndexType;
@@ -240,7 +240,7 @@ public:
 
   MultiComponentMetricWorker(MetricType *metric, TOutputImage * image, const RegionType &region)
     : m_WrappedIter(image, region),
-      m_Interpolator(metric->GetMovingImage()),
+      m_Interpolator(metric->GetMovingImage(), metric->GetMovingMaskImage()),
       m_OutputImage(image)
   {
     m_Metric = metric;
