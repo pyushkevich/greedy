@@ -437,13 +437,14 @@ public:
       }
   }
 
-  void ReconstructStack(double z_range, double z_epsilon, const GreedyParameters &gparam)
+  void ReconstructStack(double z_range, double z_exponent, double z_epsilon, const GreedyParameters &gparam)
   {
     // Configure the threads
     GreedyAPI::ConfigThreads(gparam);
 
     // Store the z-parameters (although we probably do not need them)
     this->SaveConfigKey("Z_Range", z_range);
+    this->SaveConfigKey("Z_Exponent", z_exponent);
     this->SaveConfigKey("Z_Epsilon", z_epsilon);
 
     // This array represents the slice graph structure. Each slice uses one or more
@@ -590,6 +591,7 @@ public:
           printf("#############################\n");
           printf("### Fixed :%s   Moving %s ###\n", m_Slices[it.second].unique_id.c_str(),m_Slices[it_n.second].unique_id.c_str());
           printf("#############################\n");
+          std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
           greedy_api.RunAffine(my_param);
 
           // Get the metric for the affine registration
@@ -603,7 +605,8 @@ public:
           }
 
         // Map the metric value into a weight
-        double weight = (1.0 - pair_metric) * pow(1 + z_epsilon, fabs(it_n.first - it.first));
+        double hops = fabs(it_n.first - it.first);
+        double weight = pow(1.0 - pair_metric, z_exponent) * hops * pow(1 + z_epsilon, hops);
         printf("F: %s   M: %s   M=%f  W=%f\n",
                m_Slices[it.second].unique_id.c_str(), m_Slices[it_n.second].unique_id.c_str(), pair_metric, weight);
 
@@ -625,10 +628,15 @@ public:
       if(m_Slices[i].is_leader)
         {
         dijkstra.ComputePathsFromSource(i);
+        std::cout << "Root distance " << m_Slices[i].unique_id << " : ";
         double root_dist = 0.0;
         for(unsigned int j = 0; j < m_Slices.size(); j++)
-          root_dist += dijkstra.GetDistanceArray()[j];
-        std::cout << "Root distance " << i << " : " << root_dist << std::endl;
+          {
+          double dj = dijkstra.GetDistanceArray()[j];
+          root_dist += dj;
+          std::cout << dj << " ";
+          }
+        std::cout << std::endl;
         if(i_root < 0 || best_root_dist > root_dist)
           {
           i_root = i;
@@ -691,10 +699,17 @@ public:
             GetFilenameForSlicePair(m_Slices[i_prev], m_Slices[i_curr], AFFINE_MATRIX);
         vnl_matrix<double> t_step = GreedyAPI::ReadAffineMatrix(TransformSpec(fn_matrix));
 
+        // Load the metric value
+        std::string fn_metric = GetFilenameForSlicePair(m_Slices[i_prev], m_Slices[i_curr], METRIC_VALUE);
+        std::ifstream iff(fn_metric);
+        double metric = 0.0;
+        iff >> metric;
+
         // Accumulate the total transformation
         t_accum = t_accum * t_step;
 
-        std::cout << m_Slices[i_prev].unique_id << " ";
+        // std::cout << m_Slices[i_prev].unique_id << " ";
+        std::cout << "R:" << m_Slices[i_prev].unique_id << " M:" << m_Slices[i_curr].unique_id << " " << metric << " " << dijkstra.GetDistanceArray()[i_curr] << " --- ";
 
         // Go to the next edge
         i_curr = i_prev;
@@ -730,6 +745,7 @@ public:
         greedy_api.AddCachedInputObject(m_Slices[i].raw_filename,
                                         slice_cache.GetImage<SlideImageType>(m_Slices[i].raw_filename));
         greedy_api.AddCachedOutputObject(fn_accum_reslice, img_reslice.GetPointer(), true);
+        std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
         greedy_api.RunReslice(my_param);
         }
       else
@@ -861,6 +877,7 @@ public:
           my_param.output = fn_vol_init_matrix;
 
           // Run the affine registration
+          std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
           greedy_api.RunAffine(my_param);
           }
         }
@@ -908,6 +925,7 @@ public:
 
         // Run affine to get the metric value
         MultiComponentMetricReport metric_report;
+        std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
         greedy_api.ComputeMetric(my_param, metric_report);
         printf("Slide %03d matrix %03d metric %8.4f\n", i, k, metric_report.TotalMetric);
         accum_metric[k] += metric_report.TotalMetric;
@@ -1003,6 +1021,7 @@ public:
     my_param.output = "output";
 
     // Run affine registration
+    std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
     api_reg.RunAffine(my_param);
 
     // Get the metric
@@ -1040,6 +1059,7 @@ public:
     my_param.root_warp = "output";
 
     // Run affine registration
+    std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
     api_reg.RunDeformable(my_param);
 
     // Get the metric
@@ -1104,6 +1124,7 @@ public:
       my_param.reslice_param.transforms.push_back(TransformSpec(fn_matrix));
 
     // Perform the reslicing. We will use the resliced neighbor as the fixed image in registration
+    std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
     api_reslice.RunReslice(my_param);
     }
 
@@ -1140,6 +1161,7 @@ public:
       my_param.reslice_param.transforms.push_back(TransformSpec(fn_matrix));
 
     // Perform the reslicing. We will use the resliced neighbor as the fixed image in registration
+    std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
     api_reslice.RunReslice(my_param);
 
     // Construct the mask image
@@ -1169,6 +1191,7 @@ public:
     my_param.reslice_param.transforms.push_back(TransformSpec("rootwarp", exponent));
 
     // Perform the reslicing. We will use the resliced neighbor as the fixed image in registration
+    std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
     api_reslice.RunReslice(my_param);
   }
 
@@ -1253,6 +1276,7 @@ public:
                               bool dist_prop_weighting, bool multi_metric,
                               const std::string &alt_volume,
                               const std::string &alt_slide_manifest,
+                              bool ignore_masks,
                               const GreedyParameters &gparam)
   {
     // Set up a cache for loaded images. These images can be cycled in and out of memory
@@ -1335,7 +1359,7 @@ public:
         DoReslice(gparam, vol_slice_2d, img_slide, fn_matrix, WarpRef(), resliced_slide, nan(""));
 
         MaskImagePointer mask_slide, resliced_mask;
-        if(m_UseMasks)
+        if(m_UseMasks && !ignore_masks)
           {
           // Get the pointer to the mask for the current slide
           mask_slide = slice_cache.GetImage<MaskImageType>(m_Slices[k].mask_filename);
@@ -1565,7 +1589,7 @@ public:
 
             // Perform the reslicing
             DoReslice(gparam, vol_slice_2d, img_slide, fn_result, WarpRef(), resliced_slide, nan(""));
-            if(m_UseMasks)
+            if(m_UseMasks && !ignore_masks)
               DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_result, WarpRef(), resliced_mask);
 
             if(m_GlobalParam.debug)
@@ -1624,6 +1648,7 @@ public:
             my_param.output = "output";
 
             // Run affine registration
+            std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
             api_reg.RunAffine(my_param);
 
             // Get the metric
@@ -1662,7 +1687,7 @@ public:
 
             // Perform the reslicing
             DoReslice(gparam, vol_slice_2d, img_slide, fn_result, WarpRef(), resliced_slide, nan(""));
-            if(m_UseMasks)
+            if(m_UseMasks && !ignore_masks)
               DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_result, WarpRef(), resliced_mask);
 
             if(m_GlobalParam.debug)
@@ -1756,6 +1781,7 @@ public:
             my_param.root_warp = "output";
 
             // Run affine registration
+            std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
             api_reg.RunDeformable(my_param);
 
             // Get the metric
@@ -1795,7 +1821,7 @@ public:
 
           // Perform the reslicing (todo: this read the warp back from filem ugly)
           DoReslice(gparam, vol_slice_2d, img_slide, fn_last_affine, WarpRef(psi_inv), resliced_slide, nan(""));
-          if(m_UseMasks)
+          if(m_UseMasks && !ignore_masks)
             DoResliceMask(gparam, vol_slice_2d, mask_slide, fn_last_affine, WarpRef(psi_inv), resliced_mask);
           }
         
@@ -1816,12 +1842,13 @@ public:
           m_param.affine_init_mode = VOX_IDENTITY;
           
           // Set up the mask
-          if(m_UseMasks)
+          if(m_UseMasks && !ignore_masks)
             {
             api_metric.AddCachedInputObject("mask", resliced_mask);
             m_param.gradient_mask = "mask";
             }
 
+          std::cout << "greedy " << m_param.GenerateCommandLine() << std::endl;
           api_metric.ComputeMetric(m_param, rpt);
 
           // Get the total metric value
@@ -2202,6 +2229,7 @@ public:
           }
 
         // Run the reslice operation
+        std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
         reslice_api.RunReslice(my_param);
 
         // Get an iterator into the result
@@ -2479,12 +2507,14 @@ void recon(StackParameters &param, CommandLineHelper &cl)
   // Parse the parameters
   double z_range = 0.0;
   double z_epsilon = 0.1;
+  double z_exponent = 4.0;
   std::string arg;
   while(cl.read_command(arg))
     {
     if(arg == "-z")
       {
       z_range = cl.read_double();
+      z_exponent = cl.read_double();
       z_epsilon = cl.read_double();
       }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
@@ -2501,7 +2531,7 @@ void recon(StackParameters &param, CommandLineHelper &cl)
   // Create the project
   StackGreedyProject sgp(param.output_dir, param);
   sgp.RestoreProject();
-  sgp.ReconstructStack(z_range, z_epsilon, gparam);
+  sgp.ReconstructStack(z_range, z_exponent, z_epsilon, gparam);
 }
 
 
@@ -2622,6 +2652,7 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   double w_volume_follower = -1.0;
   bool dist_prop_wgt = false;
   bool multi_metric = false;
+  bool ignore_masks = false;
   std::string alt_image, alt_slide_manifest;
 
   std::string arg;
@@ -2668,6 +2699,10 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
       {
       alt_slide_manifest = cl.read_existing_filename();
       }
+    else if(arg == "-no-mask")
+      {
+      ignore_masks = true;
+      }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
       gparam.ParseCommandLine(arg, cl);
@@ -2693,8 +2728,13 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   // Create the project
   StackGreedyProject sgp(param.output_dir, param);
   sgp.RestoreProject();
-  sgp.IterativeMatchToVolume(n_affine, n_deform, i_first, i_last, i_init, w_volume, w_volume_follower, dist_prop_wgt,
-                             multi_metric, alt_image, alt_slide_manifest, gparam);
+  sgp.IterativeMatchToVolume(
+    n_affine, n_deform, 
+    i_first, i_last, i_init, 
+    w_volume, w_volume_follower, 
+    dist_prop_wgt, multi_metric, 
+    alt_image, alt_slide_manifest, ignore_masks, 
+    gparam);
 }
 
 

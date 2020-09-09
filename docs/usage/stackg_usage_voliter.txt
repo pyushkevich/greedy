@@ -22,6 +22,7 @@ Command Options:
                            manifest is in the form ID,FILENAME and must contain images that
                            match the input slides, although they are allowed to have different
                            dimensions and voxel size.
+  -no-mask               : Do not use slide masks for this round of registration
 Options Shared with Greedy (see Greedy docs for more info):
   -m metric              : Metric to use for slice matching
   -n NxNxN               : Number of iterations per level of multi-res
