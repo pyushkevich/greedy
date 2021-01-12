@@ -1235,7 +1235,7 @@ public:
     const auto &it = alternates.find(m_Slices[k].unique_id);
     if(it == alternates.end())
       return return_null_if_no_alternate
-          ? NULL
+          ? nullptr
           : slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
 
     // Otherwise load the main slide (for reference information)
@@ -1489,7 +1489,7 @@ public:
           std::string fn_matrix_j = GetFilenameForSlice(m_Slices[j], VOL_ITER_MATRIX, nbr_iter);
 
           // Load the warp from cache
-          WarpRef prev_warp_j( nbr_iter <= n_affine ? NULL : slice_cache.GetImage<WarpImageType>(
+          WarpRef prev_warp_j( nbr_iter <= n_affine ? nullptr : slice_cache.GetImage<WarpImageType>(
                                                         GetFilenameForSlice(m_Slices[j], VOL_ITER_WARP, nbr_iter)));
 
           // Do the reslicing. Here we do apply the previous warp, since we want the slide to

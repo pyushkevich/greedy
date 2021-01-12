@@ -34,8 +34,7 @@
 template <class TInputImage, class TDeformationField, class TTransform>
 void
 LinearTransformToWarpFilter<TInputImage,TDeformationField,TTransform>
-::ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread,
-                       itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread)
 {
 
 

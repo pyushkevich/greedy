@@ -221,7 +221,7 @@ protected:
   MultiComponentImageMetricBase();
   ~MultiComponentImageMetricBase() {}
 
-  virtual void VerifyInputInformation() ITK_OVERRIDE {}
+  virtual void VerifyInputInformation() const ITK_OVERRIDE {}
 
   /** It is difficult to compute in advance the input image region
    * required to compute the requested output region. Thus the safest
@@ -248,24 +248,29 @@ protected:
   bool m_ComputeGradient;
   bool m_ComputeAffine;
 
-  // Data accumulated for each thread
-  struct ThreadData {
+
+
+  // Data accumulated across multiple threads. The mutex should be used when accessing
+  // this data
+  struct ThreadAccumulatedData {
+
+    static const unsigned int GradientSize = ImageDimension * (ImageDimension+1);
     double metric, mask;
+    vnl_vector<double> gradient, grad_mask, comp_metric;
+    std::mutex mutex;
 
-    // Component-wise metric values - for reporting
-    vnl_vector<double> comp_metric;
+    ThreadAccumulatedData() : metric(0.0), mask(0.0),
+      gradient(GradientSize, 0.0),
+      grad_mask(GradientSize, 0.0) {}
 
-    vnl_vector<double> gradient, grad_mask;
-    ThreadData() : metric(0.0), mask(0.0),
-      gradient(ImageDimension * (ImageDimension+1), 0.0),
-      grad_mask(ImageDimension * (ImageDimension+1), 0.0) {}
+    ThreadAccumulatedData(unsigned int ncomp) :
+      ThreadAccumulatedData() { comp_metric.set_size(ncomp); comp_metric.fill(0.0); }
+
+    void Accumulate(const ThreadAccumulatedData &other);
   };
 
   // Per-thread data
-  std::vector<ThreadData> m_ThreadData;
-
-  // Total accumulated data
-  ThreadData m_AccumulatedData;
+  ThreadAccumulatedData m_AccumulatedData;
 
   // Accumulated metric value
   double m_MetricValue, m_MaskValue;

@@ -1,7 +1,7 @@
 PROJECT(GREEDY)
 
 # Required CMake version
-CMAKE_MINIMUM_REQUIRED(VERSION 3.3)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.10.2)
 
 #--------------------------------------------------------------------------------
 # VERSION
@@ -9,7 +9,7 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.3)
 INCLUDE(CMake/PYVersion.cmake)
 
 # Set the semantic version and version date
-VERSION_VARS(1 0 1 "" "20190321" "Mar 21, 2019")
+VERSION_VARS(1 2 0 "" "20200112" "Jan 12, 2021")
 
 #--------------------------------------------------------------------------------
 # Build configuration
@@ -51,7 +51,7 @@ OPTION(GREEDY_USE_SPARSE_SOLVERS "Build registration tools that use sparse solve
 #--------------------------------------------------------------------------------
 
 # ITK
-FIND_PACKAGE(ITK 4.12.2 REQUIRED)
+FIND_PACKAGE(ITK 5.1.2 REQUIRED)
 INCLUDE(${ITK_USE_FILE})
 
 # Deal with FFTW - only used by experimental LDDMM code
@@ -136,17 +136,10 @@ SET(HEADERS
   src/ITKFilters/include/MultiComponentMutualInfoImageMetric.txx
   src/ITKFilters/include/MultiComponentNCCImageMetric.h
   src/ITKFilters/include/MultiComponentNCCImageMetric.txx
-  src/ITKFilters/include/MultiImageAffineMSDMetricFilter.h
-  src/ITKFilters/include/MultiImageAffineMSDMetricFilter.txx
   src/ITKFilters/include/MultiImageOpticalFlowImageFilter.h
   src/ITKFilters/include/MultiImageOpticalFlowImageFilter.txx
   src/ITKFilters/include/OneDimensionalInPlaceAccumulateFilter.h
   src/ITKFilters/include/OneDimensionalInPlaceAccumulateFilter.txx
-  src/ITKFilters/include/SimpleWarpImageFilter.h
-  src/ITKFilters/include/SimpleWarpImageFilter.txx
-  src/ITKFilters/include/itkGaussianInterpolateImageFunction.h
-  src/ITKFilters/include/itkOptVectorLinearInterpolateImageFunction.h
-  src/ITKFilters/include/itkOptVectorLinearInterpolateImageFunction.txx
   src/lddmm_common.h
   src/lddmm_data.h
   src/AffineCostFunctions.h

@@ -34,7 +34,6 @@
 #include "lddmm_data.h"
 #include "MultiImageOpticalFlowImageFilter.h"
 #include "MultiComponentNCCImageMetric.h"
-#include "MultiComponentApproximateNCCImageMetric.h"
 #include "MultiComponentMutualInfoImageMetric.h"
 #include "MahalanobisDistanceToTargetWarpMetric.h"
 #include "itkVectorIndexSelectionCastImageFilter.h"
@@ -364,7 +363,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 
   // Set up the mask pyramid
-  m_GradientMaskComposite.resize(m_PyramidFactors.size(), NULL);
+  m_GradientMaskComposite.resize(m_PyramidFactors.size(), nullptr);
   if(m_GradientMaskImage)
     {
     for(int i = 0; i < m_PyramidFactors.size(); i++)
@@ -416,7 +415,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 
   // Set up the moving mask pyramid
-  m_MovingMaskComposite.resize(m_PyramidFactors.size(), NULL);
+  m_MovingMaskComposite.resize(m_PyramidFactors.size(), nullptr);
   if(m_MovingMaskImage)
     {
     for(int i = 0; i < m_PyramidFactors.size(); i++)
@@ -441,7 +440,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 
   // Set up the jitter images
-  m_JitterComposite.resize(m_PyramidFactors.size(), NULL);
+  m_JitterComposite.resize(m_PyramidFactors.size(), nullptr);
   if(m_JitterSigma > 0)
     {
     for(int i = 0; i < m_PyramidFactors.size(); i++)

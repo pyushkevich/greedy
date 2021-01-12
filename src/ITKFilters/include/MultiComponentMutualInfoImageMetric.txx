@@ -185,47 +185,27 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
 
   int ncomp = this->GetFixedImage()->GetNumberOfComponentsPerPixel();
 
-  // Clear the per-thread histograms
-  m_MIThreadData.clear();
-
-  // Create the per-thread histograms
-  m_MIThreadData.resize(this->GetNumberOfThreads(),
-                        HistogramAccumType(ncomp, vnl_matrix<RealType>(m_Bins, m_Bins, 0.0)));
-
   // Initialize the gradient matrices
   if(this->m_ComputeGradient)
     m_GradWeights.resize(ncomp, vnl_matrix<RealType>(m_Bins, m_Bins, 0.0));
 
-  // Code to determine the actual number of threads used below
-  itk::ThreadIdType nbOfThreads = this->GetNumberOfThreads();
-  if ( itk::MultiThreader::GetGlobalMaximumNumberOfThreads() != 0 )
-    {
-    nbOfThreads = vnl_math_min( this->GetNumberOfThreads(), itk::MultiThreader::GetGlobalMaximumNumberOfThreads() );
-    }
-
-  itk::ImageRegion<ImageDimension> splitRegion;  // dummy region - just to call
-                                                  // the following method
-  nbOfThreads = this->SplitRequestedRegion(0, nbOfThreads, splitRegion);
-
-  // Initialize the barrier
-  m_Barrier = itk::Barrier::New();
-  m_Barrier->Initialize(nbOfThreads);
 }
 
 
 template <class TMetricTraits>
 void
 MultiComponentMutualInfoImageMetric<TMetricTraits>
-::ThreadedGenerateData(
-    const OutputImageRegionType &outputRegionForThread,
-    itk::ThreadIdType threadId)
+::GenerateData()
 {
+  // Standard stuff done before splitting into threads
+  this->AllocateOutputs();
+  this->BeforeThreadedGenerateData();
+
   // Get the number of components
   int ncomp = this->GetFixedImage()->GetNumberOfComponentsPerPixel();
 
   // Create an iterator specialized for going through metrics
   typedef MultiComponentMetricWorker<TMetricTraits, MetricImageType> InterpType;
-  InterpType iter(this, this->GetMetricOutput(), outputRegionForThread);
 
   // Initially, I am implementing this as a two-pass filter. On the first pass, the joint
   // histogram is computed without the gradient. On the second pass, the gradient is computed.
@@ -238,201 +218,203 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
   // outside values are treated differently from zero. This is important for the computation
   // of the overlap-invariant metrics.
 
-  // First pass - compute the histograms
-  HistogramAccumType &thread_histogram = m_MIThreadData[threadId];
+  // Initialize the per-component histogram array
+  m_Histograms.resize(ncomp, Histogram(m_Bins));
 
-  // Iterate over the lines
-  for(; !iter.IsAtEnd(); iter.NextLine())
+  // Image-wide histogram accumulator
+  std::mutex hist_mutex;
+
+  // Use the new ITK5 code for parallelization. The result of this will be to compute the
+  // histogram of the entire image in hist_pooled
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+  mt->ParallelizeImageRegion<Self::ImageDimension>(
+        this->GetOutput()->GetBufferedRegion(),
+        [this,&ncomp,&hist_mutex](const OutputImageRegionType &region)
     {
-    // Iterate over the pixels in the line
-    for(; !iter.IsAtEndOfLine(); ++iter)
+    // This is the histogram accumulator local to this thread
+    HistogramAccumType hist_local(ncomp, vnl_matrix<RealType>(m_Bins, m_Bins, 0.0));
+
+    // This is the iterator for the image region
+    InterpType iter(this, this->GetMetricOutput(), region);
+
+    // Iterate over the lines
+    for(; !iter.IsAtEnd(); iter.NextLine())
       {
-      // Get the current histogram corners
-      if(iter.CheckFixedMask())
-        iter.PartialVolumeHistogramSample(thread_histogram);
+      // Iterate over the pixels in the line
+      for(; !iter.IsAtEndOfLine(); ++iter)
+        {
+        // Get the current histogram corners
+        if(iter.CheckFixedMask())
+          iter.PartialVolumeHistogramSample(hist_local);
+        }
       }
-    }
 
-  // Wait for all the threads to finish this computation
-  m_Barrier->Wait();
-
-  // Add up and process the histograms - use the first one as the target for storage
-  if(threadId == 0)
-    {
-    // Initialize the histograms per component
-    m_Histograms.clear();
-
-    // All procesing is separate for each component
+    // Use a mutex to update the combined histogram
+    std::lock_guard<std::mutex> guard(hist_mutex);
     for(int c = 0; c < ncomp; c++)
       {
-      // The histogram for this component
-      m_Histograms.push_back(Histogram(m_Bins));
-      Histogram &hc = m_Histograms.back();
+      // We only capture the non-outside histogram bin values
+      for (unsigned bf = 1; bf < m_Bins; bf++)
+        for(unsigned bm = 1; bm < m_Bins; bm++)
+          this->m_Histograms[c].Pfm(bf,bm) += hist_local[c](bf,bm);
+      }
+    }, nullptr);
 
-      // When computing the empirical joint probability, we will ignore outside values.
-      // We need multiple passes through the histogram to calculate the emprirical prob.
+  // All procesing is separate for each component
+  for(int c = 0; c < ncomp; c++)
+    {
+    // The histogram for this component
+    Histogram &hc = m_Histograms[c];
 
-      // First pass, add thread data and compute the sum of all non-outside histogram bin balues
-      double hist_sum = 0.0;
+    // When computing the empirical joint probability, we will ignore outside values.
+    // We need multiple passes through the histogram to calculate the emprirical prob.
+
+    // First pass, add thread data and compute the sum of all non-outside histogram bin balues
+    double hist_sum = 0.0;
+    for (unsigned bf = 1; bf < m_Bins; bf++)
+      for(unsigned bm = 1; bm < m_Bins; bm++)
+        hist_sum += hc.Pfm(bf,bm);
+
+    // Second pass, normalize the entries and compute marginals
+    for (unsigned bf = 1; bf < m_Bins; bf++)
+      {
+      for(unsigned bm = 1; bm < m_Bins; bm++)
+        {
+        // Reference to the joint probability entry
+        RealType &Pfm = hc.Pfm(bf,bm);
+
+        // Normalize to make a probability
+        Pfm /= hist_sum;
+
+        // Add up the marginals
+        hc.Pf[bf] += Pfm;
+        hc.Pm[bm] += Pfm;
+        }
+      }
+
+    // Third pass: compute the mutual information for this component and overall
+    auto &m_comp = this->m_AccumulatedData.comp_metric[c];
+    auto &m_total = this->m_AccumulatedData.metric;
+
+    // Compute the metric and gradient for this component using the emprical probabilities
+    if(this->m_ComputeNormalizedMutualInformation)
+      m_comp = NormalizedMutualInformationMetricFunction<RealType>::compute(
+            m_Bins, hc.Pfm, hc.Pf, hc.Pm, this->m_ComputeGradient ? &this->m_GradWeights[c] : NULL);
+    else
+      m_comp = StandardMutualInformationMetricFunction<RealType>::compute(
+            m_Bins, hc.Pfm, hc.Pf, hc.Pm, this->m_ComputeGradient ? &this->m_GradWeights[c] : NULL);
+
+    // Scale the gradient weights for this component
+    m_comp *= this->m_Weights[c];
+    if(this->m_ComputeGradient)
+      this->m_GradWeights[c] *= this->m_Weights[c];
+
+    m_total += m_comp;
+
+    if(this->m_ComputeGradient)
+      {
+      // The gradient is currently relative to emprical probabilities. Convert it to gradient
+      // in terms of the bin counts
+      double grad_weights_dot_Pfm = 0.0;
+
       for (unsigned bf = 1; bf < m_Bins; bf++)
         {
         for(unsigned bm = 1; bm < m_Bins; bm++)
           {
-          // Reference to the joint probability entry
-          RealType &Pfm = hc.Pfm(bf,bm);
-
-          // Add the entries from all threads
-          for (unsigned q = 0; q < this->GetNumberOfThreads(); q++)
-            Pfm += m_MIThreadData[q][c][bf][bm];
-
-          // Accumulate the sum of all entries
-          hist_sum += hc.Pfm(bf,bm);
+          double Pfm = hc.Pfm(bf, bm);
+          if(Pfm > 0)
+            grad_weights_dot_Pfm += m_GradWeights[c][bf][bm] * Pfm;
           }
         }
 
-      // Second pass, normalize the entries and compute marginals
       for (unsigned bf = 1; bf < m_Bins; bf++)
         {
         for(unsigned bm = 1; bm < m_Bins; bm++)
           {
-          // Reference to the joint probability entry
-          RealType &Pfm = hc.Pfm(bf,bm);
-
-          // Normalize to make a probability
-          Pfm /= hist_sum;
-
-          // Add up the marginals
-          hc.Pf[bf] += Pfm;
-          hc.Pm[bm] += Pfm;
-          }
-        }
-
-      // Third pass: compute the mutual information for this component and overall
-      double &m_comp = this->m_ThreadData[0].comp_metric[c];
-      double &m_total = this->m_ThreadData[0].metric;
-
-      // Compute the metric and gradient for this component using the emprical probabilities
-      if(this->m_ComputeNormalizedMutualInformation)
-        m_comp = NormalizedMutualInformationMetricFunction<RealType>::compute(
-              m_Bins, hc.Pfm, hc.Pf, hc.Pm, this->m_ComputeGradient ? &this->m_GradWeights[c] : NULL);
-      else
-        m_comp = StandardMutualInformationMetricFunction<RealType>::compute(
-              m_Bins, hc.Pfm, hc.Pf, hc.Pm, this->m_ComputeGradient ? &this->m_GradWeights[c] : NULL);
-
-      // Scale the gradient weights for this component 
-      m_comp *= this->m_Weights[c];
-      if(this->m_ComputeGradient)
-        this->m_GradWeights[c] *= this->m_Weights[c];
-
-      m_total += m_comp;
-
-      if(this->m_ComputeGradient)
-        {
-        // The gradient is currently relative to emprical probabilities. Convert it to gradient
-        // in terms of the bin counts
-        double grad_weights_dot_Pfm = 0.0;
-
-        for (unsigned bf = 1; bf < m_Bins; bf++)
-          {
-          for(unsigned bm = 1; bm < m_Bins; bm++)
-            {
-            double Pfm = hc.Pfm(bf, bm);
-            if(Pfm > 0)
-              grad_weights_dot_Pfm += m_GradWeights[c][bf][bm] * Pfm;
-            }
-          }
-
-        for (unsigned bf = 1; bf < m_Bins; bf++)
-          {
-          for(unsigned bm = 1; bm < m_Bins; bm++)
-            {
-            m_GradWeights[c][bf][bm] = (m_GradWeights[c][bf][bm] - grad_weights_dot_Pfm) / hist_sum;
-            }
-          }
-        }
-
-      } // loop over components
-
-    // The last thing is to set the normalizing constant to 1
-    this->m_ThreadData[0].mask = 1.0;
-
-    } // If thread_id = 0
-
-  // Wait for all threads
-  m_Barrier->Wait();
-
-  // At this point, we should be computing the gradient using the probability values computed above
-  if(this->m_ComputeGradient && !this->m_ComputeAffine)
-    {
-    GradientPixelType *grad_buffer = this->GetDeformationGradientOutput()->GetBufferPointer();
-
-    // Iterate one more time through the voxels
-    InterpType iter_g(this, this->GetMetricOutput(), outputRegionForThread);
-    for(; !iter_g.IsAtEnd(); iter_g.NextLine())
-      {
-      // Get the output gradient pointer at the beginning of this line
-      GradientPixelType *grad_line = iter_g.GetOffsetInPixels() + grad_buffer;
-
-      // Iterate over the pixels in the line
-      for(; !iter_g.IsAtEndOfLine(); ++iter_g, grad_line++)
-        {
-        if(iter_g.CheckFixedMask())
-          {
-          // Reference to the gradient pointer
-          GradientPixelType &grad_x = *grad_line;
-
-          // Get the current histogram corners
-          iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
+          m_GradWeights[c][bf][bm] = (m_GradWeights[c][bf][bm] - grad_weights_dot_Pfm) / hist_sum;
           }
         }
       }
-    }
 
-  else if(this->m_ComputeGradient && this->m_ComputeAffine)
+    } // loop over components
+
+  // The last thing is to set the normalizing constant to 1
+  this->m_AccumulatedData.mask = 1.0;
+
+  // The second threaded pass is used for gradient computation
+  mt->ParallelizeImageRegion<Self::ImageDimension>(
+        this->GetOutput()->GetBufferedRegion(),
+        [this,&ncomp,&hist_mutex](const OutputImageRegionType &region)
     {
-    GradientPixelType grad_x;
-    typename Superclass::ThreadData &tds = this->m_ThreadData[threadId];
-
-    int nvox = this->GetInput()->GetBufferedRegion().GetNumberOfPixels();
-
-    // Iterate one more time through the voxels
-    InterpType iter_g(this, this->GetMetricOutput(), outputRegionForThread);
-    for(; !iter_g.IsAtEnd(); iter_g.NextLine())
+    // At this point, we should be computing the gradient using the probability values computed above
+    if(this->m_ComputeGradient && !this->m_ComputeAffine)
       {
-      // Iterate over the pixels in the line
-      for(; !iter_g.IsAtEndOfLine(); ++iter_g)
-        {
-        if(iter_g.CheckFixedMask())
-          {
-          // Get the current histogram corners
-          iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
+      GradientPixelType *grad_buffer = this->GetDeformationGradientOutput()->GetBufferPointer();
 
-          // Add the gradient
-          for(int i = 0, q = 0; i < ImageDimension; i++)
+      // Iterate one more time through the voxels
+      InterpType iter_g(this, this->GetMetricOutput(), region);
+      for(; !iter_g.IsAtEnd(); iter_g.NextLine())
+        {
+        // Get the output gradient pointer at the beginning of this line
+        GradientPixelType *grad_line = iter_g.GetOffsetInPixels() + grad_buffer;
+
+        // Iterate over the pixels in the line
+        for(; !iter_g.IsAtEndOfLine(); ++iter_g, grad_line++)
+          {
+          if(iter_g.CheckFixedMask())
             {
-            // double v = grad_x[i] / nvox;
-            double v = grad_x[i];
-            tds.gradient[q++] += v;
-            for(int j = 0; j < ImageDimension; j++)
-              tds.gradient[q++] += v * iter_g.GetIndex()[j];
+            // Reference to the gradient pointer
+            GradientPixelType &grad_x = *grad_line;
+
+            // Get the current histogram corners
+            iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
             }
           }
         }
       }
-    }
+
+    else if(this->m_ComputeGradient && this->m_ComputeAffine)
+      {
+      GradientPixelType grad_x;
+
+      int nvox = this->GetInput()->GetBufferedRegion().GetNumberOfPixels();
+
+      // Keep track of our thread's gradient contribution
+      vnl_vector<double> grad_local(Superclass::ThreadAccumulatedData::GradientSize, 0.);
+
+      // Iterate one more time through the voxels
+      InterpType iter_g(this, this->GetMetricOutput(), region);
+      for(; !iter_g.IsAtEnd(); iter_g.NextLine())
+        {
+        // Iterate over the pixels in the line
+        for(; !iter_g.IsAtEndOfLine(); ++iter_g)
+          {
+          if(iter_g.CheckFixedMask())
+            {
+            // Get the current histogram corners
+            iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
+
+            // Add the gradient
+            for(int i = 0, q = 0; i < ImageDimension; i++)
+              {
+              // double v = grad_x[i] / nvox;
+              double v = grad_x[i];
+              grad_local[q++] += v;
+              for(int j = 0; j < ImageDimension; j++)
+                grad_local[q++] += v * iter_g.GetIndex()[j];
+              }
+            }
+          }
+        }
+
+      // Add the local gradient to the overall gradient
+      std::lock_guard<std::mutex> guard(this->m_AccumulatedData.mutex);
+      this->m_AccumulatedData.gradient += grad_local;
+      }
+    }, nullptr);
+
+  this->AfterThreadedGenerateData();
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -440,8 +422,6 @@ template <class TInputImage, class TOutputImage>
 MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
 ::MutualInformationPreprocessingFilter()
 {
-  m_Barrier = itk::Barrier::New();
-
   m_LowerQuantile = 0.0;
   m_UpperQuantile = 0.99;
 
@@ -463,24 +443,6 @@ void
 MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
 ::BeforeThreadedGenerateData()
 {
-  m_ThreadData.clear();
-  m_ThreadData.resize(this->GetNumberOfThreads());
-
-  // Code to determine the actual number of threads used below
-  itk::ThreadIdType nbOfThreads = this->GetNumberOfThreads();
-  if ( itk::MultiThreader::GetGlobalMaximumNumberOfThreads() != 0 )
-    {
-    nbOfThreads = vnl_math_min( this->GetNumberOfThreads(), itk::MultiThreader::GetGlobalMaximumNumberOfThreads() );
-    }
-
-  typename TOutputImage::RegionType splitRegion;  // dummy region - just to call
-                                                  // the following method
-  nbOfThreads = this->SplitRequestedRegion(0, nbOfThreads, splitRegion);
-
-
-  m_Barrier = itk::Barrier::New();
-  m_Barrier->Initialize(nbOfThreads);
-
   unsigned int ncomp = this->GetInput()->GetNumberOfComponentsPerPixel();
   m_LowerQuantileValues.resize(ncomp);
   m_UpperQuantileValues.resize(ncomp);
@@ -490,100 +452,99 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
 template <class TInputImage, class TOutputImage>
 void
 MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
-::ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread, itk::ThreadIdType threadId)
+::GenerateData()
 {
+  // Iterator typdef
+  typedef itk::ImageLinearConstIteratorWithIndex<InputImageType> IterBase;
+  typedef IteratorExtender<IterBase> Iterator;
+
   // Determine the size of the heap
   long total_pixels = this->GetInput()->GetBufferedRegion().GetNumberOfPixels();
   long heap_size_upper = 1 + (int)((1.0 - m_UpperQuantile) * total_pixels);
   long heap_size_lower = 1 + (int)(m_LowerQuantile * total_pixels);
-  long line_length = outputRegionForThread.GetSize(0);
 
-  // Thread data for this thread
-  ThreadData &td = m_ThreadData[threadId];
-
-  typedef itk::ImageLinearConstIteratorWithIndex<InputImageType> IterBase;
-  typedef IteratorExtender<IterBase> Iterator;
-
-  // Iterate over each component
   int ncomp = this->GetInput()->GetNumberOfComponentsPerPixel();
+
+  // Mutex for combining heaps
+  std::mutex heap_mutex;
+
+  // Repeat for each component
   for(int k = 0; k < ncomp; k++)
     {
-    // Initialize the two heaps
-    td.heap_lower = LowerHeap();
-    td.heap_upper = UpperHeap();
-    td.number_of_nans = 0l;
+    // Global heaps for the whole image for this component
+    ThreadData td;
 
-    // Build up the heaps
-    for(Iterator it(this->GetInput(), outputRegionForThread); !it.IsAtEnd(); it.NextLine())
+    // Use parallelization to compute the upper and lower heaps for each parallel region
+    itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+    mt->ParallelizeImageRegion<Self::ImageDimension>(
+          this->GetOutput()->GetBufferedRegion(),
+          [this,k,&td,heap_size_lower,heap_size_upper,ncomp,&heap_mutex](const OutputImageRegionType &region)
       {
-      // Get a pointer to the start of the line
-      const InputComponentType *line = it.GetPixelPointer(this->GetInput()) + k;
+      // Heaps for this region
+      ThreadData td_local;
+      long line_length = region.GetSize(0);
 
-      // Iterate over the line
-      for(int p = 0; p < line_length; p++, line+=ncomp)
+      // Iterate over the image to update the heaps
+      for(Iterator it(this->GetInput(), region); !it.IsAtEnd(); it.NextLine())
         {
-        InputComponentType v = *line;
-        if(!isnan(v))
+        // Get a pointer to the start of the line
+        const InputComponentType *line = it.GetPixelPointer(this->GetInput()) + k;
+
+        // Iterate over the line
+        for(int p = 0; p < line_length; p++, line+=ncomp)
           {
-          heap_lower_push(td.heap_lower, heap_size_lower, v);
-          heap_upper_push(td.heap_upper, heap_size_upper, v);
-          }
-        else
-          {
-          td.number_of_nans++;
+          InputComponentType v = *line;
+          if(!isnan(v))
+            {
+            heap_lower_push(td_local.heap_lower, heap_size_lower, v);
+            heap_upper_push(td_local.heap_upper, heap_size_upper, v);
+            }
+          else
+            {
+            td_local.number_of_nans++;
+            }
           }
         }
-      }
 
-    // Wait for the threads to synchronize
-    m_Barrier->Wait();
+      // Use mutex to update the global heaps
+      std::lock_guard<std::mutex> guard(heap_mutex);
 
-    // The main thread combines all the priority queues
-    // TODO: when computing quantiles, account for presence of NaNs, which affects
-    // the size of the heap
-    if(threadId == 0)
-      {
-      // Combine the priority queues
-      for(unsigned q = 1; q < this->GetNumberOfThreads(); q++)
+      // We can now write safely to td
+      while(!td_local.heap_lower.empty())
         {
-        ThreadData &tdq = m_ThreadData[q];
-        while(!tdq.heap_lower.empty())
-          {
-          InputComponentType v = tdq.heap_lower.top();
-          heap_lower_push(td.heap_lower, heap_size_lower, v);
-          tdq.heap_lower.pop();
-          }
-
-        while(!tdq.heap_upper.empty())
-          {
-          InputComponentType v = tdq.heap_upper.top();
-          heap_upper_push(td.heap_upper, heap_size_upper, v);
-          tdq.heap_upper.pop();
-          }
-        
-        td.number_of_nans += tdq.number_of_nans;
+        InputComponentType v = td_local.heap_lower.top();
+        heap_lower_push(td.heap_lower, heap_size_lower, v);
+        td_local.heap_lower.pop();
         }
+
+      while(!td_local.heap_upper.empty())
+        {
+        InputComponentType v = td_local.heap_upper.top();
+        heap_upper_push(td.heap_upper, heap_size_upper, v);
+        td_local.heap_upper.pop();
+        }
+
+      td.number_of_nans += td_local.number_of_nans;
+    }, nullptr);
+
+    // At this point, a combined heap has been generated
+
+    // Update the heap size based on the number of nans
+    long nonnan_pixels = total_pixels - td.number_of_nans;
+    long heap_size_upper_upd = 1 + (int)((1.0 - m_UpperQuantile) * nonnan_pixels);
+    long heap_size_lower_upd = 1 + (int)(m_LowerQuantile * nonnan_pixels);
       
-      // Update the heap size based on the number of nans
-      long nonnan_pixels = total_pixels - td.number_of_nans;
-      long heap_size_upper_upd = 1 + (int)((1.0 - m_UpperQuantile) * nonnan_pixels);
-      long heap_size_lower_upd = 1 + (int)(m_LowerQuantile * nonnan_pixels);
-      
-      // Pop until the heap is the right size
-      while(td.heap_upper.size() > heap_size_upper_upd)
-        td.heap_upper.pop();
+    // Pop until the heap is the right size
+    while(td.heap_upper.size() > heap_size_upper_upd)
+      td.heap_upper.pop();
 
-      while(td.heap_lower.size() > heap_size_lower_upd)
-        td.heap_lower.pop();
+    while(td.heap_lower.size() > heap_size_lower_upd)
+      td.heap_lower.pop();
 
-      // Get the quantile values
-      m_UpperQuantileValues[k] = td.heap_upper.top();
-      m_LowerQuantileValues[k] = td.heap_lower.top();
-      m_NumberOfNaNs[k] = td.number_of_nans;
-      }
-
-    // Wait for all threads to catch up
-    m_Barrier->Wait();
+    // Get the quantile values
+    m_UpperQuantileValues[k] = td.heap_upper.top();
+    m_LowerQuantileValues[k] = td.heap_lower.top();
+    m_NumberOfNaNs[k] = td.number_of_nans;
 
     // Continue if no remapping requested
     if(m_NoRemapping)
@@ -596,25 +557,32 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
     double scale = (m_Bins - start_bin) * 1.0 / (m_UpperQuantileValues[k] - m_LowerQuantileValues[k]);
     double shift = m_LowerQuantileValues[k] * scale - start_bin;
 
-    // Now each thread remaps the intensities into the quantile range
-    for(Iterator it(this->GetInput(), outputRegionForThread); !it.IsAtEnd(); it.NextLine())
+    // Perform remapping on the image in parallel
+    mt->ParallelizeImageRegion<Self::ImageDimension>(
+          this->GetOutput()->GetBufferedRegion(),
+          [this,k,scale,shift,start_bin,ncomp](const OutputImageRegionType &region)
       {
-      // Get a pointer to the start of the line
-      const InputComponentType *line = it.GetPixelPointer(this->GetInput()) + k;
-      OutputComponentType *out_line = it.GetPixelPointer(this->GetOutput()) + k;
-
-      // Iterate over the line
-      for(int p = 0; p < line_length; p++, line+=ncomp, out_line+=ncomp)
+      // Now each thread remaps the intensities into the quantile range
+      for(Iterator it(this->GetInput(), region); !it.IsAtEnd(); it.NextLine())
         {
-        unsigned bin = (int) (*line * scale - shift);
-        if(bin < start_bin)
-          *out_line = start_bin;
-        else if(bin >= m_Bins)
-          *out_line = m_Bins - 1;
-        else
-          *out_line = bin;
+        // Get a pointer to the start of the line
+        const InputComponentType *line = it.GetPixelPointer(this->GetInput()) + k;
+        OutputComponentType *out_line = it.GetPixelPointer(this->GetOutput()) + k;
+
+        // Iterate over the line
+        long line_length = region.GetSize(0);
+        for(int p = 0; p < line_length; p++, line+=ncomp, out_line+=ncomp)
+          {
+          unsigned bin = (int) (*line * scale - shift);
+          if(bin < start_bin)
+            *out_line = start_bin;
+          else if(bin >= m_Bins)
+            *out_line = m_Bins - 1;
+          else
+            *out_line = bin;
+          }
         }
-      }
+      }, nullptr);
     } // loop over components
 }
 

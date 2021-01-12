@@ -120,8 +120,7 @@ public:
 template <class TInputImage, class TOutputImage>
 void
 JacobianDeterminantImageFilter<TInputImage,TOutputImage>
-::ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread,
-                       itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread)
 {
   // Create an interpolator for the warp field
   typedef FastLinearInterpolator<InputImageType, double, ImageDimension> FastInterpolator;

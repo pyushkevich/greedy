@@ -28,7 +28,6 @@
 #define MULTICOMPONENTNCCIMAGEMETRIC_H
 
 #include "MultiComponentImageMetricBase.h"
-#include "itkBarrier.h"
 
 /**
  * Normalized cross-correlation metric. This filter sets up a mini-pipeline with
@@ -131,8 +130,7 @@ protected:
   // virtual void GenerateInputRequestedRegion();
 
   virtual void BeforeThreadedGenerateData() ITK_OVERRIDE;
-  virtual void ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread,
-                                    itk::ThreadIdType threadId) ITK_OVERRIDE;
+  virtual void DynamicThreadedGenerateData(const OutputImageRegionType &outputRegionForThread) ITK_OVERRIDE;
 
 private:
   MultiComponentNCCImageMetric(const Self&); //purposely not implemented
@@ -226,17 +224,13 @@ protected:
   MultiImageNCCPrecomputeFilter();
   ~MultiImageNCCPrecomputeFilter() {}
 
-  /** SimpleWarpImageFilter is implemented as a multi-threaded filter.
-   * As such, it needs to provide and implementation for
-   * ThreadedGenerateData(). */
-  virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                            itk::ThreadIdType threadId ) ITK_OVERRIDE;
+  virtual void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
 
   /** Set up the output information */
   virtual void GenerateOutputInformation() ITK_OVERRIDE;
 
   /** Override input checks to allow fixed and moving to be in different space */
-  virtual void VerifyInputInformation() ITK_OVERRIDE {}
+  virtual void VerifyInputInformation() const ITK_OVERRIDE {}
 
 private:
   MultiImageNCCPrecomputeFilter(const Self&); //purposely not implemented

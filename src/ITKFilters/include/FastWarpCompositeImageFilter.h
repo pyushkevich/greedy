@@ -124,10 +124,9 @@ protected:
 
   ~FastWarpCompositeImageFilter() {}
 
-  void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                            itk::ThreadIdType threadId ) ITK_OVERRIDE;
+  void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
 
-  virtual void VerifyInputInformation() ITK_OVERRIDE {}
+  virtual void VerifyInputInformation() const ITK_OVERRIDE {}
 
   virtual void GenerateInputRequestedRegion() ITK_OVERRIDE;
 

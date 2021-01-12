@@ -203,7 +203,7 @@ protected:
   // will be unknown.
   template <class TImage>
   itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename,
-                                              itk::ImageIOBase::IOComponentType *comp_type = NULL);
+                                              itk::IOComponentEnum *comp_type = NULL);
 
   template<class TObject> TObject *CheckCache(const std::string &filename) const;
 
@@ -215,7 +215,7 @@ protected:
   // Write an image using the cache
   template <class TImage>
   void WriteImageViaCache(TImage *img, const std::string &filename,
-                          typename LDDMMType::IOComponentType comp = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE);
+                          itk::IOComponentEnum comp = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE);
 
   // Write a compressed warp via cache (in float format)
   void WriteCompressedWarpInPhysicalSpaceViaCache(

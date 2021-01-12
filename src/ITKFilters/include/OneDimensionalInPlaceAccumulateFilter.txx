@@ -71,18 +71,16 @@ public:
   typedef OneDimensionalInPlaceAccumulateFilter<TInputImage> FilterType;
   typedef typename FilterType::OutputImageRegionType OutputImageRegionType;
   typedef typename FilterType::InputImageType InputImageType;
-  static void ThreadedGenerateData(FilterType *filter,
-                                   const OutputImageRegionType & outputRegionForThread,
-                                   itk::ThreadIdType threadId);
+  static void DynamicThreadedGenerateData(FilterType *filter,
+                                          const OutputImageRegionType & outputRegionForThread);
 };
 
 
 template <class TPixel, class TInputImage>
 void
 OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
-::ThreadedGenerateData(FilterType *filter,
-                       const OutputImageRegionType & outputRegionForThread,
-                       itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(FilterType *filter,
+                              const OutputImageRegionType & outputRegionForThread)
 {
   // Get filter parameters
   int radius = filter->GetRadius();
@@ -355,17 +353,15 @@ public:
   typedef OneDimensionalInPlaceAccumulateFilter<TInputImage> FilterType;
   typedef typename FilterType::OutputImageRegionType OutputImageRegionType;
   typedef typename FilterType::InputImageType InputImageType;
-  static void ThreadedGenerateData(FilterType *filter,
-                                   const OutputImageRegionType & outputRegionForThread,
-                                   itk::ThreadIdType threadId);
+  static void DynamicThreadedGenerateData(FilterType *filter,
+                                          const OutputImageRegionType & outputRegionForThread);
 };
 
 template <class TInputImage>
 void
 OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
-::ThreadedGenerateData(FilterType *filter,
-                       const OutputImageRegionType & outputRegionForThread,
-                       itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(FilterType *filter,
+                              const OutputImageRegionType & outputRegionForThread)
 {
   // Get filter parameters
   int dimension = filter->GetDimension();
@@ -559,12 +555,10 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
 template <class TInputImage>
 void
 OneDimensionalInPlaceAccumulateFilter<TInputImage>
-::ThreadedGenerateData(
-    const OutputImageRegionType & outputRegionForThread,
-    itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread)
 {
   typedef OneDimensionalInPlaceAccumulateFilterWorker<OutputImageComponentType, InputImageType> WorkerType;
-  WorkerType::ThreadedGenerateData(this, outputRegionForThread, threadId);
+  WorkerType::DynamicThreadedGenerateData(this, outputRegionForThread);
 }
 
 

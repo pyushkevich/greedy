@@ -26,9 +26,7 @@
 =========================================================================*/
 #include "lddmm_data.h"
 #include "itkImageRegionIterator.h"
-#include "SimpleWarpImageFilter.h"
 #include "itkNumericTraitsCovariantVectorPixel.h"
-#include "itkOptVectorLinearInterpolateImageFunction.h"
 #include "itkLinearInterpolateImageFunction.h"
 #include "itkAddImageFilter.h"
 #include "itkSubtractImageFilter.h"
@@ -45,7 +43,6 @@
 #include "itkMinimumMaximumImageFilter.h"
 #include "itkShrinkImageFilter.h"
 #include "itkResampleImageFilter.h"
-#include "itkVectorResampleImageFilter.h"
 #include "itkNearestNeighborInterpolateImageFunction.h"
 #include "itkVectorNearestNeighborInterpolateImageFunction.h"
 #include "itkBinaryThresholdImageFilter.h"
@@ -334,33 +331,6 @@ LDDMMData<TFloat, VDim>
   wf->SetUsePhysicalSpace(phys_space);
   wf->SetOutsideValue(outside_value);
   wf->Update();
-
-/*
-  // Create a warp filter
-  typedef itk::SimpleWarpImageFilter<
-    ImageType, ImageType, VectorImageType, TFloat> WarpFilterType;
-  typename WarpFilterType::Pointer flt = WarpFilterType::New();
-
-  // Create an interpolation function
-  typedef itk::LinearInterpolateImageFunction<ImageType, TFloat> InterpType;
-  typedef itk::NearestNeighborInterpolateImageFunction<ImageType, TFloat> NNInterpType;
-
-  typename InterpType::Pointer func = InterpType::New();
-  typename NNInterpType::Pointer funcNN = NNInterpType::New();
-
-  // Graft output of the warp filter
-  flt->GraftOutput(out);
-
-  // Set inputs
-  flt->SetInput(data);
-  if(use_nn)
-    flt->SetInterpolator(funcNN);
-  else
-    flt->SetInterpolator(func);
-  flt->SetDeformationField(field);
-  flt->SetDeformationScaling(1.0);
-  flt->Update();
-  */
 }
 
 template <class TFloat, uint VDim>
@@ -554,7 +524,7 @@ LDDMMData<TFloat, VDim>
 
   Functor func(thresh);
   flt->SetFunctor(func);
-  flt->SetInput(trg);
+  flt->SetInput(src);
   flt->GraftOutput(trg);
   flt->Update();
 }
@@ -592,7 +562,7 @@ LDDMMData<TFloat, VDim>
 
   Functor func(thresh);
   flt->SetFunctor(func);
-  flt->SetInput(trg);
+  flt->SetInput(src);
   flt->GraftOutput(trg);
   flt->Update();
 }
@@ -733,10 +703,10 @@ public:
     return dp;
     }
 
-  bool operator== (const VectorDotProduct<TFloat, VDim> &other)
+  bool operator== (const VectorDotProduct<TFloat, VDim> &)
     { return true; }
 
-  bool operator!= (const VectorDotProduct<TFloat, VDim> &other)
+  bool operator!= (const VectorDotProduct<TFloat, VDim> &)
     { return false; }
 };
 
@@ -845,7 +815,7 @@ void
 LDDMMData<TFloat, VDim>
 ::field_jacobian(VectorImageType *vec, MatrixImageType *out)
 {
-  for(int a = 0; a < VDim; a++)
+  for(unsigned int a = 0; a < VDim; a++)
     {
     // Extract the a'th component of the displacement field
     typedef itk::VectorIndexSelectionCastImageFilter<VectorImageType, ImageType> CompFilterType;
@@ -889,7 +859,7 @@ LDDMMData<TFloat, VDim>
   div_v->FillBuffer(0.0);
 
   // Add each component
-  for(int a = 0; a < VDim; a++)
+  for(unsigned int a = 0; a < VDim; a++)
     {
     // Extract the a'th component of the displacement field
     typedef itk::VectorIndexSelectionCastImageFilter<VectorImageType, ImageType> CompFilterType;
@@ -928,7 +898,7 @@ public:
     return Dw;
     }
 
-  bool operator != (const JacobianCompisitionFunctor<TFloat, VDim> &other) {return false; }
+  bool operator != (const JacobianCompisitionFunctor<TFloat, VDim> &) { return false; }
 };
 
 
@@ -1081,12 +1051,6 @@ LDDMMData<TFloat, VDim>
   fltLieBracket->SetFieldV(u);
   fltLieBracket->GraftOutput(alt);
   fltLieBracket->Update();
-
-  itk::Index<VDim> idx_probe; for(int a = 0; a < VDim; a++) idx_probe[a] = out->GetBufferedRegion().GetSize()[a] / 2;
-  Vec test1 = out->GetPixel(idx_probe);
-  Vec test2 = alt->GetPixel(idx_probe);
-  std::cout << "test1 = " << test1 << "   and   test2 = " << test2 << std::endl;
-  return;
 }
 
 
@@ -1312,38 +1276,38 @@ struct image_type_cast< itk::VectorImage<TPixel, VDim>, TOutputComponent>
 
 template <class TInputImage>
 void write_cast_to_iocomp(TInputImage *image, const char *filename,
-                          itk::ImageIOBase::IOComponentType comp)
+                          itk::IOComponentEnum comp)
 {
   switch(comp)
     {
-    case itk::ImageIOBase::UCHAR :
+    case itk::IOComponentEnum::UCHAR :
       write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned char>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::CHAR :
+    case itk::IOComponentEnum::CHAR :
       write_cast<TInputImage, typename image_type_cast<TInputImage, char>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::USHORT :
+    case itk::IOComponentEnum::USHORT :
       write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned short>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::SHORT :
+    case itk::IOComponentEnum::SHORT :
       write_cast<TInputImage, typename image_type_cast<TInputImage, short>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::UINT :
+    case itk::IOComponentEnum::UINT :
       write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned int>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::INT :
+    case itk::IOComponentEnum::INT :
       write_cast<TInputImage, typename image_type_cast<TInputImage, int>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::ULONG :
+    case itk::IOComponentEnum::ULONG :
       write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned long>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::LONG :
+    case itk::IOComponentEnum::LONG :
       write_cast<TInputImage, typename image_type_cast<TInputImage, long>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::FLOAT :
+    case itk::IOComponentEnum::FLOAT :
       write_cast<TInputImage, typename image_type_cast<TInputImage, float>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::DOUBLE :
+    case itk::IOComponentEnum::DOUBLE :
       write_cast<TInputImage, typename image_type_cast<TInputImage, double>::OutputImageType>(image, filename);
       break;
     default:
@@ -1660,8 +1624,8 @@ LDDMMData<TFloat, VDim>
 
   // Compute the size of the new image
   typename ImageType::SizeType sz;
-  for(int i = 0; i < VDim; i++)
-    sz[i] = (unsigned long) vcl_ceil(src->GetBufferedRegion().GetSize()[i] / factor);
+  for(unsigned int i = 0; i < VDim; i++)
+    sz[i] = (unsigned long) std::ceil(src->GetBufferedRegion().GetSize()[i] / factor);
 
   // Compute the spacing of the new image
   typename ImageType::SpacingType spc_pre = src->GetSpacing();
@@ -1686,7 +1650,6 @@ LDDMMData<TFloat, VDim>
   trg->Allocate();
   
   fltSmooth->Update();
-  auto *smooth = fltSmooth->GetOutput();
 
   // Set the image sizes and spacing.
   filter->SetSize(sz);
@@ -1706,9 +1669,9 @@ void
 LDDMMData<TFloat, VDim>
 ::vimg_resample_identity(VectorImageType *src, ImageBaseType *ref, VectorImageType *trg)
 {
-  typedef itk::VectorResampleImageFilter<VectorImageType, VectorImageType, TFloat> ResampleFilter;
+  typedef itk::ResampleImageFilter<VectorImageType, VectorImageType, TFloat> ResampleFilter;
   typedef itk::IdentityTransform<TFloat, VDim> TranType;
-  typedef itk::OptVectorLinearInterpolateImageFunction<VectorImageType, TFloat> InterpType;
+  typedef itk::LinearInterpolateImageFunction<VectorImageType, TFloat> InterpType;
 
   typename ResampleFilter::Pointer filter = ResampleFilter::New();
   typename TranType::Pointer tran = TranType::New();

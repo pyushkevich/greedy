@@ -238,7 +238,7 @@ public:
   static void warp_voxel_to_physical(VectorImageType *src, ImageBaseType *ref_space, VectorImageType *trg);
   
   // Some IO methods
-  typedef itk::ImageIOBase::IOComponentType IOComponentType;
+  typedef itk::ImageIOBase::IOComponentEnum IOComponentType;
 
   static IOComponentType img_read(const char *fn, ImagePointer &trg);
   static IOComponentType vimg_read(const char *fn, VectorImagePointer &trg);
@@ -250,15 +250,15 @@ public:
 
   // Write scalar image, with optional output format specification
   static void img_write(ImageType *src, const char *fn,
-                        IOComponentType comp = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE);
+                        IOComponentType comp = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE);
 
   // Write vector image, with optional output format specification
   static void vimg_write(VectorImageType *src, const char *fn,
-                         IOComponentType comp = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE);
+                         IOComponentType comp = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE);
 
   // Write composite image, with optional output format specification
   static void cimg_write(CompositeImageType *src, const char *fn,
-                         IOComponentType comp = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE);
+                         IOComponentType comp = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE);
 
   static void vfield_read(uint nt, const char *fnpat, VelocityField &v);
 

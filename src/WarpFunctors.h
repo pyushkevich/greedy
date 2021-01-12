@@ -54,8 +54,7 @@ protected:
   UnaryPositionBasedFunctorImageFilter() {}
   ~UnaryPositionBasedFunctorImageFilter() {}
 
-  virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                                    itk::ThreadIdType threadId) ITK_OVERRIDE 
+  virtual void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE
   {
     typedef itk::ImageRegionConstIteratorWithIndex<TInputImage> InputIter;
     InputIter it_in(this->GetInput(), outputRegionForThread);

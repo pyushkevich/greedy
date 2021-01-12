@@ -29,7 +29,6 @@
 #define MAHALANOBISDISTANCETOTARGETWARPMETRIC_H
 
 #include "MultiComponentImageMetricBase.h"
-#include "itkBarrier.h"
 #include <queue>
 #include <vector>
 #include <functional>
@@ -118,8 +117,7 @@ public:
 
 protected:
 
-  virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                                    itk::ThreadIdType threadId ) ITK_OVERRIDE;
+  virtual void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
 
 protected:
   MahalanobisDistanceToTargetWarpMetric() {}

@@ -101,12 +101,12 @@ GetImageCenterinNiftiSpace(itk::ImageBase<VDim> *image)
   itk::ImageRegion<VDim> r = image->GetBufferedRegion();
   itk::ContinuousIndex<double, VDim> idx;
   itk::Point<double, VDim> ctr;
-  for(int d = 0; d < VDim; d++)
+  for(unsigned int d = 0; d < VDim; d++)
     idx[d] = r.GetIndex()[d] + r.GetSize()[d] * 0.5;
   image->TransformContinuousIndexToPhysicalPoint(idx, ctr);
 
   // Map to RAS (flip first two coordinates)
-  for(int d = 0; d < 2 && d < VDim; d++)
+  for(unsigned int d = 0; d < 2 && d < VDim; d++)
     ctr[d] = -ctr[d];
 
   return ctr.GetVnlVector();
@@ -213,7 +213,7 @@ GreedyApproach<VDim, TReal>
     }
   else if(ts.exponent == -1.0)
     {
-    return vnl_matrix_inverse<double>(Qp);
+    return vnl_matrix_inverse<double>(Qp).as_matrix();
     }
   else
     {
@@ -344,7 +344,7 @@ template <class TImage>
 itk::SmartPointer<TImage>
 GreedyApproach<VDim, TReal>
 ::ReadImageViaCache(const std::string &filename,
-                    itk::ImageIOBase::IOComponentType *comp_type)
+                    itk::IOComponentEnum *comp_type)
 {
   // Check the cache for the presence of the image
   typename ImageCache::const_iterator it = m_ImageCache.find(filename);
@@ -359,7 +359,7 @@ GreedyApproach<VDim, TReal>
 
     // The component type is unknown here
     if(comp_type)
-      *comp_type = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE;
+      *comp_type = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE;
 
     return pointer;
     }
@@ -392,7 +392,7 @@ GreedyApproach<VDim, TReal>
     return dynamic_cast<TObject *>(cached_object);
     }
 
-  return NULL;
+  return nullptr;
 }
 
 template <unsigned int VDim, typename TReal>
@@ -427,7 +427,7 @@ template <unsigned int VDim, typename TReal>
 template <class TImage>
 void
 GreedyApproach<VDim, TReal>
-::WriteImageViaCache(TImage *img, const std::string &filename, typename LDDMMType::IOComponentType comp)
+::WriteImageViaCache(TImage *img, const std::string &filename, itk::IOComponentEnum comp)
 {
   typename ImageCache::const_iterator it = m_ImageCache.find(filename);
   if(it != m_ImageCache.end())
@@ -509,17 +509,17 @@ void GreedyApproach<VDim, TReal>
   VectorImagePointer moving_pre_warp;
 
   // Keep a pointer to the fixed image space
-  typename OFHelperType::ImageBaseType *ref_space = NULL;
+  typename OFHelperType::ImageBaseType *ref_space = nullptr;
 
   // Read the input images and stick them into an image array
-  for(int i = 0; i < param.inputs.size(); i++)
+  for(unsigned int i = 0; i < param.inputs.size(); i++)
     {
     // Read fixed and moving images
     CompositeImagePointer imgFix = ReadImageViaCache<CompositeImageType>(param.inputs[i].fixed);
     CompositeImagePointer imgMov = ReadImageViaCache<CompositeImageType>(param.inputs[i].moving);
 
     // Store the fixed image and/or check it
-    if(ref_space == NULL)
+    if(ref_space == nullptr)
       ref_space = imgFix;
 
     // Read the pre-warps (only once)
@@ -630,15 +630,15 @@ GreedyApproach<VDim, TReal>
   itk_matrix_to_vnl_matrix(tran->GetMatrix(), A);
   itk_vector_to_vnl_vector(tran->GetOffset(), b);
 
-  Q = T_mov * A * vnl_matrix_inverse<double>(T_fix);
+  Q = T_mov * A * vnl_matrix_inverse<double>(T_fix).as_matrix();
   p = T_mov * b + s_mov - Q * s_fix;
 
   vnl_matrix<double> Qp(VDim+1, VDim+1);
   Qp.set_identity();
-  for(int i = 0; i < VDim; i++)
+  for(unsigned int i = 0; i < VDim; i++)
     {
     Qp(i, VDim) = p(i);
-    for(int j = 0; j < VDim; j++)
+    for(unsigned int j = 0; j < VDim; j++)
       Qp(i,j) = Q(i,j);
     }
 
@@ -660,10 +660,10 @@ GreedyApproach<VDim, TReal>
   GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetReferenceSpace(level), T_fix, s_fix);
   GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetMovingReferenceSpace(level), T_mov, s_mov);
 
-  for(int i = 0; i < VDim; i++)
+  for(unsigned int i = 0; i < VDim; i++)
     {
     p(i) = Qp(i, VDim);
-    for(int j = 0; j < VDim; j++)
+    for(unsigned int j = 0; j < VDim; j++)
       Q(i,j) = Qp(i,j);
     }
 
@@ -860,7 +860,7 @@ int GreedyApproach<VDim, TReal>
         // if fixed and moving are in different orientations? Or am I crazy?
 
         // Compute the transform that takes fixed into moving
-        for(int d = 0; d < VDim; d++)
+        for(unsigned int d = 0; d < VDim; d++)
           Qp(d, VDim) = cmov[d] - cfix[d];
 
         // Map this to voxel space
@@ -940,7 +940,7 @@ int GreedyApproach<VDim, TReal>
 
           // Create the physical space matrix corresponding to random search point
           vnl_matrix<double> Qp_rand(VDim+1, VDim+1); Qp_rand.set_identity();
-          Qp_rand.update(RF);
+          Qp_rand.update(RF.as_matrix());
           for(unsigned int a = 0; a < VDim; a++)
             Qp_rand(a,VDim) = b_RF[a];
 
@@ -1254,7 +1254,7 @@ int GreedyApproach<VDim, TReal>
   ReadImages(param, of_helper);
 
   // An image pointer desribing the current estimate of the deformation
-  VectorImagePointer uLevel = NULL;
+  VectorImagePointer uLevel = nullptr;
 
   // The number of resolution levels
   unsigned nlevels = param.iter_per_level.size();
@@ -1310,10 +1310,10 @@ int GreedyApproach<VDim, TReal>
     typename MatrixImageType::Pointer work_mat = MatrixImageType::New();
 
     // Sparse solver for incompressibility mode
-    void *incompressibility_solver = NULL;
+    void *incompressibility_solver = nullptr;
 
     // Mask used for incompressibility purposes
-    ImagePointer incompressibility_mask = NULL;
+    ImagePointer incompressibility_mask = nullptr;
 
     // Allocate the intermediate data
     LDDMMType::alloc_vimg(uk, refspace);
@@ -1399,7 +1399,7 @@ int GreedyApproach<VDim, TReal>
       }
 
     // Iterate for this level
-    for(unsigned int iter = 0; iter < param.iter_per_level[level]; iter++)
+    for(int iter = 0; iter < param.iter_per_level[level]; iter++)
       {
       // Start the iteration timer
       tm_Iteration.Start();
@@ -1718,7 +1718,7 @@ void GreedyApproach<VDim, TReal>
   filter->Update();
 
   // Write the resulting image via cache
-  WriteImageViaCache(filter->GetOutput(), filename, itk::ImageIOBase::FLOAT);
+  WriteImageViaCache(filter->GetOutput(), filename, itk::IOComponentEnum::FLOAT);
 }
 
 
@@ -1747,7 +1747,7 @@ int GreedyApproach<VDim, TReal>
   ReadImages(param, of_helper);
 
   // An image pointer desribing the current estimate of the deformation
-  VectorImagePointer uLevel = NULL;
+  VectorImagePointer uLevel = nullptr;
 
   // Reference space
   ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
@@ -1909,14 +1909,14 @@ int GreedyApproach<VDim, TReal>
   dummy_nbr.SetRadius(search_rad);
 
   // Iterate over all offsets
-  for(int k = 0; k < dummy_nbr.Size(); k++)
+  for(unsigned int k = 0; k < dummy_nbr.Size(); k++)
     {
     // Get the offset corresponding to this iteration
     itk::Offset<VDim> offset = dummy_nbr.GetOffset(k);
 
     // Fill the deformation field with this offset
     typename LDDMMType::Vec vec_offset;
-    for(int i = 0; i < VDim; i++)
+    for(unsigned int i = 0; i < VDim; i++)
       vec_offset[i] = offset[i];
     u_curr->FillBuffer(vec_offset);
 
@@ -1969,13 +1969,13 @@ void GreedyApproach<VDim, TReal>
   LDDMMType::alloc_vimg(out_warp, ref_space);
 
   // Read the sequence of transforms
-  for(int i = 0; i < tran_chain.size(); i++)
+  for(unsigned int i = 0; i < tran_chain.size(); i++)
     {
     // Read the next parameter
     std::string tran = tran_chain[i].filename;
 
     // Determine if it's an affine transform
-    if(CheckCache<VectorImageType>(tran) || itk::ImageIOFactory::CreateImageIO(tran.c_str(), itk::ImageIOFactory::ReadMode))
+    if(CheckCache<VectorImageType>(tran) || itk::ImageIOFactory::CreateImageIO(tran.c_str(), itk::IOFileModeEnum::ReadMode))
       {
       // Create a temporary warp
       VectorImagePointer warp_tmp = LDDMMType::new_vimg(ref_space);
@@ -2028,7 +2028,7 @@ void GreedyApproach<VDim, TReal>
         out_warp->TransformIndexToPhysicalPoint(idx, pt);
 
         // Add the displacement (in DICOM coordinates) and
-        for(int i = 0; i < VDim; i++)
+        for(unsigned int i = 0; i < VDim; i++)
           pt2[i] = pt[i] + it.Value()[i];
 
         // Switch to NIFTI coordinates
@@ -2039,7 +2039,7 @@ void GreedyApproach<VDim, TReal>
         q[0] = -q[0]; q[1] = -q[1];
 
         // Compute the difference in DICOM space
-        for(int i = 0; i < VDim; i++)
+        for(unsigned int i = 0; i < VDim; i++)
           it.Value()[i] = q[i] - pt[i];
         }
       }
@@ -2096,8 +2096,8 @@ protected:
 template <unsigned int VDim, typename TArray>
 class PhysicalCoordinateTransform
 {
-  static void ras_to_lps(const TArray &src, TArray &trg) {}
-  static void lps_to_ras(const TArray &src, TArray &trg) {}
+  static void ras_to_lps(const TArray &, TArray &) {}
+  static void lps_to_ras(const TArray &, TArray &) {}
 };
 
 template <typename TArray>
@@ -2203,7 +2203,7 @@ public:
     m_ReferenceSpace->TransformPhysicalPointToContinuousIndex(x_lps, cix);
     m_Interpolator->Interpolate(cix.GetDataPointer(), &vec);
 
-    for(int d = 0; d < VDim; d++)
+    for(unsigned int d = 0; d < VDim; d++)
       {
       phi_x[d] = vec[d] + x_lps[d];
       }
@@ -2216,7 +2216,7 @@ public:
 
 protected:
 
-  WarpMeshTransformFunctor() { m_Interpolator = NULL; }
+  WarpMeshTransformFunctor() { m_Interpolator = nullptr; }
   ~WarpMeshTransformFunctor()
   {
     if(m_Interpolator)
@@ -2291,7 +2291,7 @@ int GreedyApproach<VDim, TReal>
   LDDMMType::mimg_det(jac, 1.0, jac_det);
 
   // Write the computed Jacobian
-  LDDMMType::img_write(jac_det, param.jacobian_param.out_det_jac.c_str(), itk::ImageIOBase::FLOAT);
+  LDDMMType::img_write(jac_det, param.jacobian_param.out_det_jac.c_str(), itk::IOComponentEnum::FLOAT);
   return 0;
 }
 
@@ -2335,7 +2335,7 @@ int GreedyApproach<VDim, TReal>
   // Write the composite warp if requested
   if(r_param.out_composed_warp.size())
     {
-    WriteImageViaCache(warp.GetPointer(), r_param.out_composed_warp.c_str(), itk::ImageIOBase::FLOAT);
+    WriteImageViaCache(warp.GetPointer(), r_param.out_composed_warp.c_str(), itk::IOComponentEnum::FLOAT);
     }
 
   // Compute the Jacobian of the warp if requested
@@ -2345,12 +2345,12 @@ int GreedyApproach<VDim, TReal>
     LDDMMType::alloc_img(iTemp, warp);
     LDDMMType::field_jacobian_det(warp, iTemp);
 
-    WriteImageViaCache(iTemp.GetPointer(), r_param.out_jacobian_image.c_str(), itk::ImageIOBase::FLOAT);
+    WriteImageViaCache(iTemp.GetPointer(), r_param.out_jacobian_image.c_str(), itk::IOComponentEnum::FLOAT);
     }
 
 
   // Process image pairs
-  for(int i = 0; i < r_param.images.size(); i++)
+  for(unsigned int i = 0; i < r_param.images.size(); i++)
     {
     const char *filename = r_param.images[i].moving.c_str();
 
@@ -2403,7 +2403,7 @@ int GreedyApproach<VDim, TReal>
       fltVoting->SetFunctor(vf);
 
       // Create a mini-pipeline of streaming filters
-      for(int j = 0; j < label_array.size(); j++)
+      for(unsigned int j = 0; j < label_array.size(); j++)
         {
         // Set up a threshold filter for this label
         typedef itk::BinaryThresholdImageFilter<LabelImageType, ImageType> ThresholdFilterType;
@@ -2427,7 +2427,7 @@ int GreedyApproach<VDim, TReal>
         else
           {
           typename SmootherType::SigmaArrayType sigma_array;
-          for(int d = 0; d < VDim; d++)
+          for(unsigned int d = 0; d < VDim; d++)
             sigma_array[d] = r_param.images[i].interp.sigma.sigma * label_image->GetSpacing()[d];
           fltSmooth->SetSigmaArray(sigma_array);
           }
@@ -2455,7 +2455,7 @@ int GreedyApproach<VDim, TReal>
     else
       {
       // Read the input image and record its type
-      itk::ImageIOBase::IOComponentType comp;
+      itk::IOComponentEnum comp;
       CompositeImagePointer moving = ReadImageViaCache<CompositeImageType>(filename, &comp);
 
       // Allocate the warped image
@@ -2472,7 +2472,7 @@ int GreedyApproach<VDim, TReal>
     }
 
   // Process meshes
-  for(int i = 0; i < r_param.meshes.size(); i++)
+  for(unsigned int i = 0; i < r_param.meshes.size(); i++)
     {
     typedef itk::Mesh<TReal, VDim> MeshType;
     typedef itk::MeshFileReader<MeshType> MeshReader;
@@ -2625,8 +2625,8 @@ int GreedyApproach<VDim, TReal>
   // Decompose covariance matrices into eigenvectors and eigenvalues
   vnl_vector<TReal> Df, Dm;
   vnl_matrix<TReal> Vf, Vm;
-  vnl_symmetric_eigensystem_compute<TReal>(m2f, Vf, Df);
-  vnl_symmetric_eigensystem_compute<TReal>(m2m, Vm, Dm);
+  vnl_symmetric_eigensystem_compute<TReal>(m2f.as_matrix(), Vf, Df);
+  vnl_symmetric_eigensystem_compute<TReal>(m2m.as_matrix(), Vm, Dm);
 
   // Create a rigid registration problem
   PhysicalSpaceAffineCostFunction cost_fn(&param, this, 0, &of_helper);
@@ -2645,7 +2645,7 @@ int GreedyApproach<VDim, TReal>
 
     // Generate the flip matrix
     MatFx F(0.0);
-    for(int d = 0; d < VDim; d++)
+    for(unsigned int d = 0; d < VDim; d++)
       F(d,d) = (k_flip & (1 << d)) ? 1 : -1;;
 
     // Compute the rotation matrix - takes fixed coordinates into moving space
@@ -2654,8 +2654,8 @@ int GreedyApproach<VDim, TReal>
 
     vnl_matrix<TReal> A(VDim+1, VDim+1, 0.0);
     A.set_identity();
-    A.update(R, 0, 0);
-    for(int d= 0 ;d< VDim;d++)
+    A.update(R.as_matrix(), 0, 0);
+    for(unsigned int d= 0 ;d< VDim;d++)
       A(d,VDim) = b[d];
 
     // Ignore flips with the wrong determinant
@@ -2816,12 +2816,12 @@ void GreedyApproach<VDim, TReal>
   if(param.threads > 0)
     {
     gout.printf("Limiting the number of threads to %d\n", param.threads);
-    itk::MultiThreader::SetGlobalMaximumNumberOfThreads(param.threads);
+    itk::MultiThreaderBase::SetGlobalMaximumNumberOfThreads(param.threads);
     }
   else
     {
     gout.printf("Executing with the default number of threads: %d\n",
-                itk::MultiThreader::GetGlobalDefaultNumberOfThreads());
+                itk::MultiThreaderBase::GetGlobalDefaultNumberOfThreads());
     }
 }
 

@@ -45,9 +45,8 @@
 template <class TMetricTraits>
 void
 MultiImageOpticalFlowImageFilter<TMetricTraits>
-::ThreadedGenerateData(
-  const OutputImageRegionType& outputRegionForThread,
-  itk::ThreadIdType threadId )
+::DynamicThreadedGenerateData(
+  const OutputImageRegionType& outputRegionForThread)
 {
   // Get the number of components
   int ncomp = this->GetFixedImage()->GetNumberOfComponentsPerPixel();
@@ -56,8 +55,8 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
   typedef MultiComponentMetricWorker<TMetricTraits, MetricImageType> InterpType;
   InterpType iter(this, this->GetMetricOutput(), outputRegionForThread);
 
-  // Get the per-component metric array
-  typename Superclass::ThreadData &td = this->m_ThreadData[threadId];
+  // This is the accumulator of metric and gradient values for this region
+  typename Superclass::ThreadAccumulatedData td(ncomp);
 
   // Iterate over the lines
   for(; !iter.IsAtEnd(); iter.NextLine())
@@ -182,6 +181,9 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
       if(grad_line)
         grad_line[iter.GetLinePos()] = grad_metric;
       }
+
+    // Update the accumulated values in a thread-safe way
+    this->m_AccumulatedData.Accumulate(td);
     }
 }
 

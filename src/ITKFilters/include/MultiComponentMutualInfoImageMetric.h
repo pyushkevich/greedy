@@ -29,7 +29,6 @@
 #define MULTICOMPONENTMUTUALINFOIMAGEMETRIC_H
 
 #include "MultiComponentImageMetricBase.h"
-#include "itkBarrier.h"
 #include <queue>
 #include <vector>
 #include <functional>
@@ -161,8 +160,7 @@ public:
 protected:
 
   virtual void BeforeThreadedGenerateData() ITK_OVERRIDE;
-  virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                                    itk::ThreadIdType threadId ) ITK_OVERRIDE;
+  virtual void GenerateData() ITK_OVERRIDE;
 
 protected:
   MultiComponentMutualInfoImageMetric()
@@ -173,9 +171,6 @@ protected:
 private:
   MultiComponentMutualInfoImageMetric(const Self&); //purposely not implemented
   void operator=(const Self&); //purposely not implemented
-
-  // Barrier - for thread management
-  typename itk::Barrier::Pointer m_Barrier;
 
   // Number of bins
   unsigned int m_Bins;
@@ -297,8 +292,7 @@ protected:
   virtual void GenerateOutputInformation() ITK_OVERRIDE;
 
   virtual void BeforeThreadedGenerateData() ITK_OVERRIDE;
-  virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                                    itk::ThreadIdType threadId ) ITK_OVERRIDE;
+  virtual void GenerateData() ITK_OVERRIDE;
 
 private:
   MutualInformationPreprocessingFilter(const Self&); //purposely not implemented
@@ -353,8 +347,6 @@ private:
   };
 
   std::vector<ThreadData> m_ThreadData;
-
-  typename itk::Barrier::Pointer m_Barrier;
 
   std::vector<InputComponentType> m_LowerQuantileValues, m_UpperQuantileValues;
   std::vector<unsigned int> m_NumberOfNaNs;

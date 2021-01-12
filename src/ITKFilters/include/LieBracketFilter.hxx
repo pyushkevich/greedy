@@ -74,8 +74,7 @@ LieBracketFilter< TInputImage, TOutputImage>
 template< typename TInputImage, typename TOutputImage>
 void
 LieBracketFilter< TInputImage, TOutputImage>
-::ThreadedGenerateData(const OutputImageRegionType & outputRegionForThread,
-                       itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(const OutputImageRegionType & outputRegionForThread)
 {
   // Get the input and output
   OutputImageType *out = this->GetOutput();
@@ -151,7 +150,7 @@ LieBracketFilter< TInputImage, TOutputImage>
 
         // Compute the directional derivative of u and v
         for(int k = 0; k < InputImageDimension; k++)
-          ptr_out[k] += scale * (
+          (*ptr_out)[k] += scale * (
             ((*u_right)[k] - (*u_left)[k]) * (*ptr_v)[i] - 
             ((*v_right)[k] - (*v_left)[k]) * (*ptr_u)[i]);
 
@@ -166,7 +165,7 @@ LieBracketFilter< TInputImage, TOutputImage>
 
       // Compute the directional derivative of u and v
       for(int k = 0; k < InputImageDimension; k++)
-        ptr_out[k] += scale * (
+        (*ptr_out)[k] += scale * (
           ((*u_right)[k] - (*u_left)[k]) * (*ptr_v)[i] - 
           ((*v_right)[k] - (*v_left)[k]) * (*ptr_u)[i]);
       }

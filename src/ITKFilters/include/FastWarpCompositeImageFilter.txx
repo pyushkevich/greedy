@@ -34,8 +34,7 @@
 template <class TInputImage, class TOutputImage, class TDeformationField>
 void
 FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
-::ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread,
-                       itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread)
 {
   // Our images
   const DeformationFieldType *def = this->GetDeformationField();
