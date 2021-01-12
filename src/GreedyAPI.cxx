@@ -458,11 +458,12 @@ GreedyApproach<VDim, TReal>
       TImage *cached_typed = dynamic_cast<TImage *>(cached);
       if(cached_typed)
         {
-        typedef itk::CastImageFilter<TImage, TImage> CopyFilterType;
-        typename CopyFilterType::Pointer copier = CopyFilterType::New();
-        copier->SetInput(img);
-        copier->GraftOutput(cached_typed);
-        copier->Update();
+        cached_typed->CopyInformation(img);
+        cached_typed->SetRegions(img->GetBufferedRegion());
+        cached_typed->Allocate();
+        itk::ImageAlgorithm::Copy(img, cached_typed,
+                                  img->GetBufferedRegion(), cached_typed->GetBufferedRegion());
+        cast_rc = true;
         }
       else throw GreedyException("Cached image %s cannot be cast to type %s",
                                  filename.c_str(), typeid(TImage).name());

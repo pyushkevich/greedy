@@ -91,7 +91,7 @@ int usage()
   printf("  -gm-trim <radius>      : generate mask for gradient computation by trimming the extent\n");
   printf("                           of the fixed image by given radius. This is useful during affine\n");
   printf("                           registration with the NCC metric when the background of your images\n");
-  printf("                           is non-zero. The radius should match that of the NCC metric.");
+  printf("                           is non-zero. The radius should match that of the NCC metric.\n");
   printf("  -fm mask.nii           : metric calculation exclusion mask for the fixed image\n");
   printf("  -mm mask.nii           : metric calculation exclusion mask for the moving image\n");
   printf("  -it filenames          : sequence of transforms to apply to the moving image first \n");

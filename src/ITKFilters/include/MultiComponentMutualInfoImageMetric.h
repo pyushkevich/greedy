@@ -343,7 +343,7 @@ private:
     // Heaps for minimum and maximum intensities
     LowerHeap heap_lower;
     UpperHeap heap_upper;
-    unsigned long number_of_nans;
+    unsigned long number_of_nans = 0ul;
   };
 
   std::vector<ThreadData> m_ThreadData;

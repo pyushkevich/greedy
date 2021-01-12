@@ -86,7 +86,9 @@ protected:
   OneDimensionalInPlaceAccumulateFilter();
   ~OneDimensionalInPlaceAccumulateFilter() {}
 
-  virtual void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
+  // This filter uses the classic threading mechanism because of the custom splitter
+  virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
+                                    itk::ThreadIdType threadId) ITK_OVERRIDE;
 
   virtual const itk::ImageRegionSplitterBase *GetImageRegionSplitter(void) const ITK_OVERRIDE;
 

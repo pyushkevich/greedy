@@ -86,7 +86,11 @@ struct InterpSpec
   SmoothingParameters sigma;
   double outside_value;
 
-  InterpSpec() : mode(LINEAR), sigma(0.5, false), outside_value(0.0) {}
+  InterpSpec(InterpMode in_mode = LINEAR,
+             double in_sigma = 0.5,
+             bool in_sigma_physical_units = false,
+             double in_outside_value = 0.0)
+    : mode(in_mode), sigma(in_sigma, in_sigma_physical_units), outside_value(in_outside_value) {}
 };
 
 struct ResliceSpec

@@ -204,6 +204,9 @@ IF(BUILD_CLI)
 
   ADD_EXECUTABLE(test_accum testing/src/TestOneDimensionalInPlaceAccumulateFilter.cxx)
   TARGET_LINK_LIBRARIES(test_accum ${ITK_LIBRARIES})
+
+  ADD_EXECUTABLE(test_greedy testing/src/GreedyTestDriver.cxx)
+  TARGET_LINK_LIBRARIES(test_greedy greedyapi ${ITK_LIBRARIES})
 ENDIF(BUILD_CLI)
 
 # Install command-line executables
@@ -221,5 +224,15 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
 
   ENABLE_TESTING()
   INCLUDE(CTest)
+
+  # Path to the test data
+  SET(TESTING_DATADIR ${CMAKE_CURRENT_SOURCE_DIR}/testing/data)
+
+  # Add the phantom series of tests
+  ADD_TEST(NAME "Phantom_NMI_Affine_Mask" COMMAND test_greedy phantom 2 3 NMI 12 1 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_NCC_Affine_Mask" COMMAND test_greedy phantom 1 3 NCC 12 1 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_SSD_Rigid_NoMask" COMMAND test_greedy phantom 1 1 SSD 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_NMI_Rigid_NoMask" COMMAND test_greedy phantom 1 2 NMI 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_NCC_Rigid_NoMask" COMMAND test_greedy phantom 1 3 NCC 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
 
 ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)

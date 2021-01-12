@@ -454,6 +454,10 @@ void
 MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
 ::GenerateData()
 {
+  // Standard stuff done before splitting into threads
+  this->AllocateOutputs();
+  this->BeforeThreadedGenerateData();
+
   // Iterator typdef
   typedef itk::ImageLinearConstIteratorWithIndex<InputImageType> IterBase;
   typedef IteratorExtender<IterBase> Iterator;
@@ -584,6 +588,8 @@ MutualInformationPreprocessingFilter<TInputImage, TOutputImage>
         }
       }, nullptr);
     } // loop over components
+
+  this->AfterThreadedGenerateData();
 }
 
 

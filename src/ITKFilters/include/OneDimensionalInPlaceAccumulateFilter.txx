@@ -38,6 +38,7 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
   m_ComponentOffsetFront = m_ComponentOffsetBack = 0;
   m_Splitter = SplitterType::New();
   this->InPlaceOn();
+  this->DynamicMultiThreadingOff();
 }
 
 template <class TInputImage>
@@ -555,14 +556,12 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
 template <class TInputImage>
 void
 OneDimensionalInPlaceAccumulateFilter<TInputImage>
-::DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread)
+::ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
+                       itk::ThreadIdType itkNotUsed(threadId) )
 {
   typedef OneDimensionalInPlaceAccumulateFilterWorker<OutputImageComponentType, InputImageType> WorkerType;
   WorkerType::DynamicThreadedGenerateData(this, outputRegionForThread);
 }
-
-
-
 
 template <class TInputImage>
 typename TInputImage::Pointer
