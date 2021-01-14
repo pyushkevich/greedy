@@ -219,7 +219,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       if(m_FixedMaskImage)
         {
         LDDMMType::img_reconstitute_nans_in_place(fltExtractFixed->GetOutput(), m_FixedMaskImage);
-        LDDMMType::img_write(fltExtractFixed->GetOutput(), "/tmp/testnan.mha");
         }
 
       if(noise_sigma_relative > 0.0)
