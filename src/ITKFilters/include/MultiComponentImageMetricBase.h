@@ -217,6 +217,27 @@ public:
   /** Get the metric values per component (each component weighted) */
   vnl_vector<double> GetAllMetricValues() const;
 
+  /**
+   Data accumulated across multiple threads. The mutex should be used when accessing
+   this data.
+  */
+  struct ThreadAccumulatedData {
+
+    static const unsigned int GradientSize = ImageDimension * (ImageDimension+1);
+    double metric, mask;
+    vnl_vector<double> gradient, grad_mask, comp_metric;
+    std::mutex mutex;
+
+    ThreadAccumulatedData() : metric(0.0), mask(0.0),
+      gradient(GradientSize, 0.0),
+      grad_mask(GradientSize, 0.0) {}
+
+    ThreadAccumulatedData(unsigned int ncomp) :
+      ThreadAccumulatedData() { comp_metric.set_size(ncomp); comp_metric.fill(0.0); }
+
+    void Accumulate(const ThreadAccumulatedData &other);
+  };
+
 protected:
   MultiComponentImageMetricBase();
   ~MultiComponentImageMetricBase() {}
@@ -249,25 +270,6 @@ protected:
   bool m_ComputeAffine;
 
 
-
-  // Data accumulated across multiple threads. The mutex should be used when accessing
-  // this data
-  struct ThreadAccumulatedData {
-
-    static const unsigned int GradientSize = ImageDimension * (ImageDimension+1);
-    double metric, mask;
-    vnl_vector<double> gradient, grad_mask, comp_metric;
-    std::mutex mutex;
-
-    ThreadAccumulatedData() : metric(0.0), mask(0.0),
-      gradient(GradientSize, 0.0),
-      grad_mask(GradientSize, 0.0) {}
-
-    ThreadAccumulatedData(unsigned int ncomp) :
-      ThreadAccumulatedData() { comp_metric.set_size(ncomp); comp_metric.fill(0.0); }
-
-    void Accumulate(const ThreadAccumulatedData &other);
-  };
 
   // Per-thread data
   ThreadAccumulatedData m_AccumulatedData;

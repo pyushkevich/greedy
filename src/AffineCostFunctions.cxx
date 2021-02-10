@@ -224,10 +224,10 @@ PhysicalSpaceAffineCostFunction<VDim, TReal>
   GetVoxelSpaceToNiftiSpaceTransform(helper->GetMovingReferenceSpace(level), Q_mov, b_mov);
 
   // Compute the inverse transformations
-  Q_fix_inv = vnl_matrix_inverse<double>(Q_fix);
+  Q_fix_inv = vnl_matrix_inverse<double>(Q_fix.as_matrix()).as_matrix();
   b_fix_inv = - Q_fix_inv * b_fix;
 
-  Q_mov_inv = vnl_matrix_inverse<double>(Q_mov);
+  Q_mov_inv = vnl_matrix_inverse<double>(Q_mov.as_matrix()).as_matrix();
   b_mov_inv = - Q_mov_inv * b_mov;
 
   // Take advantage of the fact that the transformation is linear in A and b to compute
@@ -563,7 +563,7 @@ RigidCostFunction<VDim, TReal>
     }
 
   // Compute polar decomposition of the affine matrix
-  vnl_svd<double> svd(this->flip * A);
+  vnl_svd<double> svd(this->flip.as_matrix() * A);
   Mat R = svd.U() * svd.V().transpose();
   Vec q = this->GetAxisAngle(R);
 
@@ -801,7 +801,7 @@ RigidCostFunction<2, TReal>
     }
 
   // Compute polar decomposition of the affine matrix
-  vnl_svd<double> svd(this->flip * A);
+  vnl_svd<double> svd(this->flip.as_matrix() * A);
   Mat R = svd.U() * svd.V().transpose();
 
   // Use the angle

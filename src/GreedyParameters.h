@@ -218,7 +218,8 @@ public:
     else return false;
   }
 
-  friend std::ostream& operator << (std::ostream &oss, const PerLevelSpec<TAtomic> &val);
+  template <class TTAtomic>
+  friend std::ostream& operator << (std::ostream &oss, const PerLevelSpec<TTAtomic> &val);
 
 protected:
   TAtomic m_CommonValue;

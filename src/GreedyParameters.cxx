@@ -420,6 +420,7 @@ operator << (std::ostream &oss, const std::vector<TAtomic> &v)
   return oss;
 }
 
+template <>
 std::ostream&
 operator << (std::ostream &oss, const PerLevelSpec<double> &val)
 {
