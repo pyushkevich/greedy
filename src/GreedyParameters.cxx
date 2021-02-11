@@ -420,22 +420,6 @@ operator << (std::ostream &oss, const std::vector<TAtomic> &v)
   return oss;
 }
 
-template <>
-std::ostream&
-operator << (std::ostream &oss, const PerLevelSpec<double> &val)
-{
-  if(val.m_UseCommon)
-    oss << val.m_CommonValue;
-  else
-    {
-    for(unsigned int i = 0; i < val.m_ValueArray.size(); i++)
-      {
-      if(i > 0) oss << "x";
-      oss << val.m_ValueArray[i];
-      }
-    }
-  return oss;
-}
 
 std::ostream &
 operator << (std::ostream &oss, const SmoothingParameters &sp)
