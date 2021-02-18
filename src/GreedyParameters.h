@@ -172,6 +172,13 @@ struct GreedyWarpRootParameters
   std::string in_warp, out_warp;
 };
 
+// Parameters for the LBFGS optimizer
+struct LBFGSParameters
+{
+  double ftol = 0.0, gtol = 0.0;
+  int memory = 0;
+};
+
 template <class TAtomic>
 class PerLevelSpec
 {
@@ -351,6 +358,9 @@ struct GreedyParameters
   
   // Verbosity flag
   Verbosity verbosity;
+
+  // Optimization parameters
+  LBFGSParameters lbfgs_param;
 
   // Constructor
   GreedyParameters() { SetToDefaults(*this); }

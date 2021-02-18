@@ -399,6 +399,18 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     
     this->verbosity = (Verbosity)(level);
     }
+  else if(cmd == "-lbfgs-ftol")
+    {
+    this->lbfgs_param.ftol = cl.read_double();
+    }
+  else if(cmd == "-lbfgs-gtol")
+    {
+    this->lbfgs_param.gtol = cl.read_double();
+    }
+  else if(cmd == "-lbfgs-memory")
+    {
+    this->lbfgs_param.memory = cl.read_integer();
+    }
   else
     {
     return false;
@@ -696,6 +708,15 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->verbosity != def.verbosity)
     oss << " -V " << this->verbosity;
+
+  if(this->lbfgs_param.ftol != def.lbfgs_param.ftol)
+    oss << "-lbfgs-ftol " << this->lbfgs_param.ftol;
+
+  if(this->lbfgs_param.gtol != def.lbfgs_param.gtol)
+    oss << "-lbfgs-gtol " << this->lbfgs_param.gtol;
+
+  if(this->lbfgs_param.memory != def.lbfgs_param.memory)
+    oss << "-lbfgs-memory " << this->lbfgs_param.memory;
 
   return oss.str();
 }
