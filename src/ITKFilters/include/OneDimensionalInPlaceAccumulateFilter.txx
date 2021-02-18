@@ -120,6 +120,10 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
 
   // Width of the kernel (in whole pixels, then in components)
   int kernel_width = 2 * radius + 1;
+  
+  // In iterations below when we iterate to radius or to kernel_width we can't exceed line_length
+  int radius_cap = line_length < radius ? line_length : radius;
+  int kernel_width_cap = line_length < kernel_width ? line_length : kernel_width;
 
   // Allocate an array of the length of the line in components
   TPixel *line = new TPixel[line_length_comp];
@@ -133,105 +137,11 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
   // Pointers into the sum array for the included components
   TPixel *sum_start = sum + c_first, *sum_end = sum + c_last + 1;
 
-  // Two versions of the code - I thought that maybe the second version (further down) would be
-  // more optimized by the compiler, but if anything, I see an opposite effect (although tiny)
-
-#ifdef _ACCUM_ITER_CODE_
-
-  TPixel *p_sum;
-
-  // Start iterating over lines
-  for(itLine.GoToBegin(); !itLine.IsAtEnd(); itLine.NextLine())
-    {
-    int i;
-
-    // Initialize the sum to zero
-    for(p_sum = sum_start; p_sum < sum_end; p_sum++)
-      *p_sum  = itk::NumericTraits<TPixel>::Zero;
-
-    // Pointer to the current position in the line
-    TPixel *p_line = line + c_first, *p_tail = p_line;
-
-    // Pointer to the beginning of the scan line
-    long offset_in_pixels = itLine.GetPosition() - image->GetBufferPointer();
-    long offset_in_comp = offset_in_pixels * nc;
-    const TPixel *p_scan_pixel = image->GetBufferPointer() + offset_in_comp + c_first, *p_scan;
-
-    // Pointer used for writing, it will trail the scan pointer
-    TPixel *p_write_pixel = const_cast<TPixel *>(p_scan_pixel), *p_write;
-
-    // Compute the initial sum
-    for(i = 0; i < radius; i++)
-      {
-      for(p_scan = p_scan_pixel, p_sum = sum_start;
-          p_sum < sum_end;
-          p_sum++, p_line++, p_scan++)
-        {
-        *p_sum += *p_line = *p_scan;
-        }
-
-      p_scan_pixel += jump;
-      p_line += n_skipped;
-      }
-
-    // For the next Radius + 1 values, add to the sum and write
-    for(; i < kernel_width; i++)
-      {
-      for(p_scan = p_scan_pixel, p_write = p_write_pixel, p_sum = sum_start;
-          p_sum < sum_end;
-          p_sum++, p_line++, p_scan++, p_write++)
-        {
-        *p_line = *p_scan;
-        *p_sum += *p_line;
-        *p_write = *p_sum;
-        }
-
-      p_scan_pixel += jump;
-      p_write_pixel += jump;
-      p_line += n_skipped;
-      }
-
-    // Continue until we hit the end of the scanline
-    for(; i < line_length; i++)
-      {
-      for(p_scan = p_scan_pixel, p_write = p_write_pixel, p_sum = sum_start;
-          p_sum < sum_end;
-          p_sum++, p_line++, p_scan++, p_write++, p_tail++)
-        {
-        *p_line = *p_scan;
-        *p_sum += *p_line - *p_tail;
-        *p_write = *p_sum;
-        }
-
-      p_scan_pixel += jump;
-      p_write_pixel += jump;
-      p_line += n_skipped;
-      p_tail += n_skipped;
-      }
-
-    // Fill out the last bit
-    for(; i < line_length + radius; i++)
-      {
-      for(p_write = p_write_pixel, p_sum = sum_start;
-          p_sum < sum_end;
-          p_sum++, p_write++, p_tail++)
-        {
-        *p_sum -= *p_tail;
-        *p_write = *p_sum;
-        }
-
-      p_write_pixel += jump;
-      p_tail += n_skipped;
-      }
-    }
-
-#else
-
   // Start iterating over lines
   for(itLine.GoToBegin(); !itLine.IsAtEnd(); itLine.NextLine())
     {
 
-    int i, k, m;
+    int i, k;
 
     // Initialize the sum to zero
     for(int k = c_first; k <= c_last; k++)
@@ -251,7 +161,7 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
     TPixel *p_write_pixel = const_cast<TPixel *>(p_scan_pixel);
 
     // Compute the initial sum
-    for(i = 0, m = 0; i < radius; i++)
+    for(i = 0; i < radius_cap; i++)
       {
       for(k = c_first; k <= c_last; k++)
         {
@@ -262,7 +172,7 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
       }
 
     // For the next Radius + 1 values, add to the sum and write
-    for(; i < kernel_width; i++)
+    for(; i < kernel_width_cap; i++)
       {
       for(k = c_first; k <= c_last; k++)
         {
@@ -300,7 +210,6 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
       p_tail += nc;
       }
     }
-#endif
 
   delete[] sum;
   delete[] line;

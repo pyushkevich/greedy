@@ -50,6 +50,7 @@
 #include "WarpFunctors.h"
 
 #include <vnl/algo/vnl_powell.h>
+#include <vnl/algo/vnl_amoeba.h>
 #include <vnl/algo/vnl_svd.h>
 #include <vnl/algo/vnl_symmetric_eigensystem.h>
 #include <vnl/vnl_trace.h>
@@ -1074,7 +1075,6 @@ int GreedyApproach<VDim, TReal>
         vnl_powell *optimizer = new vnl_powell(acf);
         optimizer->set_f_tolerance(1e-9);
         optimizer->set_x_tolerance(1e-4);
-        optimizer->set_g_tolerance(1e-6);
         optimizer->set_trace(param.verbosity > GreedyParameters::VERB_NONE);
         optimizer->set_verbose(param.verbosity > GreedyParameters::VERB_DEFAULT);
         optimizer->set_max_function_evals(param.iter_per_level[level]);
@@ -1089,8 +1089,14 @@ int GreedyApproach<VDim, TReal>
         vnl_lbfgs *optimizer = new vnl_lbfgs(*acf);
         
         // Using defaults from scipy
-        optimizer->set_f_tolerance(2.220446049250313e-9);
-        optimizer->set_g_tolerance(1e-05);
+        double ftol = (param.lbfgs_param.ftol == 0.0) ? 2.220446049250313e-9 : param.lbfgs_param.ftol;
+        double gtol = (param.lbfgs_param.gtol == 0.0) ? 1e-05 : param.lbfgs_param.gtol;
+
+        optimizer->set_f_tolerance(ftol);
+        optimizer->set_g_tolerance(gtol);
+        if(param.lbfgs_param.memory > 0)
+          optimizer->memory = param.lbfgs_param.memory;
+
         optimizer->set_trace(param.verbosity > GreedyParameters::VERB_NONE);
         optimizer->set_verbose(param.verbosity > GreedyParameters::VERB_DEFAULT);
         optimizer->set_max_function_evals(param.iter_per_level[level]);
