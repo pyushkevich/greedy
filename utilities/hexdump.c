@@ -727,9 +727,7 @@ static void vm_conv(struct vm_state *M, int flags, int width, int prec, int fc, 
 } /* vm_conv() */
 
 
-#define VM_FASTER defined(__GNUC__)
-
-#if VM_FASTER
+#if defined(__GNUC__)
 #define BEGIN goto *jump[M->code[M->pc]]
 #define END (void)0
 #define CASE(op) XPASTE(OP_, op)
@@ -742,7 +740,7 @@ static void vm_conv(struct vm_state *M, int flags, int width, int prec, int fc, 
 #endif
 
 static void vm_exec(struct vm_state *M) {
-#if VM_FASTER
+#if defined(__GNUC__)
 #define L(L) (&&XPASTE(OP_, L))
 	static const void *const jump[] = {
 		L(HALT), L(NOOP), L(TRAP), L(PC), L(TRUE), L(FALSE),
@@ -932,7 +930,7 @@ static void vm_exec(struct vm_state *M) {
 
 		if (vm_pop(M)) {
 			M->pc = pc % countof(M->code);
-#if VM_FASTER
+#if defined(__GNUC__)
 			goto *jump[M->code[pc]];
 #else
 			goto exec;

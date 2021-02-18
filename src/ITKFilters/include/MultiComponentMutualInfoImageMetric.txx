@@ -28,6 +28,7 @@
 #define MULTICOMPONENTMUTUALINFOIMAGEMETRIC_TXX
 
 #include "MultiComponentMutualInfoImageMetric.h"
+#include <functional>
 
 
 /**

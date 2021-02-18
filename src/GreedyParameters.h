@@ -225,7 +225,19 @@ public:
     else return false;
   }
 
-  friend std::ostream& operator << (std::ostream &oss, const PerLevelSpec<TAtomic> &val);
+  void Print(std::ostream &oss) const 
+    {
+    if(m_UseCommon)
+      oss << m_CommonValue;
+    else
+      {
+      for(unsigned int i = 0; i < m_ValueArray.size(); i++)
+        {
+        if(i > 0) oss << "x";
+        oss << m_ValueArray[i];
+        }
+      }
+    }
 
 protected:
   TAtomic m_CommonValue;
@@ -233,6 +245,12 @@ protected:
   bool m_UseCommon;
 };
 
+template <class TAtomic>
+std::ostream& operator << (std::ostream &oss, const PerLevelSpec<TAtomic> &val)
+{
+  val.Print(oss);
+  return oss;
+}
 
 struct GreedyParameters
 {
