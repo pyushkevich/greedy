@@ -141,18 +141,33 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
           }
           */
 
-        // We may hit outside or on the border of the moving image. The moving image may also contain
-        // a NaN in any of the components. In both cases, we interpret this as missing data situation
-        // for the moving image.
-        //
-        // TODO: think about how to handle the gradients in the case of affine. It is not obvious.
-        if((need_affine && status == FastInterpolator::OUTSIDE) ||
-           (!need_affine && status != FastInterpolator::INSIDE))
+        // TODO: correct implementation of moving masks and treating of regions outside the moving image
+        // domain as 'missing data' requires keeping track of 'n', i.e., the volume of the moving mask
+        // that has been sampled at each voxel, and normalizing by 'n' in the computation of NCC. This
+        // requires doubling of the storage required by this filter (every place where we have x_mov, we
+        // also need x_mov_mask). This should be implemented in the near future, perhaps as an option
+        // since it implies a 2x slowdown and consideration of memory use. For now, in the case of affine
+        // we will treat outside values as zeros, which is wrong, but gives correct gradients
+        if(!need_affine && status != FastInterpolator::INSIDE)
           {
           // Zero out the entire output line
+          for(int j = 0; j < n_out_comp_per_input_comp * ncomp_in; j++)
+            *out++ = 0.0;
+          }
+        else if(need_affine && status == FastInterpolator::OUTSIDE)
+          {
           for(int k = 0; k < ncomp_in; k++)
-            for(int j = 0; j < n_out_comp_per_input_comp; j++)
+            {
+            InputComponentType x_fix = iter.GetFixedLine()[k];
+            *out++ = 1.0;
+            *out++ = x_fix;
+            *out++ = 0.0;
+            *out++ = x_fix * x_fix;
+            *out++ = 0.0;
+            *out++ = 0.0;
+            for(int j = 6; j < n_out_comp_per_input_comp; j++)
               *out++ = 0.0;
+            }
           }
         else
           {
@@ -165,11 +180,18 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
             // Check for NaN, which indicates that the pixel should not contribute to the metric
             if(isnan(x_mov) || isnan(x_fix))
               {
-              // Zero out just this component
-              for(int j = 0; j < n_out_comp_per_input_comp; j++)
-                *out++ = 0.0;
-
-              continue;
+              if(!need_affine || isnan(x_fix))
+                {
+                // When not doing affine, or it's the fixed image that's nan, zero out the component
+                for(int j = 0; j < n_out_comp_per_input_comp; j++)
+                  *out++ = 0.0;
+                continue;
+                }
+              else
+                {
+                // When doing affine, treat nans as zeros in the moving image (see TODO note above)
+                x_mov = 0.0;
+                }
               }
 
             // Mask value for this component, indicates that this voxel is being included
@@ -383,7 +405,8 @@ MultiImageNNCPostComputeAffineGradientFunction(
 
     // Further scale by the size of the mask - this prevents oversize contribution
     // of border pixels (added Feb 2020, part of NaN masking)
-    w *= n;
+    // TODO: I removed this for affine
+    // w *= n;
 
     if(ptr_affine_gradient)
       {
