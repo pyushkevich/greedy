@@ -511,10 +511,10 @@ MultiComponentNCCImageMetric<TMetricTraits>
       AccumulateNeighborhoodSumsInPlace(img_pre, m_Radius, ncomp_ignore, n_overalloc_comp);
 
 #ifdef DUMP_NCC
-  typename itk::ImageFileWriter<InputImageType>::Pointer pwriter = itk::ImageFileWriter<InputImageType>::New();
-  pwriter->SetInput(img_accum);
-  pwriter->SetFileName("nccaccum.nii.gz");
-  pwriter->Update();
+  typename itk::ImageFileWriter<InputImageType>::Pointer pwriter2 = itk::ImageFileWriter<InputImageType>::New();
+  pwriter2->SetInput(img_accum);
+  pwriter2->SetFileName("nccaccum.nii.gz");
+  pwriter2->Update();
 #endif
 
   // At this point, the working image will hold the proper neighborhood sums (I, J, I^2, J^2, IJ, etc).

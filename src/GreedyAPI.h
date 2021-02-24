@@ -181,6 +181,28 @@ public:
   // Helper method to print iteration reports
   std::string PrintIter(int level, int iter, const MultiComponentMetricReport &metric) const;
 
+  /**
+   * Read images specified in parameters into a helper data structure and initialize
+   * the multi-resolution pyramid
+   */
+  void ReadImages(GreedyParameters &param, OFHelperType &ofhelper);
+
+  /**
+   * Compute one of the metrics (specified in the parameters). This code is called by
+   * RunDeformable and is provided as a separate public method for testing purposes
+   */
+  void EvaluateMetricForDeformableRegistration(
+      GreedyParameters &param, OFHelperType &of_helper, unsigned int level,
+      VectorImageType *phi, MultiComponentMetricReport &metric_report,
+      ImageType *out_metric_image, VectorImageType *out_metric_gradient, double eps);
+
+  /**
+   * Load initial transform (affine or deformable) into a deformation field
+   */
+  void LoadInitialTransform(
+      GreedyParameters &param, OFHelperType &of_helper,
+      unsigned int level, VectorImageType *phi);
+
 protected:
 
   struct CacheEntry {
@@ -220,8 +242,6 @@ protected:
   // Write a compressed warp via cache (in float format)
   void WriteCompressedWarpInPhysicalSpaceViaCache(
     ImageBaseType *moving_ref_space, VectorImageType *warp, const char *filename, double precision);
-
-  void ReadImages(GreedyParameters &param, OFHelperType &ofhelper);
 
   void ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
                           ImageBaseType *ref_space,

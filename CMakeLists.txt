@@ -136,6 +136,10 @@ SET(HEADERS
   src/ITKFilters/include/MultiComponentMutualInfoImageMetric.txx
   src/ITKFilters/include/MultiComponentNCCImageMetric.h
   src/ITKFilters/include/MultiComponentNCCImageMetric.txx
+  src/ITKFilters/include/MultiComponentUnweightedNCCImageMetric.h
+  src/ITKFilters/include/MultiComponentUnweightedNCCImageMetric.txx
+  src/ITKFilters/include/MultiComponentWeightedNCCImageMetric.h
+  src/ITKFilters/include/MultiComponentWeightedNCCImageMetric.txx
   src/ITKFilters/include/MultiImageOpticalFlowImageFilter.h
   src/ITKFilters/include/MultiImageOpticalFlowImageFilter.txx
   src/ITKFilters/include/OneDimensionalInPlaceAccumulateFilter.h

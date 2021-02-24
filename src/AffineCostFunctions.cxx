@@ -141,13 +141,13 @@ PureAffineCostFunction<VDim, TReal>
 
   // Report the output values
   if(f)
-    *f = out_metric.TotalMetric;
+    *f = out_metric.TotalPerPixelMetric;
 
   // Has the metric improved?
   if(m_Parent->GetMetricLog().size())
     {
     const std::vector<MultiComponentMetricReport> &log = m_Parent->GetMetricLog().back();
-    if(log.size() == 0 || log.back().TotalMetric > out_metric.TotalMetric)
+    if(log.size() == 0 || log.back().TotalPerPixelMetric > out_metric.TotalPerPixelMetric)
       {
       // Record the metric value
       m_Parent->RecordMetricValue(out_metric);

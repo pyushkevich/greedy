@@ -181,10 +181,10 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
       if(grad_line)
         grad_line[iter.GetLinePos()] = grad_metric;
       }
-
-    // Update the accumulated values in a thread-safe way
-    this->m_AccumulatedData.Accumulate(td);
     }
+
+  // Update the accumulated values in a thread-safe way
+  this->m_AccumulatedData.Accumulate(td);
 }
 
 

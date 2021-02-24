@@ -595,7 +595,7 @@ public:
           greedy_api.RunAffine(my_param);
 
           // Get the metric for the affine registration
-          pair_metric = greedy_api.GetLastMetricReport().TotalMetric;
+          pair_metric = greedy_api.GetLastMetricReport().TotalPerPixelMetric;
           std::cout << "Last metric value: " << pair_metric << std::endl;
 
           // Normalize the metric to give the actual mean NCC
@@ -927,8 +927,8 @@ public:
         MultiComponentMetricReport metric_report;
         std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
         greedy_api.ComputeMetric(my_param, metric_report);
-        printf("Slide %03d matrix %03d metric %8.4f\n", i, k, metric_report.TotalMetric);
-        accum_metric[k] += metric_report.TotalMetric;
+        printf("Slide %03d matrix %03d metric %8.4f\n", i, k, metric_report.TotalPerPixelMetric);
+        accum_metric[k] += metric_report.TotalPerPixelMetric;
         }
       }
 
@@ -1547,7 +1547,7 @@ public:
                 DoAffineRegistration(param_reg, resliced_slide, targets[i].image, resliced_mask.GetPointer(), t_vol);
 
               // Record the metric (apply scaling for affine used internally)
-              targets[i].direct_reg_metric = mrpt.TotalMetric / -10000.0;
+              targets[i].direct_reg_metric = mrpt.TotalPerPixelMetric / -10000.0;
 
               // Add the weighted transforms
               A += t_vol->GetMatrix() * targets[i].weight;
@@ -1654,7 +1654,7 @@ public:
             // Get the metric
             MultiComponentMetricReport mrpt = api_reg.GetLastMetricReport();
             for(unsigned int i = 0; i < targets.size(); i++)
-              targets[i].direct_reg_metric = mrpt.ComponentMetrics[i] / -10000.0;
+              targets[i].direct_reg_metric = mrpt.ComponentPerPixelMetrics[i] / -10000.0;
 
             TransformType::MatrixType A = t_vol->GetMatrix();
             TransformType::OffsetType b = t_vol->GetOffset();
@@ -1724,7 +1724,7 @@ public:
                 DoLogDemonsRegistration(param_reg, resliced_slide, targets[i].image, resliced_mask, work_img);
 
               // Record the metric
-              targets[i].direct_reg_metric = mrpt.TotalMetric;
+              targets[i].direct_reg_metric = mrpt.TotalPerPixelMetric;
 
               // Accumulate this root warp with its weight
               LDDMMType::vimg_add_scaled_in_place(avg_root, work_img, targets[i].weight);
@@ -1787,7 +1787,7 @@ public:
             // Get the metric
             MultiComponentMetricReport mrpt = api_reg.GetLastMetricReport();
             for(unsigned int i = 0; i < targets.size(); i++)
-              targets[i].direct_reg_metric = mrpt.ComponentMetrics[i];
+              targets[i].direct_reg_metric = mrpt.ComponentPerPixelMetrics[i];
             }
 
           // Write the average warp
@@ -1852,7 +1852,7 @@ public:
           api_metric.ComputeMetric(m_param, rpt);
 
           // Get the total metric value
-          double mval = rpt.TotalMetric;
+          double mval = rpt.TotalPerPixelMetric;
           printf("Metric with %40s   DIRECT: %8.4f   COMBINED: %8.4f\n",
                  targets[i].desc.c_str(), targets[i].direct_reg_metric, mval);
           

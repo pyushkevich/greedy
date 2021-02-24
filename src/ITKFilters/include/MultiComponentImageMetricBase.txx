@@ -78,7 +78,7 @@ void
 MultiComponentImageMetricBase<TMetricTraits>
 ::UpdateOutputs()
 {
-  this->ToggleOutput(m_ComputeGradient && !m_ComputeAffine, "phi_gradient");
+  this->ToggleOutput(m_ComputeGradient, "phi_gradient");
   this->ToggleOutput(m_ComputeGradient && m_ComputeAffine, "tran_gradient");
 
   if(m_ComputeAffine)

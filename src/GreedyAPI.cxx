@@ -1126,9 +1126,9 @@ int GreedyApproach<VDim, TReal>
       // Print final metric report
       MultiComponentMetricReport metric_report = this->GetMetricLog()[level].back();
       gout.printf("Level %3d  LastIter   Metrics", level);
-      for (unsigned i = 0; i < metric_report.ComponentMetrics.size(); i++)
-        gout.printf("  %8.6f", metric_report.ComponentMetrics[i]);
-      gout.printf("  Energy = %8.6f\n", metric_report.TotalMetric);
+      for (unsigned i = 0; i < metric_report.ComponentPerPixelMetrics.size(); i++)
+        gout.printf("  %8.6f", metric_report.ComponentPerPixelMetrics[i]);
+      gout.printf("  Energy = %8.6f\n", metric_report.TotalPerPixelMetric);
       gout.flush();
       }
 
@@ -1222,19 +1222,112 @@ GreedyApproach<VDim, TReal>
   else
     sprintf(b_iter, "Iter %05d", iter);
 
-  if(metric.ComponentMetrics.size() > 1)
+  if(metric.ComponentPerPixelMetrics.size() > 1)
     {
     int pos = sprintf(b_metrics, "Metrics");
-    for (unsigned i = 0; i < metric.ComponentMetrics.size(); i++)
-      pos += sprintf(b_metrics + pos, "  %8.6f", metric.ComponentMetrics[i]);
+    for (unsigned i = 0; i < metric.ComponentPerPixelMetrics.size(); i++)
+      pos += sprintf(b_metrics + pos, "  %8.6f", metric.ComponentPerPixelMetrics[i]);
     }
   else
     sprintf(b_metrics, "");
 
-  sprintf(b_line, "%s  %s  %s  Energy = %8.6f", b_level, b_iter, b_metrics, metric.TotalMetric);
+  sprintf(b_line, "%s  %s  %s  Energy = %8.6f", b_level, b_iter, b_metrics, metric.TotalPerPixelMetric);
   std::string result = b_line;
 
   return b_line;
+}
+
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
+::EvaluateMetricForDeformableRegistration(
+    GreedyParameters &param, OFHelperType &of_helper,
+    unsigned int level,
+    VectorImageType *phi,
+    MultiComponentMetricReport &metric_report,
+    ImageType *out_metric_image,
+    VectorImageType *out_metric_gradient,
+    double eps)
+{
+  // Switch based on the metric
+  if(param.metric == GreedyParameters::SSD)
+    {
+    of_helper.ComputeOpticalFlowField(level, phi, out_metric_image, metric_report, out_metric_gradient, eps);
+    metric_report.Scale(1.0 / eps);
+
+    // If there is a mask, multiply the gradient by the mask
+    if(param.gradient_mask.size())
+      LDDMMType::vimg_multiply_in_place(out_metric_gradient, of_helper.GetGradientMask(level));
+    }
+
+  else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
+    {
+    of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, phi, out_metric_image, metric_report, out_metric_gradient, eps);
+
+    // If there is a mask, multiply the gradient by the mask
+    if(param.gradient_mask.size())
+      LDDMMType::vimg_multiply_in_place(out_metric_gradient, of_helper.GetGradientMask(level));
+    }
+
+  else if(param.metric == GreedyParameters::NCC)
+    {
+    itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
+
+    // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
+    of_helper.ComputeNCCMetricImage(level, phi, radius, out_metric_image, metric_report, out_metric_gradient, eps);
+    metric_report.Scale(1.0 / eps);
+    }
+  else if(param.metric == GreedyParameters::MAHALANOBIS)
+    {
+    of_helper.ComputeMahalanobisMetricImage(level, phi, out_metric_image, metric_report, out_metric_gradient);
+    }
+}
+
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
+::LoadInitialTransform(
+    GreedyParameters &param, OFHelperType &of_helper,
+    unsigned int level, VectorImageType *phi)
+{
+  if(param.initial_warp.size())
+    {
+    // The user supplied an initial warp or initial root warp. In this case, we
+    // do not start iteration from zero, but use the initial warp to start from
+    VectorImagePointer uInit = VectorImageType::New();
+
+    // Read the warp file
+    LDDMMType::vimg_read(param.initial_warp.c_str(), uInit );
+
+    // Convert the warp file into voxel units from physical units
+    OFHelperType::PhysicalWarpToVoxelWarp(uInit, uInit, uInit);
+
+    // Scale the initial warp by the pyramid level
+    LDDMMType::vimg_resample_identity(uInit, of_helper.GetReferenceSpace(level), phi);
+    LDDMMType::vimg_scale_in_place(phi, 1.0 / (1 << level));
+    }
+  else if(param.affine_init_mode != VOX_IDENTITY)
+    {
+    typename LinearTransformType::Pointer tran = LinearTransformType::New();
+
+    if(param.affine_init_mode == RAS_FILENAME)
+      {
+      // Read the initial affine transform from a file
+      vnl_matrix<double> Qp = ReadAffineMatrixViaCache(param.affine_init_transform);
+
+      // Map this to voxel space
+      MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tran);
+      }
+    else if(param.affine_init_mode == RAS_IDENTITY)
+      {
+      // Physical space transform
+      vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
+
+      // Map this to voxel space
+      MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tran);
+      }
+
+    // Create an initial warp
+    OFHelperType::AffineToField(tran, phi);
+    }
 }
 
 /**
@@ -1352,57 +1445,17 @@ int GreedyApproach<VDim, TReal>
         }
       }
 
-    // Initialize the deformation field from last iteration
+    // Initialize the deformation field from initial transform or from last iteration
     if(uLevel.IsNotNull())
       {
       LDDMMType::vimg_resample_identity(uLevel, refspace, uk);
       LDDMMType::vimg_scale_in_place(uk, 2.0);
       uLevel = uk;
       }
-    else if(param.initial_warp.size())
+    else
       {
-      // The user supplied an initial warp or initial root warp. In this case, we
-      // do not start iteration from zero, but use the initial warp to start from
-      VectorImagePointer uInit = VectorImageType::New();
-
-      // Read the warp file
-      LDDMMType::vimg_read(param.initial_warp.c_str(), uInit );
-
-      // Convert the warp file into voxel units from physical units
-      OFHelperType::PhysicalWarpToVoxelWarp(uInit, uInit, uInit);
-
-      // Scale the initial warp by the pyramid level
-      LDDMMType::vimg_resample_identity(uInit, refspace, uk);
-      LDDMMType::vimg_scale_in_place(uk, 1.0 / (1 << level));
+      this->LoadInitialTransform(param, of_helper, level, uk);
       uLevel = uk;
-      itk::Index<VDim> test; test.Fill(24);
-      }
-    else if(param.affine_init_mode != VOX_IDENTITY)
-      {
-      typename LinearTransformType::Pointer tran = LinearTransformType::New();
-
-      if(param.affine_init_mode == RAS_FILENAME)
-        {
-        // Read the initial affine transform from a file
-        vnl_matrix<double> Qp = ReadAffineMatrixViaCache(param.affine_init_transform);
-
-        // Map this to voxel space
-        MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tran);
-        }
-      else if(param.affine_init_mode == RAS_IDENTITY)
-        {
-        // Physical space transform
-        vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
-
-        // Map this to voxel space
-        MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tran);
-        }
-
-      // Create an initial warp
-      OFHelperType::AffineToField(tran, uk);
-      uLevel = uk;
-
-      itk::Index<VDim> test; test.Fill(24);
       }
 
     // Iterate for this level
@@ -1437,38 +1490,8 @@ int GreedyApproach<VDim, TReal>
       // Begin gradient computation
       tm_Gradient.Start();
 
-      // Switch based on the metric
-      if(param.metric == GreedyParameters::SSD)
-        {
-        of_helper.ComputeOpticalFlowField(level, uFull, iTemp, metric_report, uk1, eps);
-        metric_report.Scale(1.0 / eps);
-
-        // If there is a mask, multiply the gradient by the mask
-        if(param.gradient_mask.size())
-          LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask(level));
-        }
-
-      else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
-        {
-        of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, uFull, iTemp, metric_report, uk1, eps);
-
-        // If there is a mask, multiply the gradient by the mask
-        if(param.gradient_mask.size())
-          LDDMMType::vimg_multiply_in_place(uk1, of_helper.GetGradientMask(level));
-        }
-
-      else if(param.metric == GreedyParameters::NCC)
-        {
-        itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
-
-        // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
-        of_helper.ComputeNCCMetricImage(level, uFull, radius, iTemp, metric_report, uk1, eps);
-        metric_report.Scale(1.0 / eps);
-        }
-      else if(param.metric == GreedyParameters::MAHALANOBIS)
-        {
-        of_helper.ComputeMahalanobisMetricImage(level, uFull, iTemp, metric_report, uk1);
-        }
+      // Evaluate the correct metric
+      this->EvaluateMetricForDeformableRegistration(param, of_helper, level, uFull, metric_report, iTemp, uk1, eps);
 
       // End gradient computation
       tm_Gradient.Stop();
@@ -2765,9 +2788,9 @@ int GreedyApproach<VDim, TReal>
   this->ComputeMetric(param, metric_report);
   
   printf("Metric Report:\n");
-  for (unsigned i = 0; i < metric_report.ComponentMetrics.size(); i++)
-    printf("  Component %d: %8.6f", i, metric_report.ComponentMetrics[i]);
-  printf("  Total = %8.6f\n", metric_report.TotalMetric);
+  for (unsigned i = 0; i < metric_report.ComponentPerPixelMetrics.size(); i++)
+    printf("  Component %d: %8.6f", i, metric_report.ComponentPerPixelMetrics[i]);
+  printf("  Total = %8.6f\n", metric_report.TotalPerPixelMetric);
 	
   return 0;
 }
@@ -2824,6 +2847,7 @@ void GreedyApproach<VDim, TReal>
     {
     gout.printf("Limiting the number of threads to %d\n", param.threads);
     itk::MultiThreaderBase::SetGlobalMaximumNumberOfThreads(param.threads);
+    itk::MultiThreaderBase::SetGlobalDefaultNumberOfThreads(param.threads);
     }
   else
     {

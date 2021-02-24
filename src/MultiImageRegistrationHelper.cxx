@@ -35,6 +35,8 @@
 #include "MultiImageOpticalFlowImageFilter.h"
 #include "MultiComponentNCCImageMetric.h"
 #include "MultiComponentMutualInfoImageMetric.h"
+#include "MultiComponentWeightedNCCImageMetric.h"
+#include "MultiComponentUnweightedNCCImageMetric.h"
 #include "MahalanobisDistanceToTargetWarpMetric.h"
 #include "itkVectorIndexSelectionCastImageFilter.h"
 #include "OneDimensionalInPlaceAccumulateFilter.h"
@@ -537,8 +539,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->Update();
 
   // Process the results
-  out_metric_report.ComponentMetrics = filter->GetAllMetricValues();
-  out_metric_report.TotalMetric = filter->GetMetricValue();
+  out_metric_report.ComponentPerPixelMetrics = filter->GetAllMetricValues();
+  out_metric_report.TotalPerPixelMetric = filter->GetMetricValue();
+  out_metric_report.MaskVolume = filter->GetMaskValue();
 }
 
 template <class TFloat, unsigned int VDim>
@@ -612,8 +615,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->Update();
 
   // Process the results
-  out_metric_report.ComponentMetrics = metric->GetAllMetricValues();
-  out_metric_report.TotalMetric = metric->GetMetricValue();
+  out_metric_report.ComponentPerPixelMetrics = metric->GetAllMetricValues();
+  out_metric_report.TotalPerPixelMetric = metric->GetMetricValue();
+  out_metric_report.MaskVolume = metric->GetMaskValue();
 }
 
 // #undef DUMP_NCC
@@ -655,8 +659,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
                         double result_scaling)
 {
   typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
-  typedef MultiComponentNCCImageMetric<TraitsType> FilterType;
-  // typedef MultiComponentApproximateNCCImageMetric<TraitsType> FilterType;
+  // typedef MultiComponentNCCImageMetric<TraitsType> FilterType;
+  // typedef MultiComponentWeightedNCCImageMetric<TraitsType> FilterType;
+  typedef MultiComponentUnweightedNCCImageMetric<TraitsType> FilterType;
 
   typename FilterType::Pointer filter = FilterType::New();
 
@@ -696,8 +701,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->Update();
 
   // Get the vector of the normalized metrics
-  out_metric_report.ComponentMetrics = filter->GetAllMetricValues();
-  out_metric_report.TotalMetric = filter->GetMetricValue();
+  out_metric_report.ComponentPerPixelMetrics = filter->GetAllMetricValues();
+  out_metric_report.TotalPerPixelMetric = filter->GetMetricValue();
+  out_metric_report.MaskVolume = filter->GetMaskValue();
 }
 
 template <class TFloat, unsigned int VDim>
@@ -722,8 +728,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   filter->Update();
 
-  out_metric_report.ComponentMetrics = filter->GetAllMetricValues();
-  out_metric_report.TotalMetric = filter->GetMetricValue();
+  out_metric_report.ComponentPerPixelMetrics = filter->GetAllMetricValues();
+  out_metric_report.TotalPerPixelMetric = filter->GetMetricValue();
+  out_metric_report.MaskVolume = filter->GetMaskValue();
 }
 
 
@@ -780,8 +787,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     grad->SetOffset(metric->GetAffineTransformGradient()->GetOffset());
     }
 
-  out_metric.TotalMetric = metric->GetMetricValue();
-  out_metric.ComponentMetrics = metric->GetAllMetricValues();
+  out_metric.TotalPerPixelMetric = metric->GetMetricValue();
+  out_metric.ComponentPerPixelMetrics = metric->GetAllMetricValues();
+  out_metric.MaskVolume = metric->GetMaskValue();
 }
 
 #include "itkRescaleIntensityImageFilter.h"
@@ -838,8 +846,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     grad->SetOffset(metric->GetAffineTransformGradient()->GetOffset());
     }
 
-  out_metric.TotalMetric = metric->GetMetricValue();
-  out_metric.ComponentMetrics = metric->GetAllMetricValues();
+  out_metric.TotalPerPixelMetric = metric->GetMetricValue();
+  out_metric.ComponentPerPixelMetrics = metric->GetAllMetricValues();
+  out_metric.MaskVolume = metric->GetMaskValue();
 }
 
 
@@ -870,7 +879,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   // Set up the optical flow computation
   typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
-  typedef MultiComponentNCCImageMetric<TraitsType> MetricType;
+  // typedef MultiComponentNCCImageMetric<TraitsType> MetricType;
+  typedef MultiComponentWeightedNCCImageMetric<TraitsType> MetricType;
   typename MetricType::Pointer metric = MetricType::New();
 
   // Is this the first time that this function is being called with this image?
@@ -893,6 +903,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
   metric->SetMovingMaskImage(m_MovingMaskComposite[level]);
   metric->SetJitterImage(m_JitterComposite[level]);
+  metric->GetDeformationGradientOutput()->Graft(wrkGradMetric);
   metric->Update();
 
   // Process the results
@@ -902,8 +913,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     grad->SetOffset(metric->GetAffineTransformGradient()->GetOffset());
     }
 
-  out_metric.TotalMetric = metric->GetMetricValue();
-  out_metric.ComponentMetrics = metric->GetAllMetricValues();
+  out_metric.TotalPerPixelMetric = metric->GetMetricValue();
+  out_metric.ComponentPerPixelMetrics = metric->GetAllMetricValues();
+  out_metric.MaskVolume = metric->GetMaskValue();
 
   // TODO: delete this sht
   /*
