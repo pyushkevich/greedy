@@ -31,6 +31,7 @@ int usage()
   printf("          0 for unweighted, 1 for weighted\n");
   printf("  grad_ncc_def <2|3> <eps> <greedy_opts>\n");
   printf("        : check gradients of various metrics with respect to phi\n");
+  printf("          Greedy options: -i, -it, -m \n");
   return -1;
 }
 
@@ -572,7 +573,7 @@ int BasicWeightedNCCGradientTest(bool weighted)
 }
 
 template <unsigned int VDim>
-int RWeightedNCCGradientTest(CommandLineHelper &cl)
+int RunWeightedNCCGradientTest(CommandLineHelper &cl)
 {
   // Set up greedy parameters for this test
   GreedyParameters gp;
@@ -772,9 +773,9 @@ int main(int argc, char *argv[])
     {
     int dim = cl.read_integer();
     if(dim == 2)
-      return RWeightedNCCGradientTest<2>(cl);
+      return RunWeightedNCCGradientTest<2>(cl);
     else if (dim == 3)
-      return RWeightedNCCGradientTest<3>(cl);
+      return RunWeightedNCCGradientTest<3>(cl);
     }
   else if(cmd == "ncc_gradient_vs_matlab")
     {

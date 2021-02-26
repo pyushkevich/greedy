@@ -1003,6 +1003,7 @@ int GreedyApproach<VDim, TReal>
       Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
       std::cout << "Initial RAS Transform: " << std::endl << Q_physical  << std::endl;
 
+      printf("*** Affine Derivative Check ***\n");
       printf("ANL gradient: ");
       for (unsigned i = 0; i < xGrad.size(); i++)
         printf("%11.4f ", xGrad[i]);
@@ -1013,9 +1014,9 @@ int GreedyApproach<VDim, TReal>
         {
         // double eps = (i % VDim == 0) ? 1.0e-2 : 1.0e-5;
         double eps = param.deriv_epsilon;
-        double f1, f2, f3, f4;
-        vnl_vector<double> x1 = xLevel, x2 = xLevel, x3 = xLevel, x4 = xLevel;
-        x1[i] -= 2 * eps; x2[i] -= eps; x3[i] += eps; x4[i] += 2 * eps;
+        double f[] = {0., 0., 0., 0.};
+        vnl_vector<double> x[] = {xLevel, xLevel, xLevel, xLevel};
+        x[0][i] -= 2 * eps; x[1][i] -= eps; x[2][i] += eps; x[3][i] += 2 * eps;
 
         // Keep track of gradient even though we do not need it. There is an apparent bug
         // at least with the NCC metric, where the reuse of the working image in a scenario
@@ -1025,12 +1026,16 @@ int GreedyApproach<VDim, TReal>
         vnl_vector<double> xGradDummy(acf->get_number_of_unknowns(), 0.0);
 
         // Four-point derivative computation        
-        acf->compute(x1, &f1, &xGradDummy);
-        acf->compute(x2, &f2, &xGradDummy);
-        acf->compute(x3, &f3, &xGradDummy);
-        acf->compute(x4, &f4, &xGradDummy);
+        for(unsigned int j = 0; j < 4; j++)
+          {
+          acf->compute(x[j], &f[j], &xGradDummy);
+          ImageType *metric = acf->GetMetricImage();
+          char buffer[256];
+          sprintf(buffer, "/tmp/grad_metric_param_%02d_off_%d.nii.gz", i, j);
+          LDDMMType::img_write(metric, buffer);
+          }
 
-        xGradN[i] = (f1 - 8 * f2 + 8 * f3 - f4) / (12 * eps);
+        xGradN[i] = (f[0] - 8 * f[1] + 8 * f[2] - f[3]) / (12 * eps);
         }
 
       printf("NUM gradient: ");
@@ -1038,17 +1043,31 @@ int GreedyApproach<VDim, TReal>
         printf("%11.4f ", xGradN[i]);
       printf("\n");
 
-      std::cout << "f = " << f0 << std::endl;
+      // Print the matrix components and b components
+      printf("\n     ");
+      for(unsigned int a = 0; a < VDim; a++)
+        for(unsigned int b = 0; b < VDim; b++)
+          printf("      A_%d%d", a, b);
+      for(unsigned int a = 0; a < VDim; a++)
+        printf("       b_%d", a);
 
+      // Print the two matrices
+      printf("\nANL:  ");
       acf->GetTransform(xGrad, tLevel.GetPointer());
-      std::cout << "A: " << std::endl
-                << tLevel->GetMatrix() << std::endl
-                << tLevel->GetOffset() << std::endl;
+      for(unsigned int a = 0; a < VDim; a++)
+        for(unsigned int b = 0; b < VDim; b++)
+          printf("%9.4f ", tLevel->GetMatrix()(a,b));
+      for(unsigned int a = 0; a < VDim; a++)
+        printf("%9.4f ", tLevel->GetOffset()[a]);
 
+      printf("\nNUM:  ");
       acf->GetTransform(xGradN, tLevel.GetPointer());
-      std::cout << "N: " << std::endl
-                << tLevel->GetMatrix() << std::endl
-                << tLevel->GetOffset() << std::endl;
+      for(unsigned int a = 0; a < VDim; a++)
+        for(unsigned int b = 0; b < VDim; b++)
+          printf("%9.4f ", tLevel->GetMatrix()(a,b));
+      for(unsigned int a = 0; a < VDim; a++)
+        printf("%9.4f ", tLevel->GetOffset()[a]);
+      printf("\n\n");
       }
 
     if(param.flag_debug_aff_obj)

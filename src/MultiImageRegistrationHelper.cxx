@@ -860,6 +860,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeAffineNCCMatchAndGradient(int level,
                                    LinearTransformType *tran,
                                    const SizeType &radius,
+                                   bool weighted,
                                    FloatImageType *wrkMetric,
                                    FloatImageType *wrkMask,
                                    VectorImageType *wrkGradMetric,
@@ -879,7 +880,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   // Set up the optical flow computation
   typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
-  // typedef MultiComponentNCCImageMetric<TraitsType> MetricType;
   typedef MultiComponentWeightedNCCImageMetric<TraitsType> MetricType;
   typename MetricType::Pointer metric = MetricType::New();
 
@@ -903,7 +903,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
   metric->SetMovingMaskImage(m_MovingMaskComposite[level]);
   metric->SetJitterImage(m_JitterComposite[level]);
-  metric->GetDeformationGradientOutput()->Graft(wrkGradMetric);
+  // metric->GetDeformationGradientOutput()->Graft(wrkGradMetric);
+  metric->SetWeighted(weighted);
   metric->Update();
 
   // Process the results
@@ -916,95 +917,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   out_metric.TotalPerPixelMetric = metric->GetMetricValue();
   out_metric.ComponentPerPixelMetrics = metric->GetAllMetricValues();
   out_metric.MaskVolume = metric->GetMaskValue();
-
-  // TODO: delete this sht
-  /*
-  if(grad)
-    {
-
-
-    // Generate a phi from the affine transform
-    typedef LDDMMData<TFloat, VDim> LDDMMType;
-    VectorImagePointer phi = LDDMMType::new_vimg(m_FixedComposite[level]);
-    for(itk::ImageRegionIteratorWithIndex<VectorImageType>
-        it(phi, phi->GetBufferedRegion()); !it.IsAtEnd(); ++it)
-      {
-      typename VectorImageType::PixelType v;
-      for(int d = 0; d < VDim; d++)
-        {
-        v[d] = tran->GetOffset()[d] - it.GetIndex()[d];
-        for(int j = 0; j < VDim; j++)
-          v[d] += tran->GetMatrix()(d,j) * it.GetIndex()[j];
-        }
-      it.Set(v);
-      }
-
-    // LDDMMType::vimg_write(phi, "/tmp/wtf.nii.gz");
-
-    MultiComponentMetricReport dummy;
-    FloatImagePointer tmp_met = LDDMMType::new_img(m_FixedComposite[level]);
-    VectorImagePointer grad_phi = LDDMMType::new_vimg(m_FixedComposite[level]);
-    tmp_met->FillBuffer(0.0);
-
-
-    typename MetricType::Pointer filter2 = MetricType::New();
-
-    // Run the filter
-    MultiComponentImagePointer work2 = MultiComponentImageType::New();
-
-    filter2->SetFixedImage(m_FixedComposite[level]);
-    filter2->SetMovingImage(m_MovingComposite[level]);
-    filter2->SetDeformationField(phi);
-    filter2->SetWeights(wscaled);
-    filter2->SetComputeGradient(true);
-    filter2->GetMetricOutput()->Graft(tmp_met);
-    filter2->GetDeformationGradientOutput()->Graft(grad_phi);
-    filter2->SetRadius(radius_fix);
-    filter2->SetWorkingImage(work2);
-    filter2->SetReuseWorkingImageFixedComponents(false);
-    filter2->SetFixedMaskImage(m_GradientMaskComposite[level]);
-
-    // TODO: support moving masks...
-    // filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
-    filter2->Update();
-    dummy.TotalMetric = filter2->GetMetricValue();
-
-    typename LinearTransformType::Pointer tran2 = LinearTransformType::New();
-    typename LinearTransformType::MatrixType A2; A2.Fill(0.0);
-    typename LinearTransformType::OffsetType b2; b2.Fill(0.0);
-
-    double mtx = 0.0, msk = 0.0;
-    for(itk::ImageRegionIteratorWithIndex<VectorImageType>
-        it(grad_phi, grad_phi->GetBufferedRegion()); !it.IsAtEnd(); ++it)
-      {
-      if(!m_GradientMaskComposite[level] || m_GradientMaskComposite[level]->GetPixel(it.GetIndex()) > 0.5)
-        {
-        mtx += tmp_met->GetPixel(it.GetIndex());
-
-        msk += 1.0;
-        for(int d = 0; d < VDim; d++)
-          {
-          b2[d] += it.Value()[d];
-          for(int j = 0; j < VDim; j++)
-            A2(d,j) += it.Value()[d] * it.GetIndex()[j];
-          }
-        }
-      }
-
-    for(int d = 0; d < VDim; d++)
-      {
-      b2[d] /= msk;
-      for(int j = 0; j < VDim; j++)
-        A2(d,j) /= msk;
-      }
-
-    //grad->SetMatrix(A2);
-    //grad->SetOffset(b2);
-    //out_metric.TotalMetric = mtx / msk;
-    //out_metric.ComponentMetrics = filter2->GetAllMetricValues();
-
-    }
-    */
 }
 
 template <class TFloat, unsigned int VDim>

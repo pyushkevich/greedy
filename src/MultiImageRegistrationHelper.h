@@ -181,6 +181,7 @@ public:
 
   void ComputeAffineNCCMatchAndGradient(int level, LinearTransformType *tran,
                                         const SizeType &radius,
+                                        bool weighted,
                                         FloatImageType *wrkMetric,
                                         FloatImageType *wrkMask,
                                         VectorImageType *wrkGradMetric,

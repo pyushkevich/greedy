@@ -229,6 +229,10 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
       // Fixed mask must be 1.0 indicating that NCC is being measured at this point
       double f_mask = fixed_mask_line? *fixed_mask_line++ : 1.0;
 
+      // Add the fixed mask to the total
+      if(f_mask >= 1.0)
+        td.mask++;
+
       // Read the number of in-mask pixels considered
       double sum_w = p_work[0];
 
@@ -242,10 +246,6 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
         }
       else
         {
-        // TODO: the td.mask value should be based on the gradient image mask, not
-        // on whether there are non-zero pixels in the neighborhood!
-        td.mask++;
-
         // Iterate over the components
         InputComponentType *p_accum = p_work + 1;
         InputComponentType *p_accum_out = p_work + 1;
@@ -363,13 +363,19 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
 
     // Pointer to the output metric gradient image line
     GradientPixelType *p_grad_metric =
-        this->GetDeformationGradientOutput()->GetBufferPointer() + offset_in_pixels;
+        this->GetDeformationGradientOutput() ?
+        this->GetDeformationGradientOutput()->GetBufferPointer() + offset_in_pixels
+        : nullptr;
+
+    // Get the index (for affine gradient computation)
+    itk::ContinuousIndex<double, ImageDimension> cix(it.GetIndex());
 
     // Loop over the pixels in the line
     for(int i = 0; i < outputRegionForThread.GetSize()[0]; ++i)
       {
       // Clear the metric output
-      *p_grad_metric = itk::NumericTraits<GradientPixelType>::ZeroValue();
+      if(p_grad_metric)
+        *p_grad_metric = itk::NumericTraits<GradientPixelType>::ZeroValue();
 
       // Fixed mask must be 1.0 indicating that NCC is being measured at this point
       double f_mask = fixed_mask_line? *fixed_mask_line++ : 1.0;
@@ -422,10 +428,24 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
             // TODO: Scaling by n?
 
             // Compute the gradient
+            double *p_affine_grad = this->m_ComputeAffine ? td.gradient.data_block() : nullptr;
             for(unsigned int d = 0; d < ImageDimension; d++)
               {
               double grad_wm_d = *p_saved++;
-              (*p_grad_metric)[d] += grad_wm_d * mult_grad_wm + grad_w[d] * mult_grad_w;
+              double d_metric_d_phi_k = grad_wm_d * mult_grad_wm + grad_w[d] * mult_grad_w;
+
+              // Store the metric
+              if(p_grad_metric)
+                (*p_grad_metric)[d] += d_metric_d_phi_k;
+
+              // Compute affine transform terms
+              if(p_affine_grad)
+                {
+                *p_affine_grad++ += d_metric_d_phi_k;
+                *p_affine_grad++ += d_metric_d_phi_k * i;
+                for(unsigned int d = 1; d < ImageDimension; d++)
+                  *p_affine_grad++ += d_metric_d_phi_k * cix[d];
+                }
               }
             }
 
@@ -446,10 +466,24 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
             double w_comp = this->m_Weights[k];
             d_metric_d_x_mov *= w_comp; // * n;
 
+            double *p_affine_grad = this->m_ComputeAffine ? td.gradient.data_block() : nullptr;
             for(unsigned int d = 0; d < ImageDimension; d++)
               {
               double dMk_dPhi_d = *p_saved++;
-              (*p_grad_metric)[d] += dMk_dPhi_d * d_metric_d_x_mov;
+              double d_metric_d_phi_k = dMk_dPhi_d * d_metric_d_x_mov;
+
+              // Store the metric
+              if(p_grad_metric)
+                (*p_grad_metric)[d] += d_metric_d_phi_k;
+
+              // Compute affine transform terms
+              if(p_affine_grad)
+                {
+                *p_affine_grad++ += d_metric_d_phi_k;
+                *p_affine_grad++ += d_metric_d_phi_k * i;
+                for(unsigned int d = 1; d < ImageDimension; d++)
+                  *p_affine_grad++ += d_metric_d_phi_k * cix[d];
+                }
               }
             }
           }
@@ -459,6 +493,10 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
       p_grad_metric++;
       }
     }
+
+  // Accumulate this region's data in a thread-safe way
+  if(this->m_ComputeAffine)
+    this->m_AccumulatedData.Accumulate(td);
 }
 
 template <class TMetricTraits>

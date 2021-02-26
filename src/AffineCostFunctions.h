@@ -53,7 +53,8 @@ public:
   AbstractAffineCostFunction(int n_unknowns) : vnl_cost_function(n_unknowns) {}
   virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran) = 0;
   virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) = 0;
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) = 0;
+  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) = 0;  
+  virtual typename ParentType::ImageType *GetMetricImage() = 0;
 };
 
 /**
@@ -73,16 +74,19 @@ public:
   PureAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
 
   // Get the parameters for the specified initial transform
-  vnl_vector<double> GetCoefficients(LinearTransformType *tran);
+  vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
 
   // Get the transform for the specificed coefficients
-  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran);
+  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
 
   // Get the preferred scaling for this function given image dimensions
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
 
   // Cost function computation
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) override;
+
+  // Get the metric image
+  virtual typename ParentType::ImageType *GetMetricImage() override { return m_Metric; }
 
 protected:
   typedef typename ParentType::ImageType ImageType;
@@ -119,12 +123,15 @@ public:
   typedef typename Superclass::LinearTransformType LinearTransformType;
 
   PhysicalSpaceAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
-  virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran);
-  virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran);
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+  virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
+  virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
+  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) override;
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
 
   void map_phys_to_vox(const vnl_vector<double> &x_phys, vnl_vector<double> &x_vox);
+
+  // Get the metric image
+  virtual typename ParentType::ImageType *GetMetricImage() override { return m_PureFunction.GetMetricImage(); }
 
 protected:
   PureAffineCostFunction<VDim, TReal> m_PureFunction;
@@ -155,15 +162,18 @@ public:
       m_PureFunction(pure_function), m_Scaling(scaling) {}
 
   // Get the parameters for the specified initial transform
-  vnl_vector<double> GetCoefficients(LinearTransformType *tran);
+  vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
 
   // Get the transform for the specificed coefficients
-  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran);
+  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
 
   // Cost function computation
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) override;
 
   const vnl_vector<double> &GetScaling() { return m_Scaling; }
+
+  // Get the metric image
+  virtual typename ParentType::ImageType *GetMetricImage() override { return m_PureFunction->GetMetricImage(); }
 
 protected:
 
@@ -186,15 +196,18 @@ public:
   typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
 
   RigidCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
-  vnl_vector<double> GetCoefficients(LinearTransformType *tran);
-  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran);
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+  vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
+  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
+  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) override;
 
   // Get the preferred scaling for this function given image dimensions
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
 
   // Generate a random rotation matrix with rotation angle alpha (radians)
   static Mat GetRandomRotation(vnl_random &randy, double alpha);
+
+  // Get the metric image
+  virtual typename ParentType::ImageType *GetMetricImage() override { return m_AffineFn.GetMetricImage(); }
 
 protected:
 
@@ -228,15 +241,18 @@ public:
 
 
   RigidCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
-  vnl_vector<double> GetCoefficients(LinearTransformType *tran);
-  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran);
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
+  vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
+  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
+  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) override;
 
   // Get the preferred scaling for this function given image dimensions
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
 
   // Generate a random rotation matrix with rotation angle alpha (radians)
   static Mat GetRandomRotation(vnl_random &randy, double alpha);
+
+  // Get the metric image
+  virtual typename ParentType::ImageType *GetMetricImage() override { return m_AffineFn.GetMetricImage(); }
 
 protected:
 
