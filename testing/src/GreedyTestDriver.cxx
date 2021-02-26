@@ -8,6 +8,9 @@
 #include <itkVectorIndexSelectionCastImageFilter.h>
 #include <MultiImageRegistrationHelper.h>
 #include <OneDimensionalInPlaceAccumulateFilter.h>
+#include <FastLinearInterpolator.h>
+#include <MultiComponentWeightedNCCImageMetric.h>
+#include <itkMultiThreaderBase.h>
 
 // Global variable storing the test data root
 std::string data_root;
@@ -21,6 +24,13 @@ int usage()
   printf("  phantom <1|2|3> <1|2|3> <NCC|NMI|SSD> <6|12> <0|1> \n");
   printf("        : run block phantom tests with selected fixed and moving phantoms\n");
   printf("          metric, affine degrees of freedom and masking. \n");
+  printf("  masked_interpolation_test <2|3>\n");
+  printf("        : test FastLinearInterpolator gradients in 2D or 3D. \n");
+  printf("  ncc_gradient_vs_matlab <0|1>\n");
+  printf("        : test new (2021) NCC metric gradients vs. MATLAB code. \n");
+  printf("          0 for unweighted, 1 for weighted\n");
+  printf("  grad_ncc_def <2|3> <eps> <greedy_opts>\n");
+  printf("        : check gradients of various metrics with respect to phi\n");
   return -1;
 }
 
@@ -35,6 +45,162 @@ std::string GetFileName(const char *pattern, ...)
 
   // Prepend the root
   return itksys::SystemTools::CollapseFullPath(filename_local, data_root);
+}
+
+/**
+ * Test FastLinearInterpolator to make sure it returns correct gradients in
+ * masked regions.
+ */
+template <unsigned int VDim = 3>
+int RunMaskedInterpolationTest()
+{
+  typedef LDDMMData<double, VDim> LDDMMType;
+
+  // Create a 40x40 reference image
+  itk::Size<VDim> size;
+  for(unsigned int d = 0; d < VDim; d++)
+    size[d] = 40;
+  typename LDDMMType::ImagePointer ref_space = LDDMMType::ImageType::New();
+  ref_space->SetRegions(typename LDDMMType::RegionType(size));
+
+  // Create an image to interpolate
+  typename LDDMMType::CompositeImagePointer M = LDDMMType::new_cimg(ref_space, 1);
+
+  // Set some random values at scattered locations
+  vnl_random randy;
+  for(unsigned int k = 0; k < M->GetPixelContainer()->Size() / 10; k++)
+    {
+    itk::Index<VDim> pos;
+    for(unsigned int d = 0; d < VDim; d++)
+      pos[d] = randy.lrand32(0, size[d]-1);
+
+    typename LDDMMType::CompositeImageType::InternalPixelType val = randy.drand32(0, 256);
+    typename LDDMMType::CompositeImageType::PixelType pixel(&val, 1);
+    M->SetPixel(pos, pixel);
+    }
+
+  // Smooth the image
+  typename LDDMMType::Vec sigma; sigma.Fill(2.0);
+  LDDMMType::cimg_smooth(M, M, sigma);
+
+  // Create a random mask
+  typename LDDMMType::ImagePointer W = LDDMMType::new_img(ref_space);
+  for(unsigned int k = 0; k < W->GetPixelContainer()->Size() / 10; k++)
+    {
+    itk::Index<VDim> pos;
+    for(unsigned int d = 0; d < VDim; d++)
+      pos[d] = randy.lrand32(0, size[d]-1);
+
+    typename LDDMMType::ImageType::PixelType pixel = 1;
+    W->SetPixel(pos, pixel);
+    }
+
+  // Dilate to create actual mask (smooth and threshold works fine)
+  LDDMMType::img_smooth(W, W, 3.0);
+  LDDMMType::img_threshold_in_place(W, 0.1, 1.1, 1.0, 0.0);
+
+  // Multiply the moving image by the mask, so that we consistently return W*M for
+  // outside pixels and zero-mask pixels
+  itk::ImageRegionIteratorWithIndex<typename LDDMMType::CompositeImageType> it_M(M, M->GetBufferedRegion());
+  itk::ImageRegionIteratorWithIndex<typename LDDMMType::ImageType> it_W(W, W->GetBufferedRegion());
+  while(!it_M.IsAtEnd())
+    {
+    it_M.Set(it_M.Get() * it_W.Get());
+    ++it_M; ++it_W;
+    }
+
+  // Create a fast interpolator
+  typedef FastLinearInterpolator<
+      typename LDDMMType::CompositeImageType, double, VDim,
+      typename LDDMMType::ImageType> InterpType;
+
+  // Create interpolator
+  InterpType interp(M, W);
+
+  // Status
+  int retval = 0;
+
+  // Sample at various locations inside and outside of the image
+  int n_inside = 0, n_border = 0, n_outside = 0;
+  for(unsigned int s = 0; s < 1000; s++)
+    {
+    // Random location
+    vnl_vector<double> cix(VDim);
+    for(unsigned int d = 0; d < VDim; d++)
+      cix[d] = randy.drand32(-4.0, size[d] + 4.0);
+
+    // Interpolate moving image and gradient
+    vnl_vector<typename InterpType::OutputComponentType> M_grad(VDim, 0.0);
+    typename InterpType::OutputComponentType M_sample, *M_grad_ptr = M_grad.data_block();
+    auto status = interp.InterpolateWithGradient(cix.data_block(), &M_sample, &M_grad_ptr);
+
+    // Ingore outside voxels, gradient is messed up there
+    if(status == InterpType::OUTSIDE)
+      {
+      n_outside++;
+      // continue;
+      }
+    else if(status == InterpType::BORDER)
+      {
+      n_border++;
+      }
+    else
+      {
+      n_inside++;
+      }
+
+    // Get mask value and gradient
+    vnl_vector<double> W_grad(VDim, 0.0);
+    double W_sample = interp.GetMaskAndGradient(W_grad.data_block());
+
+    // Compute numerical gradient of both
+    double eps = 1.0e-5, tol = 1.0e-3;
+    double err_m = 0.0, err_w = 0.0;
+
+    // Numeric gradients
+    vnl_vector<double> M_num(VDim, 0.0), W_num(VDim, 0.0);
+    for(unsigned int d = 0; d < VDim; d++)
+      {
+      vnl_vector<double> cix1 = cix; cix1[d] -= eps;
+      vnl_vector<double> cix2 = cix; cix2[d] += eps;
+      typename InterpType::OutputComponentType m1 = 0.0, m2 = 0.0;
+      double w1 = 0.0, w2 = 0.0;
+
+      interp.Interpolate(cix1.data_block(), &m1);
+      w1 = interp.GetMask();
+
+      interp.Interpolate(cix2.data_block(), &m2);
+      w2 = interp.GetMask();
+
+      M_num[d] = (m2 - m1) / (2*eps);
+      W_num[d] = (w2 - w1) / (2*eps);
+
+      err_m += fabs(M_grad[d] - M_num[d]);
+      err_w += fabs(W_grad[d] - W_num[d]);
+      }
+
+    if(err_m > tol || err_w > tol)
+      {
+      std::cerr << "Derivative error at sample " << s << " index " << cix
+                << " M = " << M_sample << " W = " << W_sample
+                << " err_M = " << err_m
+                << " err_W = " << err_w
+                << std::endl;
+      std::cerr << "  Grad_M  An: " << M_grad << "  Nu: " << M_num << std::endl;
+      std::cerr << "  Grad_W  An: " << W_grad << "  Nu: " << W_num << std::endl;
+      retval = -1;
+      }
+    }
+
+  if(!retval)
+    std::cout
+        << "Success ("
+        << "inside: " << n_inside
+        << "; border: " << n_border
+        << "; outside: " << n_outside << ")"
+        << std::endl;
+
+  return retval ;
 }
 
 int RunPhantomTest(CommandLineHelper &cl)
@@ -159,63 +325,140 @@ int RunPhantomTest(CommandLineHelper &cl)
   else return 0;
 }
 
-#include <MultiComponentUnweightedNCCImageMetric.h>
-#include <itkMultiThreaderBase.h>
+template <unsigned int VDim>
+std::string printf_index(const char *format, itk::Index<VDim> index)
+{
+  std::string result;
+  for(unsigned int i = 0; i < VDim; i++)
+    {
+    char buf[256];
+    sprintf(buf, format, index[i]);
+    result += buf;
+    if(i < VDim - 1)
+      result += ",";
+    }
+  return result;
+}
 
-int BasicUnweightedNCCGradientTest()
+template <unsigned int VDim, typename T>
+std::string printf_vec(const char *format, T *arr)
+{
+  std::string result;
+  for(unsigned int i = 0; i < VDim; i++)
+    {
+    char buf[256];
+    sprintf(buf, format, arr[i]);
+    result += buf;
+    if(i < VDim - 1)
+      result += ",";
+    }
+  return result;
+}
+
+int BasicWeightedNCCGradientTest(bool weighted)
 {
   itk::MultiThreaderBase::SetGlobalMaximumNumberOfThreads(1);
   itk::MultiThreaderBase::SetGlobalDefaultNumberOfThreads(1);
 
   // Fixed and moving values from MATLAB
   double F[] = {
-    9.296161e-01, 3.163756e-01, 1.839188e-01, 2.045603e-01, 5.677250e-01,
-    5.955447e-01, 9.645145e-01, 6.531771e-01, 7.489066e-01, 6.535699e-01,
-    7.477148e-01, 9.613067e-01, 8.388298e-03, 1.064444e-01, 2.987037e-01,
-    6.564112e-01, 8.098126e-01, 8.721759e-01, 9.646476e-01, 7.236853e-01,
-    6.424753e-01, 7.174536e-01, 4.675990e-01, 3.255847e-01, 4.396446e-01,
-    7.296891e-01, 9.940146e-01, 6.768737e-01, 7.908225e-01, 1.709143e-01,
-    2.684928e-02, 8.003702e-01, 9.037225e-01, 2.467621e-02, 4.917473e-01,
-    5.262552e-01, 5.963660e-01, 5.195755e-02, 8.950895e-01, 7.282662e-01,
-    8.183500e-01, 5.002228e-01, 8.101894e-01, 9.596853e-02, 2.189500e-01,
-    2.587191e-01, 4.681058e-01, 4.593732e-01, 7.095098e-01, 1.780530e-01};
+    2.113031e+00, -3.101215e-01, -3.471530e-01, -1.320801e+00, 2.162966e-01,
+    5.459689e-01, 1.370024e+00, 8.066662e-01, 6.574276e-01, 2.767253e-01,
+    1.226758e+00, 4.277553e-01, -1.156259e+00, -1.076492e+00, -8.767345e-01,
+    5.533616e-01, 1.579562e+00, 1.219700e+00, 2.123254e+00, 2.615404e-01,
+    6.205432e-01, 1.165775e+00, -8.470456e-02, -6.608801e-01, -1.019336e-01,
+    1.038028e+00, 1.210400e+00, 7.068342e-01, 9.945488e-01, -8.603150e-01,
+    -2.029896e+00, 1.148114e+00, 1.795308e+00, -2.387594e+00, -3.709374e-02,
+    1.338605e-01, 5.942942e-01, -1.633092e+00, 1.729625e+00, 3.522852e-01,
+    6.835319e-01, 5.943463e-04, 1.190853e+00, -1.224254e+00, -7.837978e-01,
+    -8.645776e-01, -1.310285e-01, -1.331426e-01, 7.973239e-01, -1.654186e+00};
 
   double M[] = {
-    5.314499e-01, 1.677422e-01, 7.688139e-01, 9.281705e-01, 6.094937e-01,
-    1.501835e-01, 4.896267e-01, 3.773450e-01, 8.486014e-01, 9.110972e-01,
-    3.838487e-01, 3.154959e-01, 5.683942e-01, 1.878180e-01, 1.258415e-01,
-    6.875958e-01, 7.996067e-01, 5.735366e-01, 9.732300e-01, 6.340544e-01,
-    8.884217e-01, 4.954148e-01, 3.516165e-01, 7.142304e-01, 5.039291e-01,
-    2.256376e-01, 2.449744e-01, 7.928007e-01, 4.951724e-01, 9.150937e-01,
-    9.453718e-01, 5.332322e-01, 2.524926e-01, 7.208621e-01, 3.674388e-01,
-    4.986484e-01, 2.265750e-01, 3.535656e-01, 6.508518e-01, 3.129329e-01,
-    7.687354e-01, 7.818371e-01, 8.524095e-01, 9.499057e-01, 1.073229e-01,
-    9.107254e-01, 3.360552e-01, 8.263804e-01, 8.981006e-01, 4.271530e-02};
+    2.916250e-02, -1.509852e+00, 7.208623e-01, 1.019153e+00, 6.266861e-02,
+    -1.003633e+00, -4.145445e-02, -3.256169e-01, 1.065722e+00, 3.084227e-01,
+    -2.546284e-01, -4.698158e-01, 2.934224e-01, -1.706190e+00, -5.690751e-01,
+    7.496825e-01, 1.847690e+00, 2.835588e-01, 2.671740e+00, 7.121727e-01,
+    1.072848e+00, -1.155038e-02, -6.153552e-01, 5.367157e-01, 5.604590e-03,
+    -1.378147e+00, -1.083360e+00, 1.144130e+00, -1.391504e-02, 1.689501e+00,
+    1.630319e+00, 8.642794e-02, -6.570671e-01, 8.015981e-01, -1.635533e-01,
+    -1.893970e-03, -4.032401e-01, -6.377865e-01, 1.951104e-01, -3.930638e-01,
+    4.793461e-01, 1.058682e+00, 5.882104e-01, 9.996348e-01, -1.126601e+00,
+    6.517136e-01, -3.994088e-01, 8.355329e-01, 1.635483e+00, -6.955057e-01};
+
+  double W[] = {
+    1.957950e-01, 2.945013e-01, 6.269999e-01, 8.622311e-02, 1.429450e-01,
+    5.158265e-01, 6.893413e-01, 8.566258e-01, 6.473617e-01, 5.816187e-01,
+    7.111160e-01, 2.524169e-01, 9.001597e-01, 4.422937e-01, 2.052082e-02,
+    9.596610e-01, 6.522254e-01, 5.132063e-01, 6.823564e-01, 4.895404e-01,
+    9.264902e-01, 5.158798e-01, 7.215988e-02, 5.675083e-01, 6.152432e-01,
+    9.415463e-01, 4.153634e-01, 2.644400e-01, 9.739317e-02, 4.858442e-01,
+    4.646629e-01, 2.975932e-02, 6.942775e-01, 7.169471e-01, 7.298114e-01,
+    4.143510e-01, 1.509884e-02, 9.089752e-01, 7.893787e-01, 1.651992e-01,
+    3.127860e-01, 6.109453e-01, 3.644903e-01, 1.560386e-01, 1.773038e-01,
+    8.678897e-01, 2.900947e-01, 5.851796e-01, 4.539949e-01, 4.111781e-01
+  };
+
+  // Metric computation mask (-gm equivalent)
+  double K[] = {
+    1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1,
+    1, 1, 0, 0, 0,
+    0, 0, 0, 0, 0,
+    0, 0, 1, 1, 1,
+    1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1,
+    0, 0, 0, 0, 0};
 
   // Expected NCC and grad
-  double expected_NCC[] = {
-    2.583758e-01, 2.887292e-02, -7.598351e-02, -3.301155e-01, -4.029192e-01,
-    -3.337573e-01, 6.243161e-02, 2.681470e-02, -5.688283e-02, -2.121289e-01,
-    -2.607225e-02, 6.500015e-03, -4.144126e-03, 1.739461e-02, 4.146321e-01,
-    7.681433e-01, 7.973615e-01, 2.968104e-01, 1.687726e-02, 6.934884e-02,
-    5.308758e-01, 2.892673e-03, 9.323315e-03, -4.469545e-01, -6.587454e-01,
-    -3.937374e-01, -2.057817e-01, -6.310519e-01, -8.129745e-01, -7.990482e-01,
-    -9.159599e-01, -7.866231e-01, -7.059908e-01, -5.876293e-01, -7.680782e-01,
-    -3.205142e-01, 2.816491e-01, 1.511195e-01, 2.684958e-01, 1.820792e-01,
-    -1.567554e-03, -2.007631e-01, 9.088352e-02, 3.537281e-02, 4.532429e-03,
-    -4.510806e-02, 2.006805e-01, 2.598261e-01, 7.862010e-01, 8.984511e-01};
+  double expected_NCC_unw[] = {
+    2.191734e-02, -4.686602e-02, -4.689990e-02, -3.523790e-01, -5.125640e-01,
+    -5.055979e-01, 2.746831e-04, -4.532824e-03, -2.465061e-01, -5.062250e-02,
+    -2.544271e-02, 7.996050e-02, 4.980022e-02, 2.196680e-01, 6.996894e-01,
+    8.121999e-01, 7.931090e-01, 6.271049e-01, 5.748011e-01, 3.513032e-01,
+    6.314152e-01, 2.657034e-03, 0, 0, 0,
+    0, 0, 0, 0, 0,
+    0, 0, -7.536540e-01, -7.952989e-01, -9.636332e-01,
+    -2.401571e-01, 6.672283e-01, 6.234391e-01, 4.795613e-01, 1.788605e-01,
+    -4.141935e-02, -1.729231e-01, 4.338921e-02, 2.322679e-02, 1.020001e-03,
+    0, 0, 0, 0, 0};
 
-  double expected_Gradient[] = {
-    -7.472937e-01, -5.277118e-01, -3.579529e-01, 4.176036e-01, -4.569258e-01,
-    -4.568537e-01, -5.054241e-01, -7.442020e-01, 3.376598e-02, 2.415960e-01,
-    5.414401e-03, 5.056736e-01, 9.494791e-01, 8.323091e-02, 3.091146e-01,
-    -2.553842e-01, 2.765792e-02, 1.874931e+00, -9.152049e-01, -1.451540e-01,
-    9.669073e-01, -4.455490e-01, -1.247729e+00, 2.585849e-01, 9.120287e-01,
-    -2.909071e-02, 1.986637e+00, -1.455216e+00, 3.117488e-01, -2.868933e-02,
-    6.609938e-01, -1.281233e+00, 4.438519e-01, 1.324770e+00, -2.532062e-01,
-    -4.327096e-01, 2.455944e-01, -2.508391e+00, -8.856205e-01, 9.593683e-01,
-    1.791241e-02, -6.279737e-02, 1.738582e-01, 2.053536e+00, -5.635263e-01,
-    9.575991e-01, 7.792790e-01, -4.770163e-02, -1.638606e+00, -8.836335e-03};
+  double expected_Gradient_unw[] = {
+    -7.931726e-01, -8.890974e-01, 5.681757e-03, 9.513810e-01, -2.459646e-01,
+    -4.508113e-01, -4.315916e-01, -1.255892e-01, -2.088492e-01, 4.116573e-01,
+    -2.114728e-01, 2.278992e-01, 2.346085e+00, -9.872185e-03, -7.339386e-01,
+    -4.921512e-02, -2.819553e-01, 3.258282e+00, -6.645711e-01, -3.861992e-01,
+    5.766248e-01, -3.170130e-01, -7.935631e-02, 2.782447e-02, 0,
+    0, 0, 0, 0, 0,
+    -2.459917e-01, -6.717985e-01, 1.940539e-01, 7.625819e-01, -1.291876e-01,
+    3.724049e-01, -5.650816e-01, -2.302952e+00, -9.892850e-01, 4.828562e-01,
+    -1.186675e-01, 1.636822e-01, 3.388455e-01, 1.495978e+00, -1.261360e-01,
+    6.263267e-02, 5.878134e-03, 0, 0, 0};
+
+  double expected_NCC_wgt[] = {
+    -6.783347e-05, -1.209608e-02, -1.216645e-02, -3.145297e-01, -2.951123e-01,
+    -1.827587e-02, 4.455210e-04, -9.904323e-03, -2.306311e-01, -1.395191e-01,
+    -2.457094e-02, 1.055434e-02, 8.659226e-04, 2.328962e-01, 6.223571e-01,
+    8.244452e-01, 7.153239e-01, 6.890416e-01, 6.181410e-01, 3.952532e-01,
+    5.445151e-01, -9.283418e-03, 0, 0, 0,
+    0, 0, 0, 0, 0,
+    0, 0, -8.111227e-01, -9.633557e-01, -9.742135e-01,
+    -1.314108e-01, 9.382642e-01, 9.015423e-01, 7.771332e-01, 2.858264e-01,
+    -3.754922e-01, -1.817352e-01, 2.727660e-02, 2.246005e-02, -6.401540e-04,
+    0, 0, 0, 0, 0};
+
+  double expected_Gradient_wgt[] = {
+    -3.875903e-01, -1.144399e+00, 2.467128e-01, 3.398285e-01, -1.154997e-02,
+    -1.328112e-01, -4.407790e-01, -3.505181e-01, -2.132439e-01, 5.508860e-01,
+    7.718768e-02, 1.162204e-03, 1.402599e+00, -2.590598e-01, -1.845625e+00,
+    -2.856246e-01, -3.530243e-01, 4.145780e+00, -9.768178e-01, -5.824020e-01,
+    4.891174e-01, 2.938374e-01, 9.289795e-02, 9.123830e-02, 0,
+    0, 0, 0, 0, 0,
+    -5.200793e-02, -6.870026e-01, 5.359363e-01, 5.150674e-01, -4.261279e-02,
+    1.372880e-02, -2.291784e+00, -8.643115e-01, -2.399582e-01, 4.495527e-02,
+    -5.386539e-01, 4.019298e-01, 1.851419e-01, 1.229307e+00, 9.423615e-03,
+    7.215873e-02, 5.581721e-03, 0, 0, 0};
 
   // Generate images from this data
   typedef LDDMMData<double, 2> LDDMMType;
@@ -228,14 +471,39 @@ int BasicUnweightedNCCGradientTest()
   region.SetSize(1, 1);
   ref->SetRegions(region);
 
+  // Set metric radius
+  itk::Size<2> radius({{2,0}});
+
   // Load test data
   LDDMMType::CompositeImagePointer fix = LDDMMType::new_cimg(ref.GetPointer(), 1);
   LDDMMType::CompositeImagePointer mov = LDDMMType::new_cimg(ref.GetPointer(), 1);
+  LDDMMType::ImagePointer wgt = LDDMMType::new_img(ref.GetPointer());
+  LDDMMType::ImagePointer ncc_mask = LDDMMType::new_img(ref.GetPointer());
   for(unsigned int i = 0; i < 50; i++)
     {
+    if(weighted)
+      {
+      // The filter expects the iterator to return (m*w, w) pairs, so to match
+      // matlab we multiply m by w here
+      wgt->GetBufferPointer()[i] = W[i];
+      mov->GetBufferPointer()[i] = M[i] * W[i];
+      }
+    else
+      {
+      mov->GetBufferPointer()[i] = M[i];
+      }
     fix->GetBufferPointer()[i] = F[i];
-    mov->GetBufferPointer()[i] = M[i];
+    ncc_mask->GetBufferPointer()[i] = K[i];
     }
+
+  // Process the ncc mask like in MultiImageOpticalFlowHelper
+  LDDMMType::img_threshold_in_place(ncc_mask, 0.5, 1e100, 0.5, 0);
+  LDDMMType::ImagePointer mask_copy = LDDMMType::new_img(ref.GetPointer());
+  LDDMMType::img_copy(ncc_mask, mask_copy);
+  LDDMMType::ImagePointer mask_accum =
+      AccumulateNeighborhoodSumsInPlace(mask_copy.GetPointer(), radius);
+  LDDMMType::img_threshold_in_place(mask_accum, 0.25, 1e100, 0.5, 0);
+  LDDMMType::img_add_in_place(ncc_mask, mask_accum);
 
   // Create zero deformation
   LDDMMType::VectorImagePointer phi = LDDMMType::new_vimg(ref.GetPointer());
@@ -246,27 +514,38 @@ int BasicUnweightedNCCGradientTest()
 
   // Create the filter
   typedef DefaultMultiComponentImageMetricTraits<double, 2> TraitsType;
-  typedef MultiComponentUnweightedNCCImageMetric<TraitsType> MetricType;
+  typedef MultiComponentWeightedNCCImageMetric<TraitsType> MetricType;
 
-  // Create the working image
-  LDDMMType::CompositeImagePointer work = LDDMMType::new_cimg(ref.GetPointer(), 10);
+  // Create the working image, filter will allocate
+  LDDMMType::CompositeImagePointer work = LDDMMType::CompositeImageType::New();
 
   // Run the filter
   MetricType::Pointer metric = MetricType::New();
   metric->SetFixedImage(fix);
   metric->SetMovingImage(mov);
+  metric->SetFixedMaskImage(ncc_mask);
   metric->SetDeformationField(phi);
   metric->SetWeights(vnl_vector<float>(1, 1.0));
   metric->SetComputeGradient(true);
   metric->GetMetricOutput()->Graft(nccmap);
   metric->GetDeformationGradientOutput()->Graft(grad);
-  metric->SetRadius(itk::Size<2>({{2,0}}));
+  metric->SetRadius(radius);
   metric->SetWorkingImage(work);
+
+  // Set the moving mask image for weighted mode
+  if(weighted)
+    {
+    metric->SetWeighted(weighted);
+    metric->SetMovingMaskImage(wgt);
+    }
+
   metric->Update();
 
   // Check the results
-  double test_eps = 1e-6;
+  double test_eps = 1e-5;
   int status = 0;
+  double *expected_NCC = weighted ? expected_NCC_wgt : expected_NCC_unw;
+  double *expected_Gradient = weighted ? expected_Gradient_wgt : expected_Gradient_unw;
   for(unsigned int i = 0; i < 50; i++)
     {
     itk::Index<2> pos({{i,0}});
@@ -292,46 +571,36 @@ int BasicUnweightedNCCGradientTest()
   return status;
 }
 
-int RunWeightedNCCGradientTest(CommandLineHelper &cl)
+template <unsigned int VDim>
+int RWeightedNCCGradientTest(CommandLineHelper &cl)
 {
   // Set up greedy parameters for this test
   GreedyParameters gp;
-  gp.dim = 3;
+  gp.dim = VDim;
   gp.mode = GreedyParameters::GREEDY;
 
-  // TODO: remove later
-  gp.threads = 1;
-
-  // Which phantom to use
-  int phantom_fixed_idx = cl.read_integer();
-  int phantom_moving_idx = cl.read_integer();
-
-  // Read the metric - this determines which image pair to use
-  std::string metric = cl.read_string();
+  // Read required parameters
   double epsilon = cl.read_double();
 
-  // Configure the degrees of freedom
-  if(metric == "NCC")
+  // List of greedy commands that are recognized by this test command
+  std::set<std::string> greedy_cmd {
+    "-m", "-threads", "-i", "-ia"
+  };
+
+  // Parse the parameters
+  std::string arg;
+  while(cl.read_command(arg))
     {
-    gp.metric = GreedyParameters::NCC;
-    gp.metric_radius = std::vector<int>(3, 2);
+    if(greedy_cmd.find(arg) != greedy_cmd.end())
+      gp.ParseCommandLine(arg, cl);
+    else
+      throw GreedyException("Unknown test parameter: %s", arg.c_str());
     }
-  else if(metric == "SSD")
-    gp.metric = GreedyParameters::SSD;
-  else if(metric == "NMI")
-    gp.metric = GreedyParameters::NMI;
-
-  // Set up the input filenames
-  std::string fn_fix = GetFileName("phantom%02d_fixed.nii.gz", phantom_fixed_idx);
-  std::string fn_mov = GetFileName("phantom%02d_moving.nii.gz", phantom_moving_idx);
-  std::string fn_init_rigid = GetFileName("phantom01_rigid.mat");
-
-  gp.inputs.push_back(ImagePairSpec(fn_fix, fn_mov));
 
   // Create a helper
-  typedef GreedyApproach<3> GreedyAPI;
+  typedef GreedyApproach<VDim> GreedyAPI;
   GreedyAPI api;
-  GreedyAPI::OFHelperType of_helper;
+  typename GreedyAPI::OFHelperType of_helper;
 
   // Configure threading
   api.ConfigThreads(gp);
@@ -343,44 +612,79 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
   api.ReadImages(gp, of_helper);
 
   // Generate the initial deformation field
-  GreedyAPI::ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
-  GreedyAPI::VectorImagePointer phi = GreedyAPI::LDDMMType::new_vimg(refspace);
-  GreedyAPI::VectorImagePointer grad_metric = GreedyAPI::LDDMMType::new_vimg(refspace);
-  GreedyAPI::ImagePointer img_metric_1 = GreedyAPI::LDDMMType::new_img(refspace);
-  GreedyAPI::ImagePointer img_metric_2 = GreedyAPI::LDDMMType::new_img(refspace);
+  typename GreedyAPI::ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
+  typename GreedyAPI::VectorImagePointer phi = GreedyAPI::LDDMMType::new_vimg(refspace);
+  typename GreedyAPI::VectorImagePointer grad_metric = GreedyAPI::LDDMMType::new_vimg(refspace);
+  typename GreedyAPI::ImagePointer img_metric_1 = GreedyAPI::LDDMMType::new_img(refspace);
+  typename GreedyAPI::ImagePointer img_metric_2 = GreedyAPI::LDDMMType::new_img(refspace);
 
   // Initialize phi to some dummy value
-  gp.affine_init_mode = RAS_FILENAME;
-  gp.affine_init_transform = fn_init_rigid;
   api.LoadInitialTransform(gp, of_helper, 0, phi);
 
   // Compute the metric and gradient
   MultiComponentMetricReport metric_report;
   api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0);
 
+  // Interpolator to figure out what kind of sample it is
+  typedef LDDMMData<double, VDim> LDDMMType;
+  typedef FastLinearInterpolator<
+      typename LDDMMType::CompositeImageType, double, VDim,
+      typename LDDMMType::ImageType> InterpType;
+
+  InterpType interp(of_helper.GetMovingComposite(0));
+
   // Choose a set of locations to evaluate the metric
-  unsigned int n_samples = 10;
+  unsigned int n_samples = 20;
   struct SampleData {
-    itk::Index<3> pos;
-    double fixed_value, moving_value;
-    GreedyAPI::VectorImageType::PixelType f1, f2, df_analytic, df_numeric;
+    itk::Index<VDim> pos;
+    double fixed_value = 0.0, moving_value = 0.0, weight_value = 0.0;
+    typename GreedyAPI::VectorImageType::PixelType f1, f2, df_analytic, df_numeric;
+    vnl_vector_fixed<double, VDim> grad_W, grad_WM;
+    typename InterpType::InOut status;
   };
   std::vector<SampleData> samples(n_samples);
 
   // Sample random vectors
   vnl_random rnd(12345);
+  unsigned int kind = 0;
   for(auto &s : samples)
     {
-    // We are ok with 1/5 of the samples being outside
-    bool ok_with_zero = rnd.lrand32(1,5) == 5;
-    do
+    // Alternate inside, border, and outside samples
+    typename InterpType::InOut wanted_status = (typename InterpType::InOut) (kind++ % 3);
+
+    // Iterate until we get a sample with the right status
+    for(unsigned int attempt = 0; attempt < 1000; attempt++)
       {
-      for(unsigned int k = 0; k < 3; k++)
+      // Initialize the sample to default values
+      s = SampleData();
+
+      // Create a random sample
+      for(unsigned int k = 0; k < VDim; k++)
         s.pos[k] = rnd.lrand32(0, refspace->GetBufferedRegion().GetSize(k)-1);
+
+      // Look up phi at this location
+      typename GreedyAPI::VectorImageType::PixelType s_phi = phi->GetPixel(s.pos);
+      vnl_vector<double> cix(VDim, 0.0);
+      for(unsigned int k = 0; k < VDim; k++)
+        cix[k] = s.pos[k] + s_phi[k];
+
       s.fixed_value = of_helper.GetFixedComposite(0)->GetPixel(s.pos)[0];
-      s.moving_value = of_helper.GetMovingComposite(0)->GetPixel(s.pos)[0];
+
+      double *p_grad_wm = s.grad_WM.data_block();
+      s.status = interp.InterpolateWithGradient(cix.data_block(), &s.moving_value, &p_grad_wm);
+      switch(s.status)
+        {
+        case InterpType::INSIDE:
+          s.weight_value = 1.0; break;
+        case InterpType::OUTSIDE:
+          s.weight_value = 0.0; break;
+        case InterpType::BORDER:
+          s.weight_value = interp.GetMaskAndGradient(s.grad_W.data_block()); break;
+        }
+
+      if(s.status == wanted_status)
+        break;
       }
-    while(s.fixed_value == 0 && !ok_with_zero);
 
     // Some scaling is unaccounted for
     s.df_analytic = grad_metric->GetPixel(s.pos);
@@ -389,10 +693,11 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
     }
 
   // Compute numerical derivative approximation
+  int retval = 0;
   for(auto &s : samples)
     {
     auto orig = phi->GetPixel(s.pos);
-    for(unsigned int k = 0; k < 3; k++)
+    for(unsigned int k = 0; k < VDim; k++)
       {
       auto def1 = orig, def2 = orig;
       def1[k] -= epsilon;
@@ -416,12 +721,32 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
       phi->SetPixel(s.pos, orig);
       }
 
+    // Compute the error
+    auto err_vec = (s.df_analytic - s.df_numeric).GetVnlVector();
+    double del = err_vec.inf_norm();
+
     // Scale both vectors by 10000
-    printf("Sample [%03ld,%03ld,%03ld]  Int: %6.2f %6.2f   Num: %10.4f %10.4f %10.4f   Anl: %10.4f %10.4f %10.4f\n",
-           s.pos[0], s.pos[1], s.pos[2], s.fixed_value, s.moving_value,
-           s.df_numeric[0], s.df_numeric[1], s.df_numeric[2],
-           s.df_analytic[0], s.df_analytic[1], s.df_analytic[2]);
+    const char *status_names[] = { "INSIDE", "OUTSIDE", "BORDER" };
+    printf("Sample [%s] (%7s)  Num: %s  Anl: %s   Err: %8.2e\n",
+           printf_index("%03ld", s.pos).c_str(),
+           status_names[s.status],
+           printf_vec<VDim,double>("%12.4f", s.df_numeric.GetVnlVector().data_block()).c_str(),
+           printf_vec<VDim,double>("%12.4f", s.df_analytic.GetVnlVector().data_block()).c_str(),
+           del);
+
+    /*
+    std::cout << "W      : " << s.weight_value << std::endl;
+    std::cout << "WM     : " << s.moving_value << std::endl;
+    std::cout << "Grad-W : " << s.grad_W << std::endl;
+    std::cout << "Grad-WM: " << s.grad_WM << std::endl;
+    */
+
+    if(del > 1.0e-4)
+      retval = -1;
     }
+
+  if(retval == 0)
+    std::cout << "Success" << std::endl;
 
   return 0;
 }
@@ -436,6 +761,8 @@ int main(int argc, char *argv[])
     return usage();
 
   CommandLineHelper cl(argc, argv);
+  cl.set_data_root(data_root.c_str());
+
   std::string cmd = cl.read_arg();
   if(cmd == "phantom")
     {
@@ -443,11 +770,25 @@ int main(int argc, char *argv[])
     }
   else if(cmd == "grad_ncc_def")
     {
-    return RunWeightedNCCGradientTest(cl);
+    int dim = cl.read_integer();
+    if(dim == 2)
+      return RWeightedNCCGradientTest<2>(cl);
+    else if (dim == 3)
+      return RWeightedNCCGradientTest<3>(cl);
     }
-  else if(cmd == "grad_ncc_unw_simple")
+  else if(cmd == "ncc_gradient_vs_matlab")
     {
-    return BasicUnweightedNCCGradientTest();
+    int wgt = cl.read_integer();
+    return BasicWeightedNCCGradientTest(wgt != 0);
+    }
+  else if(cmd  == "masked_interpolation_test")
+    {
+    int dim = cl.read_integer();
+    if(dim == 2)
+      return RunMaskedInterpolationTest<2>();
+    else if(dim == 3)
+      return RunMaskedInterpolationTest<3>();
+    else return -1;
     }
   else return usage();
 };

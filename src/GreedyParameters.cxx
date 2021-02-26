@@ -103,6 +103,11 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
       this->metric = GreedyParameters::NCC;
       this->metric_radius = cl.read_int_vector();
       }
+    else if(metric_name == "WNCC" || metric_name == "wncc")
+      {
+      this->metric = GreedyParameters::WNCC;
+      this->metric_radius = cl.read_int_vector();
+      }
     else if(metric_name == "MI" || metric_name == "mi")
       {
       this->metric = GreedyParameters::MI;
@@ -470,6 +475,9 @@ std::string GreedyParameters::GenerateCommandLine()
         break;
       case GreedyParameters::NCC:
         oss << "-m NCC " << this->metric_radius;
+        break;
+      case GreedyParameters::WNCC:
+        oss << "-m WNCC " << this->metric_radius;
         break;
       case GreedyParameters::MI:
         oss << "-m MI";

@@ -1,7 +1,9 @@
 .*.sw?
 .DS_Store
 CMakeLists.txt.user
+CMakeLists.txt.user.*
 *.autosave
 *~
 .8.un~
 docs/_build
+*.asv

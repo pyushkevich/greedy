@@ -149,7 +149,7 @@ public:
       VectorImageType *out_gradient, double result_scaling = 1.0);
 
   /** Compute the NCC metric without gradient */
-  void ComputeNCCMetricImage(int level, VectorImageType *def, const SizeType &radius,
+  void ComputeNCCMetricImage(int level, VectorImageType *def, const SizeType &radius, bool weighted,
                              FloatImageType *out_metric_image, MultiComponentMetricReport &out_metric_report,
                              VectorImageType *out_gradient = NULL, double result_scaling = 1.0);
 

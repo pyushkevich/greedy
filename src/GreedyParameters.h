@@ -254,7 +254,7 @@ std::ostream& operator << (std::ostream &oss, const PerLevelSpec<TAtomic> &val)
 
 struct GreedyParameters
 {
-  enum MetricType { SSD = 0, NCC, MI, NMI, MAHALANOBIS };
+  enum MetricType { SSD = 0, NCC, WNCC, MI, NMI, MAHALANOBIS };
   enum TimeStepMode { CONSTANT=0, SCALE, SCALEDOWN };
   enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, JACOBIAN_WARP, MOMENTS, METRIC };
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
@@ -380,8 +380,14 @@ struct GreedyParameters
   // Optimization parameters
   LBFGSParameters lbfgs_param;
 
+  // Data root (used when testing to provide relative paths)
+  std::string data_root;
+
   // Constructor
   GreedyParameters() { SetToDefaults(*this); }
+
+  // Get an existing filename
+  std::string GetExistingFilename(CommandLineHelper &cl);
 
   // Generate a command line for current parameters
   std::string GenerateCommandLine();

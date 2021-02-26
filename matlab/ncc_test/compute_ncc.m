@@ -1,4 +1,4 @@
-function ncc_FM = compute_ncc(F, M, N, eps)
+function ncc_FM = compute_ncc(F, M, K, N, eps)
 
 % Running sums
 sum_F = conv(F, ones(N,1), 'same');
@@ -14,7 +14,7 @@ cov_FM = N * sum_FM - sum_M .* sum_F;
 
 % Coefficients
 %ncc_FM = cov_FM.^2 ./ (var_F .* var_M);
-ncc_FM = sign(cov_FM) .* cov_FM .* cov_FM ./ (var_F .* var_M);
+ncc_FM = K .* sign(cov_FM) .* cov_FM .* cov_FM ./ (var_F .* var_M);
 
 end
 

@@ -46,6 +46,17 @@ public:
     i = first_arg;
   }
 
+  /**
+   * Set the data root directory. All filenames will be read relative to this
+   */
+  void set_data_root(const char *root = nullptr)
+  {
+    if(root)
+      data_root = root;
+    else
+      data_root = std::string();
+  }
+
   bool is_at_end()
   {
     return i >= argc;
@@ -135,6 +146,9 @@ public:
   std::string read_existing_filename()
   {
     std::string file = read_arg();
+    if(this->data_root.length())
+      file = itksys::SystemTools::CollapseFullPath(file, data_root);
+
     if(!itksys::SystemTools::FileExists(file.c_str()))
       throw GreedyException("File '%s' does not exist", file.c_str());
 
@@ -152,6 +166,10 @@ public:
     TransformSpec ts;
     ts.filename = spec.substr(0, pos);
     ts.exponent = 1.0;
+
+
+    if(this->data_root.length())
+      ts.filename = itksys::SystemTools::CollapseFullPath(ts.filename, data_root);
 
     if(!itksys::SystemTools::FileExists(ts.filename.c_str()))
       throw GreedyException("File '%s' does not exist", ts.filename.c_str());
@@ -177,6 +195,8 @@ public:
   std::string read_output_filename()
   {
     std::string file = read_arg();
+    if(this->data_root.length())
+      file = itksys::SystemTools::CollapseFullPath(file, data_root);
     return file;
   }
 
@@ -343,6 +363,7 @@ private:
   int argc, i;
   char **argv;
   std::string current_command;
+  std::string data_root;
 };
 
 #endif // COMMANDLINEHELPER_H

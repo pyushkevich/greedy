@@ -89,7 +89,7 @@ public:
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, ImageType::ImageDimension );
 
-  enum InOut { INSIDE, OUTSIDE, BORDER };
+  enum InOut { INSIDE = 0, OUTSIDE, BORDER };
 
   /**
    * Get the number that should be added to the input pointer when parsing the input and

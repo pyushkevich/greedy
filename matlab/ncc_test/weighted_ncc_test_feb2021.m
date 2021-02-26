@@ -6,8 +6,13 @@ W=rand(50,1);
 N=5;
 eps=0.01;
 
+% Create a fixed mask
+K=zeros(50,1);
+K(1:22)=1; K(33:45)=1;
+
 fprintf('F = '); fprintf('%d, %d, %d, %d, %d, \n', F); fprintf('\n');
 fprintf('M = '); fprintf('%d, %d, %d, %d, %d, \n', M); fprintf('\n');
+fprintf('K = '); fprintf('%d, %d, %d, %d, %d, \n', K); fprintf('\n');
 fprintf('W = '); fprintf('%d, %d, %d, %d, %d, \n', W); fprintf('\n');
 
 
@@ -27,30 +32,30 @@ var_M =  sum_W .* sum_WMM - sum_WM .* sum_WM + eps;
 cov_FM = sum_W .* sum_WFM - sum_WM .* sum_WF;
 
 % Coefficients
-ncc_FM = cov_FM.^2 ./ (var_F .* var_M);
+ncc_FM = K .* sign(cov_FM) .* cov_FM.^2 ./ (var_F .* var_M);
 
 %% Compute the derivative of the total weighted NCC with respect to M
 
 % Define the Q quantities
-Q1 = cov_FM ./ (var_F .* var_M);
-Q2 = ncc_FM ./ var_F;
-Q3 = ncc_FM ./ var_M;
+Q_fm = abs(cov_FM) ./ (var_F .* var_M);
+Q_f = ncc_FM ./ var_F;
+Q_m = ncc_FM ./ var_M;
 
 % Define the y quantities
-y1 = sum_W .* Q1;
-y2 = sum_W .* Q2;
-y3 = sum_W .* Q3;
-y4 = (sum_WM .* Q3 - sum_WF .* Q1);
-y5 = (sum_WF .* Q2 - sum_WM .* Q1);
-y6 = 2 * sum_WFM .* Q1 - sum_WFF .* Q2 - sum_WMM .* Q3;
+y1 = sum_W .* Q_fm;
+y2 = sum_W .* Q_f;
+y3 = sum_W .* Q_m;
+y4 = (sum_WM .* Q_m - sum_WF .* Q_fm);
+y5 = (sum_WF .* Q_f - sum_WM .* Q_fm);
+y6 = 2 * sum_WFM .* Q_fm - sum_WFF .* Q_f - sum_WMM .* Q_m;
 
 % Convolve to get the z quantities
-z1 = conv(y1, ones(N,1), 'same');
-z2 = conv(y2, ones(N,1), 'same');
-z3 = conv(y3, ones(N,1), 'same');
-z4 = conv(y4, ones(N,1), 'same');
-z5 = conv(y5, ones(N,1), 'same');
-z6 = conv(y6, ones(N,1), 'same');
+z1 = conv(K .* y1, ones(N,1), 'same');
+z2 = conv(K .* y2, ones(N,1), 'same');
+z3 = conv(K .* y3, ones(N,1), 'same');
+z4 = conv(K .* y4, ones(N,1), 'same');
+z5 = conv(K .* y5, ones(N,1), 'same');
+z6 = conv(K .* y6, ones(N,1), 'same');
 
 % Define the derivatives wrt to M and W
 DM = 2 * W .* (F .* z1 - M .* z3 + z4); 
@@ -63,14 +68,14 @@ DW_num = zeros(50,1);
 for p = 1:50
     M1 = M; M1(p) = M(p) - eps2;
     M2 = M; M2(p) = M(p) + eps2;
-    ncc1 = sum(compute_wncc(W, F, M1, N, eps));
-    ncc2 = sum(compute_wncc(W, F, M2, N, eps));
+    ncc1 = sum(compute_wncc(W, F, M1, K, N, eps));
+    ncc2 = sum(compute_wncc(W, F, M2, K, N, eps));
     DM_num(p) = (ncc2-ncc1) / (2 * eps2);
 
     W1 = W; W1(p) = W(p) - eps2;
     W2 = W; W2(p) = W(p) + eps2;
-    ncc1 = sum(compute_wncc(W1, F, M, N, eps));
-    ncc2 = sum(compute_wncc(W2, F, M, N, eps));
+    ncc1 = sum(compute_wncc(W1, F, M, K, N, eps));
+    ncc2 = sum(compute_wncc(W2, F, M, K, N, eps));
     DW_num(p) = (ncc2-ncc1) / (2 * eps2);
 end
 
@@ -83,3 +88,16 @@ plot(DM, 'b');
 plot(DM_num, 'bo');
 
 fprintf('Max error DM: %f,  DW: %f\n', max(abs(DM - DM_num)), max(abs(DW - DW_num)));
+
+%% Print expected gradients in Greedy
+grad_M = conv(M, [1,-1], 'same');
+grad_W = conv(W, [1,-1], 'same');
+grad_MW = conv(W .* M, [1,-1], 'same');
+
+% Calculate the weights of the gradients
+D_Phi = grad_MW .* (DM ./ W) + grad_W .* (DW - M .* DM ./ W);
+
+fprintf('Metric = '); fprintf('%d, %d, %d, %d, %d, \n', ncc_FM); fprintf('\n');
+fprintf('D_phi = '); fprintf('%d, %d, %d, %d, %d, \n', D_Phi); fprintf('\n');
+
+

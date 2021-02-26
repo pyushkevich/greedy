@@ -24,8 +24,8 @@
   along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
-#ifndef MULTICOMPONENTWEIGHTEDNCCIMAGEMETRIC_H
-#define MULTICOMPONENTWEIGHTEDNCCIMAGEMETRIC_H
+#ifndef MULTICOMPONENTWeightedNCCIMAGEMETRIC_H
+#define MULTICOMPONENTWeightedNCCIMAGEMETRIC_H
 
 #include "MultiComponentImageMetricBase.h"
 
@@ -85,6 +85,12 @@ public:
   /** Get the radius of the cross-correlation */
   itkGetMacro(Radius, SizeType)
 
+  /** Set whether the NCC should be weighted by the fixed and moving masks */
+  itkSetMacro(Weighted, bool)
+
+  /** Get the radius of the cross-correlation */
+  itkGetMacro(Weighted, bool)
+
   /**
    * Set the working memory image for this filter. This function should be used to prevent
    * repeated allocation of memory when the metric is created/destructed in a loop. The
@@ -117,7 +123,7 @@ public:
 
 protected:
   MultiComponentWeightedNCCImageMetric()
-    : m_ReuseWorkingImageFixedComponents(false)
+    : m_ReuseWorkingImageFixedComponents(false), m_Weighted(false)
     { m_Radius.Fill(1); }
 
   ~MultiComponentWeightedNCCImageMetric() {}
@@ -129,10 +135,13 @@ protected:
   void PrecomputeAccumulatedComponents(const OutputImageRegionType &region);
 
   // Function to compute the metric and gradient at a pixel
-  void PostAccumulationComputeMetricAndGradient(
-      const InputComponentType *ptr, const WeightVectorType &comp_weights,
-      MetricPixelType *ptr_metric, MetricPixelType *ptr_comp_metrics,
-      GradientPixelType *ptr_gradient);
+  void ComputeNCCAndGradientAccumulatedComponents(const OutputImageRegionType &outputRegionForThread);
+
+  // Function to compute the metric and gradient at a pixel
+  void ComputeNCCGradient(const OutputImageRegionType &outputRegionForThread);
+
+  // Accumulate some components of the working image (i.e., running sums)
+  void AccumulateWorkingImageComponents(unsigned int comp_begin, unsigned int comp_end);
 
 private:
   MultiComponentWeightedNCCImageMetric(const Self&); //purposely not implemented
@@ -146,8 +155,22 @@ private:
   // if the filter is being run repeatedly on the same image
   bool m_ReuseWorkingImageFixedComponents;
 
-  // Number of accumulated components, set in GenerateData
-  unsigned int m_AccumulatedComponents;
+  // Are we computing gradient
+  bool m_NeedGradient;
+
+  // Is the NCC weighted by the moving mask?
+  bool m_Weighted;
+
+  // Common values across the functions called internally
+  unsigned int m_InputComponents;
+  unsigned int m_FirstPassAccumComponents, m_FirstPassSavedComponents;
+  unsigned int m_SecondPassAccumComponents;
+  unsigned int m_SavedComponentsOffset;
+  unsigned int m_TotalWorkingImageComponents;
+
+  // Iterator types
+  typedef itk::ImageLinearConstIteratorWithIndex<InputImageType> InputIteratorTypeBase;
+  typedef IteratorExtender<InputIteratorTypeBase> InputIteratorType;
 
   // Radius of the cross-correlation
   SizeType m_Radius;
@@ -159,4 +182,4 @@ private:
 #endif
 
 
-#endif // MULTICOMPONENTWEIGHTEDNCCIMAGEMETRIC_H
+#endif // MULTICOMPONENTWeightedNCCIMAGEMETRIC_H

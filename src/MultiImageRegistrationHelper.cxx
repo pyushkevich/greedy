@@ -36,7 +36,6 @@
 #include "MultiComponentNCCImageMetric.h"
 #include "MultiComponentMutualInfoImageMetric.h"
 #include "MultiComponentWeightedNCCImageMetric.h"
-#include "MultiComponentUnweightedNCCImageMetric.h"
 #include "MahalanobisDistanceToTargetWarpMetric.h"
 #include "itkVectorIndexSelectionCastImageFilter.h"
 #include "OneDimensionalInPlaceAccumulateFilter.h"
@@ -653,6 +652,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeNCCMetricImage(int level,
                         VectorImageType *def,
                         const SizeType &radius,
+                        bool weighted,
                         FloatImageType *out_metric_image,
                         MultiComponentMetricReport &out_metric_report,
                         VectorImageType *out_gradient,
@@ -661,7 +661,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
   // typedef MultiComponentNCCImageMetric<TraitsType> FilterType;
   // typedef MultiComponentWeightedNCCImageMetric<TraitsType> FilterType;
-  typedef MultiComponentUnweightedNCCImageMetric<TraitsType> FilterType;
+  typedef MultiComponentWeightedNCCImageMetric<TraitsType> FilterType;
 
   typename FilterType::Pointer filter = FilterType::New();
 
@@ -694,7 +694,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetReuseWorkingImageFixedComponents(!first_run);
   filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
   filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
-
+  filter->SetWeighted(weighted);
 
   // TODO: support moving masks...
   // filter->SetMovingMaskImage(m_MovingMaskComposite[level]);

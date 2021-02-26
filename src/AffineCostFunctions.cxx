@@ -97,6 +97,7 @@ PureAffineCostFunction<VDim, TReal>
   // it is more readable if it is scaled by some large factor
   double metric_scale =
       (m_Param->metric == GreedyParameters::NCC
+       || m_Param->metric == GreedyParameters::WNCC
        || m_Param->metric == GreedyParameters::MI
        || m_Param->metric == GreedyParameters::NMI)
       ? -10000.0 : 1.0;
@@ -117,6 +118,12 @@ PureAffineCostFunction<VDim, TReal>
 
     }
   else if(m_Param->metric == GreedyParameters::NCC)
+    {
+    m_OFHelper->ComputeAffineNCCMatchAndGradient(
+          m_Level, tran, array_caster<VDim>::to_itkSize(m_Param->metric_radius),
+          m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, out_metric, grad);
+    }
+  else if(m_Param->metric == GreedyParameters::WNCC)
     {
     m_OFHelper->ComputeAffineNCCMatchAndGradient(
           m_Level, tran, array_caster<VDim>::to_itkSize(m_Param->metric_radius),

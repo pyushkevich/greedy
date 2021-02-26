@@ -136,8 +136,6 @@ SET(HEADERS
   src/ITKFilters/include/MultiComponentMutualInfoImageMetric.txx
   src/ITKFilters/include/MultiComponentNCCImageMetric.h
   src/ITKFilters/include/MultiComponentNCCImageMetric.txx
-  src/ITKFilters/include/MultiComponentUnweightedNCCImageMetric.h
-  src/ITKFilters/include/MultiComponentUnweightedNCCImageMetric.txx
   src/ITKFilters/include/MultiComponentWeightedNCCImageMetric.h
   src/ITKFilters/include/MultiComponentWeightedNCCImageMetric.txx
   src/ITKFilters/include/MultiImageOpticalFlowImageFilter.h
@@ -231,6 +229,15 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
 
   # Path to the test data
   SET(TESTING_DATADIR ${CMAKE_CURRENT_SOURCE_DIR}/testing/data)
+
+  # Add NCC metric Matlab regression tests
+  ADD_TEST(NAME "NCC_Matlab_Regression" COMMAND test_greedy ncc_gradient_vs_matlab 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "WNCC_Matlab_Regression" COMMAND test_greedy ncc_gradient_vs_matlab 1 WORKING_DIRECTORY ${TESTING_DATADIR})
+
+  # Add derivative tests
+  ADD_TEST(NAME "Point_Gradient_WNCC_NoMask" COMMAND test_greedy grad_ncc_def 2 0.0001 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid.mat -m WNCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Point_Gradient_NCC_NoMask" COMMAND test_greedy grad_ncc_def 2 0.0001 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid.mat -m NCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Point_Gradient_SSD_NoMask" COMMAND test_greedy grad_ncc_def 2 0.0001 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid.mat -m SSD WORKING_DIRECTORY ${TESTING_DATADIR})
 
   # Add the phantom series of tests
   ADD_TEST(NAME "Phantom_NMI_Affine_Mask" COMMAND test_greedy phantom 2 3 NMI 12 1 WORKING_DIRECTORY ${TESTING_DATADIR})

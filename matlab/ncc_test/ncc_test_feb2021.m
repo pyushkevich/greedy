@@ -1,12 +1,18 @@
 %% Create fixed and moving arrays
 rng(12345,'twister')
-F=rand(50,1);
-M=rand(50,1);
+F=randn(50,1);
+M=randn(50,1);
 N=5;
 eps=0.01;
 
+% Create a fixed mask
+K=zeros(50,1);
+K(1:22)=1; K(33:45)=1;
+
 fprintf('F = '); fprintf('%d, %d, %d, %d, %d, \n', F); fprintf('\n');
 fprintf('M = '); fprintf('%d, %d, %d, %d, %d, \n', M); fprintf('\n');
+fprintf('K = '); fprintf('%d, %d, %d, %d, %d, \n', K); fprintf('\n');
+
 
 %% Compute the components of NCC
 
@@ -23,18 +29,18 @@ var_M = N * sum_MM - sum_M .* sum_M + eps;
 cov_FM = N * sum_FM - sum_M .* sum_F;
 
 % Coefficients
-ncc_FM = sign(cov_FM) .* cov_FM .* cov_FM ./ (var_F .* var_M);
+ncc_FM = K .* sign(cov_FM) .* cov_FM .* cov_FM ./ (var_F .* var_M);
 
 %% Compute the derivative of the total NCC with respect to M
 
 y1 = N * abs(cov_FM) ./ (var_F .* var_M);
-z1 = conv(y1, ones(N,1), 'same') .* F;
+z1 = conv(K .* y1, ones(N,1), 'same') .* F;
 
 y2 = - N * ncc_FM ./ var_M;
-z2 = conv(y2, ones(N,1), 'same') .* M;
+z2 = conv(K .* y2, ones(N,1), 'same') .* M;
 
 y3 = - (abs(cov_FM) ./ (var_F .* var_M)) .* sum_F + (ncc_FM ./ var_M) .* sum_M;
-z3 = conv(y3, ones(N,1), 'same');
+z3 = conv(K .* y3, ones(N,1), 'same');
 
 Dm = 2 * (z1+z2+z3);
 
@@ -45,8 +51,8 @@ d_num = zeros(50,1);
 for p = 1:50
     M1 = M; M1(p) = M(p) - eps2;
     M2 = M; M2(p) = M(p) + eps2;
-    ncc1 = sum(compute_ncc(F, M1, N, eps));
-    ncc2 = sum(compute_ncc(F, M2, N, eps));
+    ncc1 = sum(compute_ncc(F, M1, K, N, eps));
+    ncc2 = sum(compute_ncc(F, M2, K, N, eps));
     d_num(p) = (ncc2-ncc1) / (2 * eps2);
 end
 

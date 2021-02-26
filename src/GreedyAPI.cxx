@@ -514,6 +514,9 @@ void GreedyApproach<VDim, TReal>
   typename OFHelperType::ImageBaseType *ref_space = nullptr;
 
   // Read the input images and stick them into an image array
+  if(param.inputs.size() == 0)
+    throw GreedyException("No image inputs have been specified");
+
   for(unsigned int i = 0; i < param.inputs.size(); i++)
     {
     // Read fixed and moving images
@@ -603,13 +606,16 @@ void GreedyApproach<VDim, TReal>
 
   // Generate the optimized composite images. For the NCC metric, we add random noise to
   // the composite images, specified in units of the interquartile intensity range.
-  double noise = (param.metric == GreedyParameters::NCC) ? param.ncc_noise_factor : 0.0;
+  bool ncc_metric = param.metric == GreedyParameters::NCC
+                    || param.metric == GreedyParameters::WNCC;
+
+  double noise = ncc_metric ? param.ncc_noise_factor : 0.0;
 
   // Build the composite images
   ofhelper.BuildCompositeImages(noise);
 
   // If the metric is NCC, then also apply special processing to the gradient masks
-  if(param.metric == GreedyParameters::NCC)
+  if(ncc_metric)
     ofhelper.DilateCompositeGradientMasksForNCC(array_caster<VDim>::to_itkSize(param.metric_radius));
 }
 
@@ -1273,9 +1279,20 @@ void GreedyApproach<VDim, TReal>
     itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
 
     // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
-    of_helper.ComputeNCCMetricImage(level, phi, radius, out_metric_image, metric_report, out_metric_gradient, eps);
+    of_helper.ComputeNCCMetricImage(level, phi, radius, false, out_metric_image, metric_report, out_metric_gradient, eps);
     metric_report.Scale(1.0 / eps);
     }
+
+  else if(param.metric == GreedyParameters::WNCC)
+    {
+    itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
+
+    // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
+    // TODO: configure weighting
+    of_helper.ComputeNCCMetricImage(level, phi, radius, true, out_metric_image, metric_report, out_metric_gradient, eps);
+    metric_report.Scale(1.0 / eps);
+    }
+
   else if(param.metric == GreedyParameters::MAHALANOBIS)
     {
     of_helper.ComputeMahalanobisMetricImage(level, phi, out_metric_image, metric_report, out_metric_gradient);
@@ -1878,7 +1895,16 @@ int GreedyApproach<VDim, TReal>
     itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
 
     // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
-    of_helper.ComputeNCCMetricImage(0, uFull, radius, iTemp, metric_report, uk1, 1.0);
+    of_helper.ComputeNCCMetricImage(0, uFull, radius, false, iTemp, metric_report, uk1, 1.0);
+    }
+
+  else if(param.metric == GreedyParameters::WNCC)
+    {
+    itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
+
+    // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
+    // TODO: handle weighting
+    of_helper.ComputeNCCMetricImage(0, uFull, radius, true, iTemp, metric_report, uk1, 1.0);
     }
   else if(param.metric == GreedyParameters::MAHALANOBIS)
     {
@@ -1899,7 +1925,7 @@ int GreedyApproach<VDim, TReal>
 ::RunBrute(GreedyParameters &param)
 {
   // Check for valid parameters
-  if(param.metric != GreedyParameters::NCC)
+  if(param.metric != GreedyParameters::NCC && param.metric != GreedyParameters::WNCC)
     {
     std::cerr << "Brute force search requires NCC metric only" << std::endl;
     return -1;
@@ -1952,7 +1978,7 @@ int GreedyApproach<VDim, TReal>
 
     // Perform interpolation and metric computation
     MultiComponentMetricReport metric_report;
-    of_helper.ComputeNCCMetricImage(0, u_curr, metric_rad, m_curr, metric_report);
+    of_helper.ComputeNCCMetricImage(0, u_curr, metric_rad, false, m_curr, metric_report);
 
     // Temp: keep track of number of updates
     unsigned long n_updates = 0;
