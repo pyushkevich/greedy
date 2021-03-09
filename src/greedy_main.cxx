@@ -62,7 +62,8 @@ int usage()
   printf("Required options: \n");
   printf("  -d DIM                 : Number of image dimensions\n");
   printf("  -i fix.nii mov.nii     : Image pair (may be repeated)\n");
-  printf("  -o output.nii          : Output file\n");
+  printf("  -o <file>              : Output file (matrix in affine mode; image in deformable mode, \n");
+  printf("                           metric computation mode; ignored in reslicing mode)\n");
   printf("Mode specification: \n");
   printf("  -a                     : Perform affine registration and save to output (-o)\n");
   printf("  -brute radius          : Perform a brute force search around each voxel \n");
@@ -143,6 +144,8 @@ int usage()
   printf("  -rb value              : background (i.e. outside) intensity for the next pair (default 0)\n");
   printf("  -rc outwarp            : write composed transforms to outwarp \n");
   printf("  -rj outjacobian        : write Jacobian determinant image to outjacobian \n");
+  printf("Specific to metric computation mode (-metric): \n");
+  printf("  -og out.nii            : write the gradient of the metric to file\n");
   printf("For developers: \n");
   printf("  -debug-deriv           : enable periodic checks of derivatives (debug) \n");
   printf("  -debug-deriv-eps       : epsilon for derivative debugging \n");
@@ -153,7 +156,8 @@ int usage()
   printf("  -float                 : use single precision floating point (off by default)\n");
   printf("  -version               : print version info\n");
   printf("  -V <level>             : set verbosity level (0: none, 1: default, 2: verbose)\n");
-
+  printf("Environment variables: \n");
+  printf("  GREEDY_DATA_ROOT       : if set, filenames can be specified relative to this path\n");
   return -1;
 }
 
@@ -185,7 +189,16 @@ int main(int argc, char *argv[])
 
   try
   {
-    CommandLineHelper cl(argc, argv);
+    CommandLineHelper cl(argc, argv);    
+
+    // Check for the environment variable specifying data root
+    std::string data_root;
+    if(itksys::SystemTools::GetEnv("GREEDY_DATA_ROOT", data_root))
+      {
+      printf("Greedy data root is %s\n", data_root.c_str());
+      cl.set_data_root(data_root.c_str());
+      }
+
     while(!cl.is_at_end())
       {
       // Read the next command

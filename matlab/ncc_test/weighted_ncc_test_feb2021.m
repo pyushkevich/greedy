@@ -6,6 +6,9 @@ W=rand(50,1);
 N=5;
 eps=0.01;
 
+% Exponent for the weight coefficient
+p = 2;
+
 % Create a fixed mask
 K=zeros(50,1);
 K(1:22)=1; K(33:45)=1;
@@ -31,8 +34,12 @@ var_F =  sum_W .* sum_WFF - sum_WF .* sum_WF + eps;
 var_M =  sum_W .* sum_WMM - sum_WM .* sum_WM + eps;
 cov_FM = sum_W .* sum_WFM - sum_WM .* sum_WF;
 
+% Weight scaling
+w_scale = (sum_W / N).^p;
+
 % Coefficients
 ncc_FM = K .* sign(cov_FM) .* cov_FM.^2 ./ (var_F .* var_M);
+ncc_FM_scaled = w_scale .* ncc_FM;
 
 %% Compute the derivative of the total weighted NCC with respect to M
 
@@ -50,12 +57,12 @@ y5 = (sum_WF .* Q_f - sum_WM .* Q_fm);
 y6 = 2 * sum_WFM .* Q_fm - sum_WFF .* Q_f - sum_WMM .* Q_m;
 
 % Convolve to get the z quantities
-z1 = conv(K .* y1, ones(N,1), 'same');
-z2 = conv(K .* y2, ones(N,1), 'same');
-z3 = conv(K .* y3, ones(N,1), 'same');
-z4 = conv(K .* y4, ones(N,1), 'same');
-z5 = conv(K .* y5, ones(N,1), 'same');
-z6 = conv(K .* y6, ones(N,1), 'same');
+z1 = conv(w_scale .* K .* y1, ones(N,1), 'same');
+z2 = conv(w_scale .* K .* y2, ones(N,1), 'same');
+z3 = conv(w_scale .* K .* y3, ones(N,1), 'same');
+z4 = conv(w_scale .* K .* y4, ones(N,1), 'same');
+z5 = conv(w_scale .* K .* y5, ones(N,1), 'same');
+z6 = conv(w_scale .* K .* y6 + p * ncc_FM_scaled ./ sum_W, ones(N,1), 'same');
 
 % Define the derivatives wrt to M and W
 DM = 2 * W .* (F .* z1 - M .* z3 + z4); 
@@ -65,18 +72,18 @@ DW = 2*(F.*z5 + M.*z4 + F.*M.*z1) - F.^2 .* z2 - M.^2 .* z3 + z6;
 eps2 = 0.0001;
 DM_num = zeros(50,1);
 DW_num = zeros(50,1);
-for p = 1:50
-    M1 = M; M1(p) = M(p) - eps2;
-    M2 = M; M2(p) = M(p) + eps2;
-    ncc1 = sum(compute_wncc(W, F, M1, K, N, eps));
-    ncc2 = sum(compute_wncc(W, F, M2, K, N, eps));
-    DM_num(p) = (ncc2-ncc1) / (2 * eps2);
+for pt = 1:50
+    M1 = M; M1(pt) = M(pt) - eps2;
+    M2 = M; M2(pt) = M(pt) + eps2;
+    ncc1 = sum(compute_wncc(W, F, M1, K, N, p, eps));
+    ncc2 = sum(compute_wncc(W, F, M2, K, N, p, eps));
+    DM_num(pt) = (ncc2-ncc1) / (2 * eps2);
 
-    W1 = W; W1(p) = W(p) - eps2;
-    W2 = W; W2(p) = W(p) + eps2;
-    ncc1 = sum(compute_wncc(W1, F, M, K, N, eps));
-    ncc2 = sum(compute_wncc(W2, F, M, K, N, eps));
-    DW_num(p) = (ncc2-ncc1) / (2 * eps2);
+    W1 = W; W1(pt) = W(pt) - eps2;
+    W2 = W; W2(pt) = W(pt) + eps2;
+    ncc1 = sum(compute_wncc(W1, F, M, K, N, p, eps));
+    ncc2 = sum(compute_wncc(W2, F, M, K, N, p, eps));
+    DW_num(pt) = (ncc2-ncc1) / (2 * eps2);
 end
 
 clf;
@@ -97,7 +104,7 @@ grad_MW = conv(W .* M, [1,-1], 'same');
 % Calculate the weights of the gradients
 D_Phi = grad_MW .* (DM ./ W) + grad_W .* (DW - M .* DM ./ W);
 
-fprintf('Metric = '); fprintf('%d, %d, %d, %d, %d, \n', ncc_FM); fprintf('\n');
+fprintf('Metric = '); fprintf('%d, %d, %d, %d, %d, \n', ncc_FM_scaled); fprintf('\n');
 fprintf('D_phi = '); fprintf('%d, %d, %d, %d, %d, \n', D_Phi); fprintf('\n');
 
 

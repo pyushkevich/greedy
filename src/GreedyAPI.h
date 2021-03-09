@@ -203,6 +203,29 @@ public:
       GreedyParameters &param, OFHelperType &of_helper,
       unsigned int level, VectorImageType *phi);
 
+
+  /**
+   * Generate an affine cost function for given level based on parameter values
+   */
+  AbstractAffineCostFunction<VDim, TReal> *CreateAffineCostFunction(
+      GreedyParameters &param, OFHelperType &of_helper, int level);
+
+  /**
+   * Initialize affine transform (to identity, filename, etc.) based on the
+   * parameter values; resulting transform is placed into tLevel.
+   */
+  void InitializeAffineTransform(
+      GreedyParameters &param, OFHelperType &of_helper,
+      AbstractAffineCostFunction<VDim, TReal> *acf,
+      LinearTransformType *tLevel);
+
+  /**
+   * Check the derivatives of affine transform
+   */
+  int CheckAffineDerivatives(GreedyParameters &param, OFHelperType &of_helper,
+                             AbstractAffineCostFunction<VDim, TReal> *acf,
+                             LinearTransformType *tLevel, int level, double tol);
+
 protected:
 
   struct CacheEntry {
@@ -254,19 +277,6 @@ protected:
 
   // friend class PureAffineCostFunction<VDim, TReal>;
 
-};
-
-// Little helper functions
-template <unsigned int VDim> class array_caster
-{
-public:
-  template <class T> static itk::Size<VDim> to_itkSize(const T &t)
-  {
-    itk::Size<VDim> sz;
-    for(int i = 0; i < VDim; i++)
-      sz[i] = t[i];
-    return sz;
-  }
 };
 
 

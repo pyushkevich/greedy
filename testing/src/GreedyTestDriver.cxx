@@ -29,9 +29,12 @@ int usage()
   printf("  ncc_gradient_vs_matlab <0|1>\n");
   printf("        : test new (2021) NCC metric gradients vs. MATLAB code. \n");
   printf("          0 for unweighted, 1 for weighted\n");
-  printf("  grad_ncc_def <2|3> <eps> <greedy_opts>\n");
+  printf("  grad_metric_phi <2|3> <eps> <tol> <greedy_opts>\n");
   printf("        : check gradients of various metrics with respect to phi\n");
-  printf("          Greedy options: -i, -it, -m \n");
+  printf("          Greedy options: -i, -it, -m, -gm, -mm \n");
+  printf("  grad_metric_aff <2|3> <eps> <tol> <greedy_opts>\n");
+  printf("        : check gradients of various metrics with respect to affine transforms\n");
+  printf("          Greedy options: -i, -ia, -m, -gm, -mm \n");
   return -1;
 }
 
@@ -226,6 +229,11 @@ int RunPhantomTest(CommandLineHelper &cl)
     gp.metric = GreedyParameters::NCC;
     gp.metric_radius = std::vector<int>(3, 2);
     }
+  else if(metric == "WNCC")
+    {
+    gp.metric = GreedyParameters::NCC;
+    gp.metric_radius = std::vector<int>(3, 2);
+    }
   else if(metric == "SSD")
     gp.metric = GreedyParameters::SSD;
   else if(metric == "NMI")
@@ -243,6 +251,9 @@ int RunPhantomTest(CommandLineHelper &cl)
   gp.affine_dof = dof == 6 ? GreedyParameters::DOF_RIGID : (
                                dof == 7 ? GreedyParameters::DOF_SIMILARITY :
                                           GreedyParameters::DOF_AFFINE);
+
+  // Set number of steps
+  gp.iter_per_level = {{40, 100, 0}};
 
   // Store transform somewhere
   gp.output = "my_transform";
@@ -438,28 +449,28 @@ int BasicWeightedNCCGradientTest(bool weighted)
     6.263267e-02, 5.878134e-03, 0, 0, 0};
 
   double expected_NCC_wgt[] = {
-    -6.783347e-05, -1.209608e-02, -1.216645e-02, -3.145297e-01, -2.951123e-01,
-    -1.827587e-02, 4.455210e-04, -9.904323e-03, -2.306311e-01, -1.395191e-01,
-    -2.457094e-02, 1.055434e-02, 8.659226e-04, 2.328962e-01, 6.223571e-01,
-    8.244452e-01, 7.153239e-01, 6.890416e-01, 6.181410e-01, 3.952532e-01,
-    5.445151e-01, -9.283418e-03, 0, 0, 0,
+    -3.387199e-06, -7.008272e-04, -8.822945e-04, -3.494058e-02, -5.015853e-02,
+    -3.836841e-03, 1.449632e-04, -4.290233e-03, -1.121110e-01, -5.188574e-02,
+    -9.400475e-03, 3.520195e-03, 1.874769e-04, 6.177238e-02, 2.203093e-01,
+    2.208611e-01, 2.288297e-01, 2.995991e-01, 2.633902e-01, 1.546403e-01,
+    1.571882e-01, -2.455656e-03, 0, 0, 0,
     0, 0, 0, 0, 0,
-    0, 0, -8.111227e-01, -9.633557e-01, -9.742135e-01,
-    -1.314108e-01, 9.382642e-01, 9.015423e-01, 7.771332e-01, 2.858264e-01,
-    -3.754922e-01, -1.817352e-01, 2.727660e-02, 2.246005e-02, -6.401540e-04,
+    0, 0, -2.253506e-01, -2.575235e-01, -2.574806e-01,
+    -4.077543e-02, 3.064733e-01, 1.896074e-01, 1.492842e-01, 8.882288e-02,
+    -7.555127e-02, -1.883038e-02, 2.868920e-03, 4.256522e-03, -8.818908e-05,
     0, 0, 0, 0, 0};
 
   double expected_Gradient_wgt[] = {
-    -3.875903e-01, -1.144399e+00, 2.467128e-01, 3.398285e-01, -1.154997e-02,
-    -1.328112e-01, -4.407790e-01, -3.505181e-01, -2.132439e-01, 5.508860e-01,
-    7.718768e-02, 1.162204e-03, 1.402599e+00, -2.590598e-01, -1.845625e+00,
-    -2.856246e-01, -3.530243e-01, 4.145780e+00, -9.768178e-01, -5.824020e-01,
-    4.891174e-01, 2.938374e-01, 9.289795e-02, 9.123830e-02, 0,
+    -2.528125e-02, -1.329148e-01, 8.359985e-02, 4.259147e-02, -1.541739e-02,
+    -7.276558e-02, -1.552503e-01, -1.459809e-01, -8.088831e-02, 2.298587e-01,
+    7.944193e-02, -1.273084e-02, 3.623903e-01, -2.268911e-01, -4.689008e-02,
+    -3.271123e-01, -2.504951e-01, 1.671103e+00, -4.946397e-01, 2.022376e-02,
+    3.372227e-02, -2.516246e-03, 8.430814e-02, 2.404325e-02, 0,
     0, 0, 0, 0, 0,
-    -5.200793e-02, -6.870026e-01, 5.359363e-01, 5.150674e-01, -4.261279e-02,
-    1.372880e-02, -2.291784e+00, -8.643115e-01, -2.399582e-01, 4.495527e-02,
-    -5.386539e-01, 4.019298e-01, 1.851419e-01, 1.229307e+00, 9.423615e-03,
-    7.215873e-02, 5.581721e-03, 0, 0, 0};
+    5.992563e-02, -4.320686e-01, 1.330648e-01, 1.425765e-01, 1.107269e-01,
+    2.091409e-02, -3.343489e-01, -2.935259e-01, -3.762383e-01, 8.257934e-02,
+    -8.143800e-02, 9.420128e-02, 4.291498e-02, 1.379273e-01, 1.024425e-02,
+    1.082144e-02, 7.409055e-04, 0, 0, 0};
 
   // Generate images from this data
   typedef LDDMMData<double, 2> LDDMMType;
@@ -537,6 +548,7 @@ int BasicWeightedNCCGradientTest(bool weighted)
   if(weighted)
     {
     metric->SetWeighted(weighted);
+    metric->SetWeightScalingExponent(2);
     metric->SetMovingMaskImage(wgt);
     }
 
@@ -573,7 +585,7 @@ int BasicWeightedNCCGradientTest(bool weighted)
 }
 
 template <unsigned int VDim>
-int RunWeightedNCCGradientTest(CommandLineHelper &cl)
+int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
 {
   // Set up greedy parameters for this test
   GreedyParameters gp;
@@ -582,10 +594,11 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
 
   // Read required parameters
   double epsilon = cl.read_double();
+  double tol = cl.read_double();
 
   // List of greedy commands that are recognized by this test command
   std::set<std::string> greedy_cmd {
-    "-m", "-threads", "-i", "-ia"
+    "-m", "-threads", "-i", "-it", "-gm", "-mm", "-ia"
   };
 
   // Parse the parameters
@@ -639,6 +652,7 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
   struct SampleData {
     itk::Index<VDim> pos;
     double fixed_value = 0.0, moving_value = 0.0, weight_value = 0.0;
+    double mask_vol = 0.0;
     typename GreedyAPI::VectorImageType::PixelType f1, f2, df_analytic, df_numeric;
     vnl_vector_fixed<double, VDim> grad_W, grad_WM;
     typename InterpType::InOut status;
@@ -648,8 +662,10 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
   // Sample random vectors
   vnl_random rnd(12345);
   unsigned int kind = 0;
-  for(auto &s : samples)
+  for(unsigned int is = 0; is < n_samples; is++)
     {
+    SampleData &s = samples[is];
+
     // Alternate inside, border, and outside samples
     typename InterpType::InOut wanted_status = (typename InterpType::InOut) (kind++ % 3);
 
@@ -662,6 +678,13 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
       // Create a random sample
       for(unsigned int k = 0; k < VDim; k++)
         s.pos[k] = rnd.lrand32(0, refspace->GetBufferedRegion().GetSize(k)-1);
+
+      // TODO: remove this exception
+      if(is == 0)
+        {
+        s.pos[0] = 97;
+        s.pos[1] = 58;
+        }
 
       // Look up phi at this location
       typename GreedyAPI::VectorImageType::PixelType s_phi = phi->GetPixel(s.pos);
@@ -683,7 +706,7 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
           s.weight_value = interp.GetMaskAndGradient(s.grad_W.data_block()); break;
         }
 
-      if(s.status == wanted_status)
+      if(s.status == wanted_status || is == 0)
         break;
       }
 
@@ -691,6 +714,8 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
     s.df_analytic = grad_metric->GetPixel(s.pos);
     if(gp.metric == GreedyParameters::SSD)
       s.df_analytic *= -2.0;
+
+    s.mask_vol = metric_report.MaskVolume;
     }
 
   // Compute numerical derivative approximation
@@ -704,20 +729,16 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
       def1[k] -= epsilon;
       phi->SetPixel(s.pos, def1);
       api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0);
+      double v1 = metric_report.TotalPerPixelMetric;
 
       def2[k] += epsilon;
       phi->SetPixel(s.pos, def2);
       api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_2, grad_metric, 1.0);
+      double v2 = metric_report.TotalPerPixelMetric;
 
-      // We cannot rely on the metric report because of numerical errors (huge number of additions
-      // across all pixels in the image) so instead we should integrate the difference between the
-      // two metric images
-      GreedyAPI::LDDMMType::img_subtract_in_place(img_metric_2, img_metric_1);
-      double del = GreedyAPI::LDDMMType::img_voxel_sum(img_metric_2);
-      s.df_numeric[k] = del / (2 * epsilon);
-      // s.df_numeric[k] = (img_metric_2->GetPixel(s.pos) - img_metric_1->GetPixel(s.pos)) / (2 * epsilon);
-
-      GreedyAPI::LDDMMType::img_write(img_metric_2, "delta.nii.gz");
+      // We scale by the central mask volume (so that we are actually testing the TotalPerPixelMetric
+      // but reporting in units of the whole metric
+      s.df_numeric[k] = s.mask_vol * ((v2-v1) / (2 * epsilon));
 
       phi->SetPixel(s.pos, orig);
       }
@@ -726,7 +747,7 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
     auto err_vec = (s.df_analytic - s.df_numeric).GetVnlVector();
     double del = err_vec.inf_norm();
 
-    // Scale both vectors by 10000
+    // Print the comparison
     const char *status_names[] = { "INSIDE", "OUTSIDE", "BORDER" };
     printf("Sample [%s] (%7s)  Num: %s  Anl: %s   Err: %8.2e\n",
            printf_index("%03ld", s.pos).c_str(),
@@ -742,15 +763,77 @@ int RunWeightedNCCGradientTest(CommandLineHelper &cl)
     std::cout << "Grad-WM: " << s.grad_WM << std::endl;
     */
 
-    if(del > 1.0e-4)
+    if(del > tol)
       retval = -1;
     }
 
   if(retval == 0)
     std::cout << "Success" << std::endl;
 
-  return 0;
+  return retval;
 }
+
+template <unsigned int VDim>
+int RunAffineGradientTest(CommandLineHelper &cl)
+{
+  // Set up greedy parameters for this test
+  GreedyParameters gp;
+  gp.dim = VDim;
+  gp.mode = GreedyParameters::GREEDY;
+
+  // Read required parameters
+  gp.deriv_epsilon = cl.read_double();
+  double tol = cl.read_double();
+
+  // List of greedy commands that are recognized by this test command
+  std::set<std::string> greedy_cmd {
+    "-m", "-threads", "-i", "-ia", "-gm", "-mm"
+  };
+
+  // Parse the parameters
+  std::string arg;
+  while(cl.read_command(arg))
+    {
+    if(greedy_cmd.find(arg) != greedy_cmd.end())
+      gp.ParseCommandLine(arg, cl);
+    else
+      throw GreedyException("Unknown test parameter: %s", arg.c_str());
+    }
+
+  // Create a helper
+  typedef GreedyApproach<VDim> GreedyAPI;
+  GreedyAPI api;
+  typename GreedyAPI::OFHelperType of_helper;
+
+  // Configure threading
+  api.ConfigThreads(gp);
+
+  // Initialize for one level
+  of_helper.SetDefaultPyramidFactors(1);
+
+  // Add random sampling jitter for affine stability at voxel edges
+  of_helper.SetJitterSigma(gp.affine_jitter);
+
+  // Read the data
+  api.ReadImages(gp, of_helper);
+
+  // Create a cost function
+  typedef AbstractAffineCostFunction<VDim, double> AbstractAffineCostFunction;
+  AbstractAffineCostFunction *acf = api.CreateAffineCostFunction(gp, of_helper, 0);
+
+  // Initialize the transform
+  typename GreedyAPI::LinearTransformType::Pointer tLevel = GreedyAPI::LinearTransformType::New();
+  api.InitializeAffineTransform(gp, of_helper, acf, tLevel);
+
+  // Debug the derivatives
+  int retval = api.CheckAffineDerivatives(gp, of_helper, acf, tLevel, 0, tol);
+
+  if(retval == 0)
+    std::cout << "Success" << std::endl;
+
+  return retval;
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -769,13 +852,21 @@ int main(int argc, char *argv[])
     {
     return RunPhantomTest(cl);
     }
-  else if(cmd == "grad_ncc_def")
+  else if(cmd == "grad_metric_phi")
     {
     int dim = cl.read_integer();
     if(dim == 2)
-      return RunWeightedNCCGradientTest<2>(cl);
+      return RunMetricVoxelwiseGradientTest<2>(cl);
     else if (dim == 3)
-      return RunWeightedNCCGradientTest<3>(cl);
+      return RunMetricVoxelwiseGradientTest<3>(cl);
+    }
+  else if(cmd == "grad_metric_aff")
+    {
+    int dim = cl.read_integer();
+    if(dim == 2)
+      return RunAffineGradientTest<2>(cl);
+    else if (dim == 3)
+      return RunAffineGradientTest<3>(cl);
     }
   else if(cmd == "ncc_gradient_vs_matlab")
     {

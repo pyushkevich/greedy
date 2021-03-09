@@ -1,4 +1,4 @@
-function ncc_FM = compute_wncc(W, F, M, K, N, eps)
+function ncc_FM = compute_wncc(W, F, M, K, N, p, eps)
 
 % Running sums
 sum_W = conv(W, ones(N,1), 'same');
@@ -13,8 +13,11 @@ var_F =  sum_W .* sum_WFF - sum_WF .* sum_WF + eps;
 var_M =  sum_W .* sum_WMM - sum_WM .* sum_WM + eps;
 cov_FM = sum_W .* sum_WFM - sum_WM .* sum_WF;
 
+% Weight scaling
+w_scale = (sum_W / N).^p;
+
 % Coefficients
-ncc_FM = K .* sign(cov_FM) .* cov_FM.^2 ./ (var_F .* var_M);
+ncc_FM = K .* w_scale .* sign(cov_FM) .* cov_FM.^2 ./ (var_F .* var_M);
 
 end
 

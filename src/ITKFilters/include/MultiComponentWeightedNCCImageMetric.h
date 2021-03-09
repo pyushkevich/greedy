@@ -106,6 +106,14 @@ public:
   itkSetMacro(ReuseWorkingImageFixedComponents, bool)
 
   /**
+   * Scaling of partial patches. When a fraction f of a patch covers the moving image, the NCC for that
+   * patch would be scaled by f^k, where k is the weight scaling exponent. Default is 2. Only relevant
+   * is Weighted is true.
+   */
+  itkSetMacro(WeightScalingExponent, unsigned int);
+  itkGetMacro(WeightScalingExponent, unsigned int);
+
+  /**
    * Get the gradient scaling factor. To get the actual gradient of the metric, multiply the
    * gradient output of this filter by the scaling factor. Explanation: for efficiency, the
    * metrics return an arbitrarily scaled vector, such that adding the gradient to the
@@ -123,7 +131,7 @@ public:
 
 protected:
   MultiComponentWeightedNCCImageMetric()
-    : m_ReuseWorkingImageFixedComponents(false), m_Weighted(false)
+    : m_ReuseWorkingImageFixedComponents(false), m_Weighted(false), m_WeightScalingExponent(2)
     { m_Radius.Fill(1); }
 
   ~MultiComponentWeightedNCCImageMetric() {}
@@ -167,6 +175,7 @@ private:
   unsigned int m_SecondPassAccumComponents;
   unsigned int m_SavedComponentsOffset;
   unsigned int m_TotalWorkingImageComponents;
+  unsigned int m_WeightScalingExponent;
 
   // Iterator types
   typedef itk::ImageLinearConstIteratorWithIndex<InputImageType> InputIteratorTypeBase;

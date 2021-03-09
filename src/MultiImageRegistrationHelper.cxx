@@ -189,8 +189,34 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   if(m_FixedMaskImage)
     LDDMMType::img_threshold_in_place(m_FixedMaskImage, 0.5, 1e100, 0.0, 1.0);
 
+  // Set up the moving mask pyramid
+  m_MovingMaskComposite.resize(m_PyramidFactors.size(), nullptr);
+  if(m_MovingMaskImage)
+    {
+    LDDMMType::img_threshold_in_place(m_MovingMaskImage, 0.5, 1e100, 1.0, 0.0);
+    for(unsigned int i = 0; i < m_PyramidFactors.size(); i++)
+      {
+      // Downsample the image to the right pyramid level
+      if (m_PyramidFactors[i] == 1)
+        {
+        m_MovingMaskComposite[i] = m_MovingMaskImage;
+        }
+      else
+        {
+        m_MovingMaskComposite[i] = FloatImageType::New();
+
+        // Downsampling the mask involves smoothing, so the mask will no longer be binary
+        LDDMMType::img_downsample(m_MovingMaskImage, m_MovingMaskComposite[i], m_PyramidFactors[i]);
+
+        // We might not need the moving mask to be binary, we can leave it be floating point
+        // but for now we binarize it
+        LDDMMType::img_threshold_in_place(m_MovingMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
+        }
+      }
+    }
+
   // Repeat for each of the input images
-  for(int j = 0; j < m_Fixed.size(); j++)
+  for(unsigned int j = 0; j < m_Fixed.size(); j++)
     {
     // Repeat for each component
     for(unsigned k = 0; k < m_Fixed[j]->GetNumberOfComponentsPerPixel(); k++)
@@ -219,7 +245,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       if(m_FixedMaskImage)
         {
         LDDMMType::img_reconstitute_nans_in_place(fltExtractFixed->GetOutput(), m_FixedMaskImage);
-        LDDMMType::img_write(fltExtractFixed->GetOutput(), "/tmp/testnan.mha");
         }
 
       if(noise_sigma_relative > 0.0)
@@ -277,7 +302,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         }
 
       // Compute the pyramid for this component
-      for(int i = 0; i < m_PyramidFactors.size(); i++)
+      for(unsigned int i = 0; i < m_PyramidFactors.size(); i++)
         {
         // Downsample the image to the right pyramid level
         typename FloatImageType::Pointer lFixed, lMoving;
@@ -326,15 +351,18 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         if(noise_sigma_relative > 0.0)
           {
           vnl_random randy(12345);
-          for(long i = 0; i < lFixed->GetPixelContainer()->Size(); i++)
+          for(unsigned long i = 0; i < lFixed->GetPixelContainer()->Size(); i++)
             lFixed->GetBufferPointer()[i] += randy.normal() * noise_sigma_fixed;
-          for(long i = 0; i < lMoving->GetPixelContainer()->Size(); i++)
+          for(unsigned long i = 0; i < lMoving->GetPixelContainer()->Size(); i++)
             lMoving->GetBufferPointer()[i] += randy.normal() * noise_sigma_moving;
-          }
+          }        
 
-        // Compute the gradient of the moving image
-        //typename VectorImageType::Pointer gradMoving = LDDMMType::new_vimg(lMoving);
-        //LDDMMType::image_gradient(lMoving, gradMoving);
+        // The moving image must be multiplied by the moving mask to achieve the desired effect
+        // of moving image masking, i.e, when we interpolate the moving image, we get pairs
+        // (w*M, w) where w is the weight for the sample and M is the intensity of the masked
+        // portion of the image.
+        if(m_MovingMaskImage)
+          LDDMMType::img_multiply_in_place(lMoving, m_MovingMaskComposite[i]);
 
         // Allocate the composite images if they have not been allocated
         if(j == 0 && k == 0)
@@ -411,31 +439,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
           }
 
         it.Set(mask_val);
-        }
-      }
-    }
-
-  // Set up the moving mask pyramid
-  m_MovingMaskComposite.resize(m_PyramidFactors.size(), nullptr);
-  if(m_MovingMaskImage)
-    {
-    for(int i = 0; i < m_PyramidFactors.size(); i++)
-      {
-      // Downsample the image to the right pyramid level
-      if (m_PyramidFactors[i] == 1)
-        {
-        m_MovingMaskComposite[i] = m_MovingMaskImage;
-        }
-      else
-        {
-        m_MovingMaskComposite[i] = FloatImageType::New();
-
-        // Downsampling the mask involves smoothing, so the mask will no longer be binary
-        LDDMMType::img_downsample(m_MovingMaskImage, m_MovingMaskComposite[i], m_PyramidFactors[i]);
-
-        // We might not need the moving mask to be binary, we can leave it be floating point
-        // but for now we binarize it
-        LDDMMType::img_threshold_in_place(m_MovingMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
         }
       }
     }

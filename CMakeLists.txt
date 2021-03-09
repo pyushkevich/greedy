@@ -231,19 +231,31 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
   SET(TESTING_DATADIR ${CMAKE_CURRENT_SOURCE_DIR}/testing/data)
 
   # Add NCC metric Matlab regression tests
-  ADD_TEST(NAME "NCC_Matlab_Regression" COMMAND test_greedy ncc_gradient_vs_matlab 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "NCC_Matlab_Regression"  COMMAND test_greedy ncc_gradient_vs_matlab 0 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "WNCC_Matlab_Regression" COMMAND test_greedy ncc_gradient_vs_matlab 1 WORKING_DIRECTORY ${TESTING_DATADIR})
 
   # Add derivative tests
-  ADD_TEST(NAME "Point_Gradient_WNCC_NoMask" COMMAND test_greedy grad_ncc_def 2 0.0001 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid.mat -m WNCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
-  ADD_TEST(NAME "Point_Gradient_NCC_NoMask" COMMAND test_greedy grad_ncc_def 2 0.0001 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid.mat -m NCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
-  ADD_TEST(NAME "Point_Gradient_SSD_NoMask" COMMAND test_greedy grad_ncc_def 2 0.0001 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid.mat -m SSD WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_phi_WNCC_nomask" COMMAND test_greedy grad_metric_phi 2 0.00001 0.0001 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -m WNCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_phi_NCC_nomask"  COMMAND test_greedy grad_metric_phi 2 0.00001 0.0001 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -m NCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_phi_SSD_nomask"  COMMAND test_greedy grad_metric_phi 2 0.00001 0.01 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -m SSD WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_phi_WNCC_bimask" COMMAND test_greedy grad_metric_phi 2 0.00001 0.0001 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -gm t1longi_2d_bl_mask.nii.gz -mm t1longi_2d_fu_mask.nii.gz -m WNCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_phi_NCC_bimask"  COMMAND test_greedy grad_metric_phi 2 0.00001 0.0001 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -gm t1longi_2d_bl_mask.nii.gz -mm t1longi_2d_fu_mask.nii.gz -m NCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_phi_SSD_bimask"  COMMAND test_greedy grad_metric_phi 2 0.00001 0.01 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -gm t1longi_2d_bl_mask.nii.gz -mm t1longi_2d_fu_mask.nii.gz -m SSD WORKING_DIRECTORY ${TESTING_DATADIR})
+
+  ADD_TEST(NAME "grad_metric_aff_WNCC_nomask" COMMAND test_greedy grad_metric_aff 2 0.0000001 0.01 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -m WNCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_aff_NCC_nomask"  COMMAND test_greedy grad_metric_aff 2 0.0000001 0.01 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -m NCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_aff_SSD_nomask"  COMMAND test_greedy grad_metric_aff 2 0.0000001 0.01 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -m SSD WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_aff_WNCC_bimask" COMMAND test_greedy grad_metric_aff 2 0.0000001 0.01 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -gm t1longi_2d_bl_mask.nii.gz -mm t1longi_2d_fu_mask.nii.gz -m WNCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_aff_NCC_bimask"  COMMAND test_greedy grad_metric_aff 2 0.0000001 0.01 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -gm t1longi_2d_bl_mask.nii.gz -mm t1longi_2d_fu_mask.nii.gz -m NCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_aff_SSD_bimask"  COMMAND test_greedy grad_metric_aff 2 0.0000001 0.01 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -gm t1longi_2d_bl_mask.nii.gz -mm t1longi_2d_fu_mask.nii.gz -m SSD WORKING_DIRECTORY ${TESTING_DATADIR})
 
   # Add the phantom series of tests
-  ADD_TEST(NAME "Phantom_NMI_Affine_Mask" COMMAND test_greedy phantom 2 3 NMI 12 1 WORKING_DIRECTORY ${TESTING_DATADIR})
-  ADD_TEST(NAME "Phantom_NCC_Affine_Mask" COMMAND test_greedy phantom 1 3 NCC 12 1 WORKING_DIRECTORY ${TESTING_DATADIR})
-  ADD_TEST(NAME "Phantom_SSD_Rigid_NoMask" COMMAND test_greedy phantom 1 1 SSD 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
-  ADD_TEST(NAME "Phantom_NMI_Rigid_NoMask" COMMAND test_greedy phantom 1 2 NMI 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
-  ADD_TEST(NAME "Phantom_NCC_Rigid_NoMask" COMMAND test_greedy phantom 1 3 NCC 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_NMI_Affine_NoMask" COMMAND test_greedy phantom 1 2 NMI 12 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_NCC_Affine_Mask"   COMMAND test_greedy phantom 1 3 NCC 12 1 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_WNCC_Affine_Mask"  COMMAND test_greedy phantom 1 3 WNCC 12 1 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_SSD_Rigid_NoMask"  COMMAND test_greedy phantom 1 1 SSD 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_NMI_Rigid_NoMask"  COMMAND test_greedy phantom 1 2 NMI 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_NCC_Rigid_NoMask"  COMMAND test_greedy phantom 1 3 NCC 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_WNCC_Rigid_NoMask" COMMAND test_greedy phantom 1 3 WNCC 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
 
 ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)

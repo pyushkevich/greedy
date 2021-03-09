@@ -620,6 +620,7 @@ void GreedyApproach<VDim, TReal>
 }
 
 #include <vnl/algo/vnl_lbfgs.h>
+#include <vnl/algo/vnl_conjugate_gradient.h>
 
 template <unsigned int VDim, typename TReal>
 vnl_matrix<double>
@@ -767,6 +768,289 @@ int GreedyApproach<VDim, TReal>
 }
 */
 
+template <unsigned int VDim, typename TReal>
+AbstractAffineCostFunction<VDim, TReal> *
+GreedyApproach<VDim, TReal>
+::CreateAffineCostFunction(GreedyParameters &param, OFHelperType &of_helper, int level)
+{
+  typedef AbstractAffineCostFunction<VDim, TReal> AbstractAffineCostFunction;
+  typedef RigidCostFunction<VDim, TReal> RigidCostFunction;
+  typedef ScalingCostFunction<VDim, TReal> ScalingCostFunction;
+  typedef PhysicalSpaceAffineCostFunction<VDim, TReal> PhysicalSpaceAffineCostFunction;
+
+  // Define the affine cost function
+  if(param.affine_dof == GreedyParameters::DOF_RIGID)
+    {
+    RigidCostFunction *rigid_acf = new RigidCostFunction(&param, this, level, &of_helper);
+    return new ScalingCostFunction(
+            rigid_acf,
+            rigid_acf->GetOptimalParameterScaling(
+              of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()));
+    }
+  else
+    {
+    //  PureAffineCostFunction *affine_acf = new PureAffineCostFunction(&param, level, &of_helper);
+    PhysicalSpaceAffineCostFunction *affine_acf = new PhysicalSpaceAffineCostFunction(&param, this, level, &of_helper);
+    return new ScalingCostFunction(
+            affine_acf,
+            affine_acf->GetOptimalParameterScaling(
+              of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()));
+    }
+}
+
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>
+::InitializeAffineTransform(GreedyParameters &param, OFHelperType &of_helper,
+                            AbstractAffineCostFunction<VDim, TReal> *acf,
+                            LinearTransformType *tLevel)
+{
+  typedef AbstractAffineCostFunction<VDim, TReal> AbstractAffineCostFunction;
+  typedef RigidCostFunction<VDim, TReal> RigidCostFunction;
+  typedef ScalingCostFunction<VDim, TReal> ScalingCostFunction;
+  typedef PhysicalSpaceAffineCostFunction<VDim, TReal> PhysicalSpaceAffineCostFunction;
+
+  // Get the coefficients corresponding to the identity transform in voxel space
+  tLevel->SetIdentity();
+  vnl_vector<double> xIdent = acf->GetCoefficients(tLevel);
+
+  // Use the provided initial affine as the starting point
+  if(param.affine_init_mode == RAS_FILENAME)
+    {
+    // Read the initial affine transform from a file
+    vnl_matrix<double> Qp = this->ReadAffineMatrixViaCache(param.affine_init_transform);
+
+    // Map this to voxel space
+    MapPhysicalRASSpaceToAffine(of_helper, 0, Qp, tLevel);
+    }
+  else if(param.affine_init_mode == RAS_IDENTITY)
+    {
+    // Physical space transform
+    vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
+
+    // Map this to voxel space
+    MapPhysicalRASSpaceToAffine(of_helper, 0, Qp, tLevel);
+    }
+  else if(param.affine_init_mode == IMG_CENTERS)
+    {
+    // Find a translation that maps center voxel of fixed image to the center
+    // voxel of the moving image
+    vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
+    vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(0));
+    vnl_vector<double> cmov = GetImageCenterinNiftiSpace(of_helper.GetMovingReferenceSpace(0));
+
+    // TODO: I think that setting the matrix above to affine will break the registration
+    // if fixed and moving are in different orientations? Or am I crazy?
+
+    // Compute the transform that takes fixed into moving
+    for(unsigned int d = 0; d < VDim; d++)
+      Qp(d, VDim) = cmov[d] - cfix[d];
+
+    // Map this to voxel space
+    MapPhysicalRASSpaceToAffine(of_helper, 0, Qp, tLevel);
+    }
+
+  // Get the new coefficients
+  vnl_vector<double> xInit = acf->GetCoefficients(tLevel);
+
+  // If the voxel-space transform is identity, apply a little bit of jitter
+  if((xIdent - xInit).inf_norm() < 1e-4)
+    {
+    // Apply jitter
+    vnl_random rndy(12345);
+    for (unsigned i = 0; i < xInit.size(); i++)
+      xInit[i] += rndy.drand32(-0.4, 0.4);
+
+    // Map back into transform format
+    acf->GetTransform(xInit, tLevel);
+    }
+
+  // If the uses asks for rigid search, do it!
+  if(param.rigid_search.iterations > 0)
+    {
+    // Random seed. TODO: let user supply seed
+    vnl_random randy(12345);
+
+    // For rigid search, we must search in physical space, rather than in voxel space.
+    // This is the affine transformation in physical space that corresponds to whatever
+    // the current initialization is.
+    vnl_matrix<double> Qp = MapAffineToPhysicalRASSpace(of_helper, 0, tLevel);
+
+    // Get the center of the fixed image in physical coordinates
+    vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(0));
+
+    // Create a pure rigid acf
+    RigidCostFunction search_fun(&param, this, 0, &of_helper);
+
+    // Report the initial best
+    double fBest = 0.0;
+    vnl_vector<double> xBest = search_fun.GetCoefficients(tLevel);
+    search_fun.compute(xBest, &fBest, NULL);
+    std::cout << "Rigid search -> Initial best: " << fBest << " " << xBest << std::endl;
+
+    // Loop over random iterations
+    for(int i = 0; i < param.rigid_search.iterations; i++)
+      {
+      // Depending on the search mode, we either apply a small rotation, or any random rotation,
+      // or a random rotation and a flip to the input. Whatever rotation we apply, it must
+      // be around the center of the fixed coordinate system.
+      typename RigidCostFunction::Mat RF;
+      if(param.rigid_search.mode == RANDOM_NORMAL_ROTATION)
+        {
+        // Random angle in radians
+        double alpha = randy.normal() * param.rigid_search.sigma_angle * 0.01745329252;
+        RF = RigidCostFunction::GetRandomRotation(randy, alpha);
+        }
+      else if(param.rigid_search.mode == ANY_ROTATION)
+        {
+        double alpha = randy.drand32(-vnl_math::pi, vnl_math::pi);
+        RF = RigidCostFunction::GetRandomRotation(randy, alpha);
+        }
+      else if(param.rigid_search.mode == ANY_ROTATION_AND_FLIP)
+        {
+        typename RigidCostFunction::Mat R, F;
+        F.set_identity();
+        for(unsigned int a = 0; a < VDim; a++)
+          F(a,a) = (randy.normal() > 0.0) ? 1.0 : -1.0;
+        double alpha = randy.drand32(-vnl_math::pi, vnl_math::pi);
+        R = RigidCostFunction::GetRandomRotation(randy, alpha);
+        RF = R * F;
+        }
+      else throw GreedyException("Unknown rotation search mode encountered");
+
+      // Find the offset so that the rotation/flip preserve fixed image center
+      typename RigidCostFunction::Vec b_RF = cfix - RF * cfix;
+
+      // Create the physical space matrix corresponding to random search point
+      vnl_matrix<double> Qp_rand(VDim+1, VDim+1); Qp_rand.set_identity();
+      Qp_rand.update(RF.as_matrix());
+      for(unsigned int a = 0; a < VDim; a++)
+        Qp_rand(a,VDim) = b_RF[a];
+
+      // Combine the two matrices. The matrix Qp_rand operates in fixed image space so
+      // it should be applied first, followed by Qp
+      vnl_matrix<double> Qp_search = Qp * Qp_rand;
+
+      // Add the random translation
+      for(unsigned int a = 0; a < VDim; a++)
+        Qp_search(a,VDim) += randy.normal() * param.rigid_search.sigma_xyz;
+
+      // Convert this physical space transformation into a voxel-space transform
+      typename LinearTransformType::Pointer tSearchTry = LinearTransformType::New();
+      MapPhysicalRASSpaceToAffine(of_helper, 0, Qp_search, tSearchTry);
+
+      // Evaluate the metric for this point
+      vnl_vector<double> xTry = search_fun.GetCoefficients(tSearchTry);
+      double f = 0.0;
+      search_fun.compute(xTry, &f, NULL);
+
+      // Is this an improvement?
+      if(f < fBest)
+        {
+        fBest = f;
+        tLevel->SetMatrix(tSearchTry->GetMatrix());
+        tLevel->SetOffset(tSearchTry->GetOffset());
+        std::cout << "Rigid search -> Iter " << i << ": " << fBest << " "
+                  << xTry << " det = " << vnl_determinant(Qp_search)
+                  <<  std::endl;
+        }
+      }
+    }
+}
+
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::CheckAffineDerivatives(GreedyParameters &param, OFHelperType &of_helper,
+                         AbstractAffineCostFunction<VDim, TReal> *acf,
+                         LinearTransformType *tLevel, int level, double tol)
+{
+  // Test the gradient computation
+  vnl_vector<double> xLevel = acf->GetCoefficients(tLevel);
+  vnl_vector<double> xGrad(acf->get_number_of_unknowns(), 0.0);
+  double f0;
+  acf->compute(xLevel, &f0, &xGrad);
+
+  // Propagate the jitter to the transform
+  vnl_matrix<double> Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
+  std::cout << "Initial RAS Transform: " << std::endl << Q_physical  << std::endl;
+
+  printf("*** Affine Derivative Check ***\n");
+  printf("ANL gradient: ");
+  for (unsigned i = 0; i < xGrad.size(); i++)
+    printf("%11.4f ", xGrad[i]);
+  printf("\n");
+
+  vnl_vector<double> xGradN(acf->get_number_of_unknowns(), 0.0);
+  int status = 0;
+  for(int i = 0; i < acf->get_number_of_unknowns(); i++)
+    {
+    // double eps = (i % VDim == 0) ? 1.0e-2 : 1.0e-5;
+    double eps = param.deriv_epsilon;
+    double f[] = {0., 0., 0., 0.};
+    vnl_vector<double> x[] = {xLevel, xLevel, xLevel, xLevel};
+    x[0][i] -= 2 * eps; x[1][i] -= eps; x[2][i] += eps; x[3][i] += 2 * eps;
+
+    // Keep track of gradient even though we do not need it. There is an apparent bug
+    // at least with the NCC metric, where the reuse of the working image in a scenario
+    // where you first compute the gradient and then do not, causes the iteration through
+    // the working image to incorrectly align the per-pixel arrays. Asking for gradient
+    // every time is a little more costly, but it avoids this issue
+    vnl_vector<double> xGradDummy(acf->get_number_of_unknowns(), 0.0);
+
+    // Four-point derivative computation
+    for(unsigned int j = 0; j < 4; j++)
+      {
+      acf->compute(x[j], &f[j], &xGradDummy);
+
+      // Uncomment this if you really want to debug these derivatives!
+      /*
+      ImageType *metric = acf->GetMetricImage();
+      char buffer[256];
+      sprintf(buffer, "/tmp/grad_metric_param_%02d_off_%d.nii.gz", i, j);
+      LDDMMType::img_write(metric, buffer);
+      */
+      }
+
+    xGradN[i] = (f[0] - 8 * f[1] + 8 * f[2] - f[3]) / (12 * eps);
+
+    if(fabs(xGrad[i] - xGradN[i]) > tol)
+      status = -1;
+    }
+
+  printf("NUM gradient: ");
+  for (unsigned i = 0; i < xGradN.size(); i++)
+    printf("%11.4f ", xGradN[i]);
+  printf("\n");
+
+  // Print the matrix components and b components
+  printf("\n     ");
+  for(unsigned int a = 0; a < VDim; a++)
+    for(unsigned int b = 0; b < VDim; b++)
+      printf("      A_%d%d", a, b);
+  for(unsigned int a = 0; a < VDim; a++)
+    printf("       b_%d", a);
+
+  // Print the two matrices
+  printf("\nANL:  ");
+  acf->GetTransform(xGrad, tLevel);
+  for(unsigned int a = 0; a < VDim; a++)
+    for(unsigned int b = 0; b < VDim; b++)
+      printf("%9.4f ", tLevel->GetMatrix()(a,b));
+  for(unsigned int a = 0; a < VDim; a++)
+    printf("%9.4f ", tLevel->GetOffset()[a]);
+
+  printf("\nNUM:  ");
+  acf->GetTransform(xGradN, tLevel);
+  for(unsigned int a = 0; a < VDim; a++)
+    for(unsigned int b = 0; b < VDim; b++)
+      printf("%9.4f ", tLevel->GetMatrix()(a,b));
+  for(unsigned int a = 0; a < VDim; a++)
+    printf("%9.4f ", tLevel->GetOffset()[a]);
+  printf("\n\n");
+
+  return status;
+}
+
 
 template <unsigned int VDim, typename TReal>
 int GreedyApproach<VDim, TReal>
@@ -808,26 +1092,7 @@ int GreedyApproach<VDim, TReal>
     m_MetricLog.push_back(std::vector<MultiComponentMetricReport>());
 
     // Define the affine cost function
-    AbstractAffineCostFunction *pure_acf, *acf;
-    if(param.affine_dof == GreedyParameters::DOF_RIGID)
-      {
-      RigidCostFunction *rigid_acf = new RigidCostFunction(&param, this, level, &of_helper);
-      acf = new ScalingCostFunction(
-              rigid_acf,
-              rigid_acf->GetOptimalParameterScaling(
-                of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()));
-      pure_acf = rigid_acf;
-      }
-    else
-      {
-      //  PureAffineCostFunction *affine_acf = new PureAffineCostFunction(&param, level, &of_helper);
-      PhysicalSpaceAffineCostFunction *affine_acf = new PhysicalSpaceAffineCostFunction(&param, this, level, &of_helper);
-      acf = new ScalingCostFunction(
-              affine_acf,
-              affine_acf->GetOptimalParameterScaling(
-                of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()));
-      pure_acf = affine_acf;
-      }
+    AbstractAffineCostFunction *acf = CreateAffineCostFunction(param, of_helper, level);
 
     // Current transform
     typename LinearTransformType::Pointer tLevel = LinearTransformType::New();
@@ -835,152 +1100,8 @@ int GreedyApproach<VDim, TReal>
     // Set up the initial transform
     if(level == 0)
       {
-      // Get the coefficients corresponding to the identity transform in voxel space
-      tLevel->SetIdentity();
-      vnl_vector<double> xIdent = acf->GetCoefficients(tLevel);
-
-      // Use the provided initial affine as the starting point
-      if(param.affine_init_mode == RAS_FILENAME)
-        {
-        // Read the initial affine transform from a file
-        vnl_matrix<double> Qp = this->ReadAffineMatrixViaCache(param.affine_init_transform);
-
-        // Map this to voxel space
-        MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tLevel);
-        }
-      else if(param.affine_init_mode == RAS_IDENTITY)
-        {
-        // Physical space transform
-        vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
-
-        // Map this to voxel space
-        MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tLevel);
-        }
-      else if(param.affine_init_mode == IMG_CENTERS)
-        {
-        // Find a translation that maps center voxel of fixed image to the center 
-        // voxel of the moving image
-        vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
-        vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(level));
-        vnl_vector<double> cmov = GetImageCenterinNiftiSpace(of_helper.GetMovingReferenceSpace(level));
-
-        // TODO: I think that setting the matrix above to affine will break the registration
-        // if fixed and moving are in different orientations? Or am I crazy?
-
-        // Compute the transform that takes fixed into moving
-        for(unsigned int d = 0; d < VDim; d++)
-          Qp(d, VDim) = cmov[d] - cfix[d];
-
-        // Map this to voxel space
-        MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tLevel);
-        }
-
-      // Get the new coefficients
-      vnl_vector<double> xInit = acf->GetCoefficients(tLevel);
-
-      // If the voxel-space transform is identity, apply a little bit of jitter
-      if((xIdent - xInit).inf_norm() < 1e-4)
-        {
-        // Apply jitter
-        vnl_random rndy(12345);
-        for (unsigned i = 0; i < xInit.size(); i++)
-          xInit[i] += rndy.drand32(-0.4, 0.4);
-
-        // Map back into transform format
-        acf->GetTransform(xInit, tLevel);
-        }
-
-      // If the uses asks for rigid search, do it!
-      if(param.rigid_search.iterations > 0)
-        {
-        // Random seed. TODO: let user supply seed
-        vnl_random randy(12345);
-
-        // For rigid search, we must search in physical space, rather than in voxel space.
-        // This is the affine transformation in physical space that corresponds to whatever
-        // the current initialization is.
-        vnl_matrix<double> Qp = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
-
-        // Get the center of the fixed image in physical coordinates
-        vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(level));
-
-        // Create a pure rigid acf
-        RigidCostFunction search_fun(&param, this, level, &of_helper);
-
-        // Report the initial best
-        double fBest = 0.0;
-        vnl_vector<double> xBest = search_fun.GetCoefficients(tLevel);
-        search_fun.compute(xBest, &fBest, NULL);
-        std::cout << "Rigid search -> Initial best: " << fBest << " " << xBest << std::endl;
-
-        // Loop over random iterations
-        for(int i = 0; i < param.rigid_search.iterations; i++)
-          {
-          // Depending on the search mode, we either apply a small rotation, or any random rotation,
-          // or a random rotation and a flip to the input. Whatever rotation we apply, it must
-          // be around the center of the fixed coordinate system.
-          typename RigidCostFunction::Mat RF;
-          if(param.rigid_search.mode == RANDOM_NORMAL_ROTATION)
-            {
-            // Random angle in radians
-            double alpha = randy.normal() * param.rigid_search.sigma_angle * 0.01745329252;
-            RF = RigidCostFunction::GetRandomRotation(randy, alpha);
-            }
-          else if(param.rigid_search.mode == ANY_ROTATION)
-            {
-            double alpha = randy.drand32(-vnl_math::pi, vnl_math::pi);
-            RF = RigidCostFunction::GetRandomRotation(randy, alpha);
-            }
-          else if(param.rigid_search.mode == ANY_ROTATION_AND_FLIP)
-            {
-            typename RigidCostFunction::Mat R, F;
-            F.set_identity();
-            for(unsigned int a = 0; a < VDim; a++)
-              F(a,a) = (randy.normal() > 0.0) ? 1.0 : -1.0;
-            double alpha = randy.drand32(-vnl_math::pi, vnl_math::pi);
-            R = RigidCostFunction::GetRandomRotation(randy, alpha);
-            RF = R * F;
-            }
-          else throw GreedyException("Unknown rotation search mode encountered");
-
-          // Find the offset so that the rotation/flip preserve fixed image center
-          typename RigidCostFunction::Vec b_RF = cfix - RF * cfix;
-
-          // Create the physical space matrix corresponding to random search point
-          vnl_matrix<double> Qp_rand(VDim+1, VDim+1); Qp_rand.set_identity();
-          Qp_rand.update(RF.as_matrix());
-          for(unsigned int a = 0; a < VDim; a++)
-            Qp_rand(a,VDim) = b_RF[a];
-
-          // Combine the two matrices. The matrix Qp_rand operates in fixed image space so
-          // it should be applied first, followed by Qp
-          vnl_matrix<double> Qp_search = Qp * Qp_rand;
-
-          // Add the random translation
-          for(unsigned int a = 0; a < VDim; a++)
-            Qp_search(a,VDim) += randy.normal() * param.rigid_search.sigma_xyz;
-
-          // Convert this physical space transformation into a voxel-space transform
-          typename LinearTransformType::Pointer tSearchTry = LinearTransformType::New();
-          MapPhysicalRASSpaceToAffine(of_helper, level, Qp_search, tSearchTry);
-
-          // Evaluate the metric for this point
-          vnl_vector<double> xTry = search_fun.GetCoefficients(tSearchTry);
-          double f = 0.0;
-          search_fun.compute(xTry, &f, NULL);
-
-          // Is this an improvement?
-          if(f < fBest)
-            {
-            fBest = f;
-            tLevel->SetMatrix(tSearchTry->GetMatrix());
-            tLevel->SetOffset(tSearchTry->GetOffset());
-            std::cout << "Rigid search -> Iter " << i << ": " << fBest << " "
-                      << xTry << " det = " << vnl_determinant(Qp_search)
-                      <<  std::endl;
-            }
-          }
-        }
+      // Use parameters to load initial transform
+      InitializeAffineTransform(param, of_helper, acf, tLevel);
       }
     else
       {
@@ -994,102 +1115,7 @@ int GreedyApproach<VDim, TReal>
 
     if(param.flag_debug_deriv)
       {
-      // Test the gradient computation
-      vnl_vector<double> xGrad(acf->get_number_of_unknowns(), 0.0);
-      double f0;
-      acf->compute(xLevel, &f0, &xGrad);
-
-      // Propagate the jitter to the transform
-      Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
-      std::cout << "Initial RAS Transform: " << std::endl << Q_physical  << std::endl;
-
-      printf("*** Affine Derivative Check ***\n");
-      printf("ANL gradient: ");
-      for (unsigned i = 0; i < xGrad.size(); i++)
-        printf("%11.4f ", xGrad[i]);
-      printf("\n");
-
-      vnl_vector<double> xGradN(acf->get_number_of_unknowns(), 0.0);
-      for(int i = 0; i < acf->get_number_of_unknowns(); i++)
-        {
-        // double eps = (i % VDim == 0) ? 1.0e-2 : 1.0e-5;
-        double eps = param.deriv_epsilon;
-        double f[] = {0., 0., 0., 0.};
-        vnl_vector<double> x[] = {xLevel, xLevel, xLevel, xLevel};
-        x[0][i] -= 2 * eps; x[1][i] -= eps; x[2][i] += eps; x[3][i] += 2 * eps;
-
-        // Keep track of gradient even though we do not need it. There is an apparent bug
-        // at least with the NCC metric, where the reuse of the working image in a scenario
-        // where you first compute the gradient and then do not, causes the iteration through
-        // the working image to incorrectly align the per-pixel arrays. Asking for gradient
-        // every time is a little more costly, but it avoids this issue
-        vnl_vector<double> xGradDummy(acf->get_number_of_unknowns(), 0.0);
-
-        // Four-point derivative computation        
-        for(unsigned int j = 0; j < 4; j++)
-          {
-          acf->compute(x[j], &f[j], &xGradDummy);
-          ImageType *metric = acf->GetMetricImage();
-          char buffer[256];
-          sprintf(buffer, "/tmp/grad_metric_param_%02d_off_%d.nii.gz", i, j);
-          LDDMMType::img_write(metric, buffer);
-          }
-
-        xGradN[i] = (f[0] - 8 * f[1] + 8 * f[2] - f[3]) / (12 * eps);
-        }
-
-      printf("NUM gradient: ");
-      for (unsigned i = 0; i < xGradN.size(); i++)
-        printf("%11.4f ", xGradN[i]);
-      printf("\n");
-
-      // Print the matrix components and b components
-      printf("\n     ");
-      for(unsigned int a = 0; a < VDim; a++)
-        for(unsigned int b = 0; b < VDim; b++)
-          printf("      A_%d%d", a, b);
-      for(unsigned int a = 0; a < VDim; a++)
-        printf("       b_%d", a);
-
-      // Print the two matrices
-      printf("\nANL:  ");
-      acf->GetTransform(xGrad, tLevel.GetPointer());
-      for(unsigned int a = 0; a < VDim; a++)
-        for(unsigned int b = 0; b < VDim; b++)
-          printf("%9.4f ", tLevel->GetMatrix()(a,b));
-      for(unsigned int a = 0; a < VDim; a++)
-        printf("%9.4f ", tLevel->GetOffset()[a]);
-
-      printf("\nNUM:  ");
-      acf->GetTransform(xGradN, tLevel.GetPointer());
-      for(unsigned int a = 0; a < VDim; a++)
-        for(unsigned int b = 0; b < VDim; b++)
-          printf("%9.4f ", tLevel->GetMatrix()(a,b));
-      for(unsigned int a = 0; a < VDim; a++)
-        printf("%9.4f ", tLevel->GetOffset()[a]);
-      printf("\n\n");
-      }
-
-    if(param.flag_debug_aff_obj)
-      {
-      for(int k = -50; k < 50; k++)
-        {
-        printf("Obj\t%d\t", k);
-        for(int i = 0; i < acf->get_number_of_unknowns(); i++)
-          {
-          vnl_vector<double> xTest = xLevel;
-          xTest[i] = xLevel[i] + k * param.deriv_epsilon;
-          double f; acf->compute(xTest, &f, NULL);
-          printf("%12.8f\t", f);
-          }
-        printf("\n");
-        }
-        {
-        vnl_vector<double> xTest = xLevel;
-          {
-          }
-        printf("\n");
-        }
+      CheckAffineDerivatives(param, of_helper, acf, tLevel, level, 1e-6);
       }
 
     // Run the minimization
@@ -1127,8 +1153,42 @@ int GreedyApproach<VDim, TReal>
         optimizer->set_verbose(param.verbosity > GreedyParameters::VERB_DEFAULT);
         optimizer->set_max_function_evals(param.iter_per_level[level]);
 
+        /*
+        vnl_conjugate_gradient *optimizer = new vnl_conjugate_gradient(*acf);
+        optimizer->set_trace(param.verbosity > GreedyParameters::VERB_NONE);
+        optimizer->set_verbose(param.verbosity > GreedyParameters::VERB_DEFAULT);
+        optimizer->set_max_function_evals(param.iter_per_level[level]);
+        */
+
         optimizer->minimize(xLevel);
         delete optimizer;
+        }
+
+      if(param.flag_debug_aff_obj && param.iter_per_level[level] > 0)
+        {
+        for(int k = -10; k < 10; k++)
+          {
+          printf("Obj\t%d\t", k);
+          for(int i = 0; i < acf->get_number_of_unknowns(); i++)
+            {
+            vnl_vector<double> xTest = xLevel;
+            xTest[i] = xLevel[i] + k * param.deriv_epsilon;
+            double f; acf->compute(xTest, &f, NULL);
+            printf("%12.8f\t", f);
+
+            ImageType *metric = acf->GetMetricImage();
+            char buffer[256];
+            sprintf(buffer, "/tmp/debug_aff_obj_%03d_par_%02d.nii.gz", k, i);
+            LDDMMType::img_write(metric, buffer);
+            }
+          printf("\n");
+          }
+          {
+          vnl_vector<double> xTest = xLevel;
+            {
+            }
+          printf("\n");
+          }
         }
 
       // Did the registration succeed?
@@ -1166,7 +1226,6 @@ int GreedyApproach<VDim, TReal>
       }
 
     delete acf;
-    delete pure_acf;
     }
 
   // Write the final affine transform
@@ -1812,122 +1871,40 @@ int GreedyApproach<VDim, TReal>
   // Read the image pairs to register
   ReadImages(param, of_helper);
 
-  // An image pointer desribing the current estimate of the deformation
-  VectorImagePointer uLevel = nullptr;
-
   // Reference space
   ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
 
   // Intermediate images
-  ImagePointer iTemp = ImageType::New();
-  VectorImagePointer viTemp = VectorImageType::New();
-  VectorImagePointer uk = VectorImageType::New();
-  VectorImagePointer uk1 = VectorImageType::New();
+  ImagePointer iTemp = LDDMMType::new_img(refspace);
+  VectorImagePointer viTemp = LDDMMType::new_vimg(refspace);
+  VectorImagePointer uk = LDDMMType::new_vimg(refspace);
+  VectorImagePointer uk1 = LDDMMType::new_vimg(refspace);
 
-  // This is the exponentiated uk, in stationary velocity mode it is uk^(2^N)
-  VectorImagePointer uk_exp = VectorImageType::New();
+  // Load initial transform into uk
+  this->LoadInitialTransform(param, of_helper, 0, uk);
 
   // A pointer to the full warp image - either uk in greedy mode, or uk_exp in diff demons mdoe
-  VectorImageType *uFull;
-
-  // Allocate the intermediate data
-  LDDMMType::alloc_vimg(uk, refspace);
-  LDDMMType::alloc_img(iTemp, refspace);
-  LDDMMType::alloc_vimg(viTemp, refspace);
-  LDDMMType::alloc_vimg(uk1, refspace);
-
-  // These are only allocated in diffeomorphic demons mode
-  if(param.flag_stationary_velocity_mode)
-    {
-    LDDMMType::alloc_vimg(uk_exp, refspace);
-    }
-
-  if(param.initial_warp.size())
-    {
-    // The user supplied an initial warp or initial root warp. In this case, we
-    // do not start iteration from zero, but use the initial warp to start from
-    VectorImagePointer uInit = VectorImageType::New();
-
-    // Read the warp file
-    LDDMMType::vimg_read(param.initial_warp.c_str(), uInit );
-
-    // Convert the warp file into voxel units from physical units
-    OFHelperType::PhysicalWarpToVoxelWarp(uInit, uInit, uInit);
-
-    // Scale the initial warp by the pyramid level
-    LDDMMType::vimg_resample_identity(uInit, refspace, uk);
-    uLevel = uk;
-    }
-  else if(param.affine_init_mode != VOX_IDENTITY)
-    {
-    typename LinearTransformType::Pointer tran = LinearTransformType::New();
-
-    if(param.affine_init_mode == RAS_FILENAME)
-      {
-      // Read the initial affine transform from a file
-      vnl_matrix<double> Qp = ReadAffineMatrixViaCache(param.affine_init_transform);
-
-      // Map this to voxel space
-      MapPhysicalRASSpaceToAffine(of_helper, 0, Qp, tran);
-      }
-    else if(param.affine_init_mode == RAS_IDENTITY)
-      {
-      // Physical space transform
-      vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
-
-      // Map this to voxel space
-      MapPhysicalRASSpaceToAffine(of_helper, 0, Qp, tran);
-      }
-
-    // Create an initial warp
-    OFHelperType::AffineToField(tran, uk);
-    uLevel = uk;
-    }
-
-  // Integrate the total deformation field for this iteration
+  VectorImageType *uFull = uk;
   if(param.flag_stationary_velocity_mode)
     {
     // This is the exponentiation of the stationary velocity field
     // Take current warp to 'exponent' power - this is the actual warp
+    VectorImagePointer uk_exp = LDDMMType::new_vimg(refspace);
     LDDMMType::vimg_exp(uk, uk_exp, viTemp, param.warp_exponent, 1.0);
     uFull = uk_exp;
     }
-  else
+
+  // Compute the metric
+  this->EvaluateMetricForDeformableRegistration(param, of_helper, 0, uFull, metric_report, iTemp, uk1, 1.0);
+
+  // Output the metric image and metric gradient
+  if(param.output.length())
     {
-    uFull = uk;
+    LDDMMType::img_write(iTemp, param.output.c_str());
     }
-
-  // Switch based on the metric
-  if(param.metric == GreedyParameters::SSD)
+  if(param.output_metric_gradient.length())
     {
-    of_helper.ComputeOpticalFlowField(0, uFull, iTemp, metric_report, uk1, 1.0);
-    }
-  else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
-    {
-    of_helper.ComputeMIFlowField(0, param.metric == GreedyParameters::NMI, uFull, iTemp, metric_report, uk1, 1.0);
-
-    // If there is a mask, multiply the gradient by the mask
-    }
-
-  else if(param.metric == GreedyParameters::NCC)
-    {
-    itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
-
-    // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
-    of_helper.ComputeNCCMetricImage(0, uFull, radius, false, iTemp, metric_report, uk1, 1.0);
-    }
-
-  else if(param.metric == GreedyParameters::WNCC)
-    {
-    itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
-
-    // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
-    // TODO: handle weighting
-    of_helper.ComputeNCCMetricImage(0, uFull, radius, true, iTemp, metric_report, uk1, 1.0);
-    }
-  else if(param.metric == GreedyParameters::MAHALANOBIS)
-    {
-    of_helper.ComputeMahalanobisMetricImage(0, uFull, iTemp, metric_report, uk1);
+    LDDMMType::vimg_write(uk1, param.output_metric_gradient.c_str());
     }
 
   return 0;

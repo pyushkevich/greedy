@@ -27,10 +27,10 @@
 #ifndef AFFINECOSTFUNCTIONS_H
 #define AFFINECOSTFUNCTIONS_H
 
-#include "GreedyAPI.h"
 #include <vnl/vnl_cost_function.h>
 #include <vnl/vnl_random.h>
 #include <vnl/vnl_trace.h>
+#include <lddmm_data.h>
 
 namespace itk {
   template <typename T, unsigned int D1, unsigned int D2> class MatrixOffsetTransformBase;
@@ -38,6 +38,7 @@ namespace itk {
 
 template <unsigned int VDim, typename TReal> class GreedyApproach;
 template <typename T, unsigned int V> class MultiImageOpticalFlowHelper;
+class GreedyParameters;
 
 /**
  * Parent of all affine/rigid cost functions
@@ -50,11 +51,32 @@ public:
   typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
   typedef GreedyApproach<VDim, TReal> ParentType;
 
+  // Image type definitions
+  typedef LDDMMData<TReal, VDim> LDDMMType;
+  typedef typename LDDMMType::ImageType ImageType;
+  typedef typename LDDMMType::ImagePointer ImagePointer;
+  typedef typename LDDMMType::VectorImageType VectorImageType;
+  typedef typename LDDMMType::VectorImagePointer VectorImagePointer;
+
   AbstractAffineCostFunction(int n_unknowns) : vnl_cost_function(n_unknowns) {}
   virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran) = 0;
   virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) = 0;
   virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) = 0;  
-  virtual typename ParentType::ImageType *GetMetricImage() = 0;
+  virtual ImageType *GetMetricImage() = 0;
+};
+
+class LineSearchMemory
+{
+public:
+  struct Entry {
+    vnl_vector<double> g, x;
+    double f;
+  };
+
+  void update(vnl_vector<double> const& x, double f, vnl_vector<double>* g);
+
+protected:
+  std::deque<Entry> data;
 };
 
 /**
@@ -69,6 +91,11 @@ public:
   typedef typename Superclass::ParentType ParentType;
   typedef typename Superclass::OFHelperType OFHelperType;
   typedef typename Superclass::LinearTransformType LinearTransformType;
+
+  typedef typename Superclass::ImageType ImageType;
+  typedef typename Superclass::ImagePointer ImagePointer;
+  typedef typename Superclass::VectorImageType VectorImageType;
+  typedef typename Superclass::VectorImagePointer VectorImagePointer;
 
   // Construct the function
   PureAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
@@ -86,13 +113,9 @@ public:
   virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) override;
 
   // Get the metric image
-  virtual typename ParentType::ImageType *GetMetricImage() override { return m_Metric; }
+  virtual ImageType *GetMetricImage() override { return m_Metric; }
 
 protected:
-  typedef typename ParentType::ImageType ImageType;
-  typedef typename ParentType::ImagePointer ImagePointer;
-  typedef typename ParentType::VectorImageType VectorImageType;
-  typedef typename ParentType::VectorImagePointer VectorImagePointer;
 
   // Data needed to compute the cost function
   GreedyParameters *m_Param;
@@ -107,6 +130,9 @@ protected:
 
   // Last set of coefficients evaluated
   vnl_vector<double> last_coeff;
+
+  // For debugging line searches
+  LineSearchMemory m_LineSearchMemory;
 };
 
 /**
@@ -122,6 +148,11 @@ public:
   typedef typename Superclass::OFHelperType OFHelperType;
   typedef typename Superclass::LinearTransformType LinearTransformType;
 
+  typedef typename Superclass::ImageType ImageType;
+  typedef typename Superclass::ImagePointer ImagePointer;
+  typedef typename Superclass::VectorImageType VectorImageType;
+  typedef typename Superclass::VectorImagePointer VectorImagePointer;
+
   PhysicalSpaceAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
   virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
   virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
@@ -131,7 +162,7 @@ public:
   void map_phys_to_vox(const vnl_vector<double> &x_phys, vnl_vector<double> &x_vox);
 
   // Get the metric image
-  virtual typename ParentType::ImageType *GetMetricImage() override { return m_PureFunction.GetMetricImage(); }
+  virtual ImageType *GetMetricImage() override { return m_PureFunction.GetMetricImage(); }
 
 protected:
   PureAffineCostFunction<VDim, TReal> m_PureFunction;
@@ -146,7 +177,12 @@ protected:
   vnl_matrix<double> J_phys_vox;
 };
 
-/** Abstract scaling cost function - wraps around another cost function and provides scaling */
+/**
+ * Abstract scaling cost function - wraps around another cost function and provides scaling.
+ *
+ * Note: the scaling function takes over ownership of the wrapped function and will delete
+ * the pointer to the wrapped function.
+ */
 template <unsigned int VDim, typename TReal = double>
 class ScalingCostFunction : public AbstractAffineCostFunction<VDim, TReal>
 {
@@ -156,10 +192,17 @@ public:
   typedef typename Superclass::OFHelperType OFHelperType;
   typedef typename Superclass::LinearTransformType LinearTransformType;
 
+  typedef typename Superclass::ImageType ImageType;
+  typedef typename Superclass::ImagePointer ImagePointer;
+  typedef typename Superclass::VectorImageType VectorImageType;
+  typedef typename Superclass::VectorImagePointer VectorImagePointer;
+
   // Construct the function
   ScalingCostFunction(Superclass *pure_function, const vnl_vector<double> &scaling)
     : Superclass(pure_function->get_number_of_unknowns()),
       m_PureFunction(pure_function), m_Scaling(scaling) {}
+
+  ~ScalingCostFunction() { delete m_PureFunction; }
 
   // Get the parameters for the specified initial transform
   vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
@@ -173,11 +216,12 @@ public:
   const vnl_vector<double> &GetScaling() { return m_Scaling; }
 
   // Get the metric image
-  virtual typename ParentType::ImageType *GetMetricImage() override { return m_PureFunction->GetMetricImage(); }
+  virtual ImageType *GetMetricImage() override { return m_PureFunction->GetMetricImage(); }
 
 protected:
 
-  // Data needed to compute the cost function
+  // Data needed to compute the cost function. We use std::shared_ptr here to avoid
+  // the need for the caller to clean up the pure function
   Superclass *m_PureFunction;
   vnl_vector<double> m_Scaling;
 };
@@ -191,6 +235,12 @@ public:
   typedef typename Superclass::ParentType ParentType;
   typedef typename Superclass::OFHelperType OFHelperType;
   typedef typename Superclass::LinearTransformType LinearTransformType;
+
+  typedef typename Superclass::ImageType ImageType;
+  typedef typename Superclass::ImagePointer ImagePointer;
+  typedef typename Superclass::VectorImageType VectorImageType;
+  typedef typename Superclass::VectorImagePointer VectorImagePointer;
+
 
   typedef vnl_vector_fixed<double, VDim> Vec;
   typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
@@ -207,7 +257,7 @@ public:
   static Mat GetRandomRotation(vnl_random &randy, double alpha);
 
   // Get the metric image
-  virtual typename ParentType::ImageType *GetMetricImage() override { return m_AffineFn.GetMetricImage(); }
+  virtual ImageType *GetMetricImage() override { return m_AffineFn.GetMetricImage(); }
 
 protected:
 
@@ -235,6 +285,11 @@ public:
   typedef typename Superclass::OFHelperType OFHelperType;
   typedef typename Superclass::LinearTransformType LinearTransformType;
 
+  typedef typename Superclass::ImageType ImageType;
+  typedef typename Superclass::ImagePointer ImagePointer;
+  typedef typename Superclass::VectorImageType VectorImageType;
+  typedef typename Superclass::VectorImagePointer VectorImagePointer;
+
   const static int VDim = 2;
   typedef vnl_vector_fixed<double, VDim> Vec;
   typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
@@ -252,7 +307,7 @@ public:
   static Mat GetRandomRotation(vnl_random &randy, double alpha);
 
   // Get the metric image
-  virtual typename ParentType::ImageType *GetMetricImage() override { return m_AffineFn.GetMetricImage(); }
+  virtual ImageType *GetMetricImage() override { return m_AffineFn.GetMetricImage(); }
 
 protected:
 

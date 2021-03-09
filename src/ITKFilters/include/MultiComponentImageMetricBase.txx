@@ -171,7 +171,7 @@ void
 MultiComponentImageMetricBase<TMetricTraits>::ThreadAccumulatedData
 ::Accumulate(const ThreadAccumulatedData &other)
 {
-  std::lock_guard<std::mutex>(this->mutex);
+  std::lock_guard<std::mutex> guard(this->mutex);
   metric += other.metric;
   mask += other.mask;
   gradient += other.gradient;

@@ -27,6 +27,8 @@
 #include "AffineCostFunctions.h"
 #include "MultiImageRegistrationHelper.h"
 #include "AffineTransformUtilities.h"
+#include "GreedyParameters.h"
+#include "GreedyAPI.h"
 
 template <unsigned int VDim, typename TReal>
 PureAffineCostFunction<VDim, TReal>
@@ -149,6 +151,30 @@ PureAffineCostFunction<VDim, TReal>
   // Report the output values
   if(f)
     *f = out_metric.TotalPerPixelMetric;
+
+  // Keep track of line searches
+  m_LineSearchMemory.update(x, out_metric.TotalPerPixelMetric, g);
+
+  /*
+  // Line search reporting
+  static vnl_vector<double> last_g, last_g_x;
+  static double last_g_f;
+  if(g)
+    {
+    last_g = *g;
+    last_g_x = x;
+    last_g_f = out_metric.TotalPerPixelMetric;
+    printf("GRAD: f = %16.12f   ", out_metric.TotalPerPixelMetric);
+    std::cout << last_g << std::endl;
+    }
+  else if(last_g.size() == x.size())
+    {
+    vnl_vector<double> dx = x - last_g_x;
+    double df = *f - last_g_f;
+    printf("LS: dx = %16.12f  df = %16.12f\n", dx.magnitude(), df);
+    }
+  */
+
 
   // Has the metric improved?
   if(m_Parent->GetMetricLog().size())
@@ -875,6 +901,56 @@ RigidCostFunction<2, TReal>
   template class ClassName<2, double>; \
   template class ClassName<3, double>; \
   template class ClassName<4, double>;
+
+
+#include <vnl/algo/vnl_svd.h>
+
+void LineSearchMemory
+::update(const vnl_vector<double> &x, double f, vnl_vector<double> *g)
+{
+  // Create the entry
+  Entry e; e.f = f; e.x = x;
+  if(g)
+    e.g = *g;
+
+  if(data.size() > 0 && data[0].x.size() != e.x.size())
+    data.clear();
+
+  // If fewer than 2 points, append and exit
+  // If there are more than two entries, check for collinearity
+  while(data.size() >= 2)
+    {
+    const auto &x1 = data[0].x;
+    const auto &x2 = data[1].x;
+    vnl_matrix<double> M(3, x1.size());
+    M.set_row(0, data[0].x.data_block());
+    M.set_row(1, data[1].x.data_block());
+    M.set_row(2, e.x.data_block());
+
+    vnl_svd<double> svd(M, 1e-6);
+    auto W = svd.W();
+    unsigned int rank = 0;
+    // std::cout << "W = " << std::endl;
+    for(unsigned int k = 0; k < W.size(); k++)
+      {
+      // std::cout << W(k) << " ";
+      if(W(k) / W(0) >= 1e-5)
+        rank++;
+      }
+    // std::cout << std::endl;
+
+    if(rank > 1)
+      data.pop_front();
+    else
+      break;
+    }
+
+  // Append the new data
+  data.push_back(e);
+
+  // Report
+  // std::cout << "Line search queue length: " << data.size() << " at " << std::setprecision(10) << e.x << std::endl;
+}
 
 greedy_template_inst(PureAffineCostFunction)
 greedy_template_inst(PhysicalSpaceAffineCostFunction)

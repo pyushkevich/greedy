@@ -207,4 +207,17 @@ void itk_vector_to_vnl_vector(
     vvec(r) = static_cast<TVNL>(ivec[r]);
 }
 
+// Little helper functions
+template <unsigned int VDim> class array_caster
+{
+public:
+  template <class T> static itk::Size<VDim> to_itkSize(const T &t)
+  {
+    itk::Size<VDim> sz;
+    for(int i = 0; i < VDim; i++)
+      sz[i] = t[i];
+    return sz;
+  }
+};
+
 #endif // AFFINETRANSFORMUTILITIES_H

@@ -396,6 +396,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->flag_moments_id_covariance = true;
     }
+  else if(cmd == "-og")
+    {
+    this->output_metric_gradient = cl.read_output_filename();
+    }
   else if(cmd == "-V")
     {
     int level = cl.read_integer();
@@ -471,22 +475,22 @@ std::string GreedyParameters::GenerateCommandLine()
     switch(this->metric)
       {
       case GreedyParameters::SSD:
-        oss << "-m SSD";
+        oss << " -m SSD";
         break;
       case GreedyParameters::NCC:
-        oss << "-m NCC " << this->metric_radius;
+        oss << " -m NCC " << this->metric_radius;
         break;
       case GreedyParameters::WNCC:
-        oss << "-m WNCC " << this->metric_radius;
+        oss << " -m WNCC " << this->metric_radius;
         break;
       case GreedyParameters::MI:
-        oss << "-m MI";
+        oss << " -m MI";
         break;
       case GreedyParameters::NMI:
-        oss << "-m NMI";
+        oss << " -m NMI";
         break;
       case GreedyParameters::MAHALANOBIS:
-        oss << "-m MAHAL";
+        oss << " -m MAHAL";
         break;
       }
     }
@@ -494,9 +498,9 @@ std::string GreedyParameters::GenerateCommandLine()
   if(this->time_step_mode != def.time_step_mode)
     {
     if(this->time_step_mode == GreedyParameters::SCALE)
-      oss << "-tscale SCALE";
+      oss << " -tscale SCALE";
     else if(this->time_step_mode == GreedyParameters::SCALEDOWN)
-      oss << "-tscale SCALEDOWN";
+      oss << " -tscale SCALEDOWN";
     }
 
   if(this->ncc_noise_factor != def.ncc_noise_factor)
@@ -580,7 +584,7 @@ std::string GreedyParameters::GenerateCommandLine()
   if(this->flag_powell)
     oss << " -powell";
 
-  if(this->dump_frequency > 0)
+  if(this->dump_frequency != 1)
     oss << " -dump-frequency " << this->dump_frequency;
 
   if(this->flag_debug_deriv)
@@ -698,6 +702,9 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->warp_precision != def.warp_precision)
     oss << " -wp " << this->warp_precision;
+
+  if(this->output_metric_gradient.size())
+    oss << " -og " << this->output_metric_gradient;
 
   if(this->verbosity != def.verbosity)
     oss << " -V " << this->verbosity;

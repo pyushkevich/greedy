@@ -380,6 +380,9 @@ struct GreedyParameters
   // Optimization parameters
   LBFGSParameters lbfgs_param;
 
+  // Where to store the metric gradient in metric computation mode
+  std::string output_metric_gradient;
+
   // Data root (used when testing to provide relative paths)
   std::string data_root;
 

@@ -51,114 +51,149 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
       // Get the output pointer for this voxel
       InputComponentType *accum = iter.GetOutputLine();
       InputComponentType *saved = accum + m_SavedComponentsOffset;
-      typename FastInterpolator::InOut status;
 
-      // During the pre-accumulation phase, the fixed mask is thresholded at zero,
-      // i.e., whether or not we are within radius of a voxel where NCC must be
-      // measured. If we are outside of this range, we can safely set all accumulated
-      // components to zeros
-      if(!iter.CheckFixedMask(0.0)
-         || (status = iter.Interpolate()) == FastInterpolator::OUTSIDE)
+      // The fixed mask does not change through the iterations and can be safely ignored.
+      // We don't even need to clear the accumulated values because they are zeroed out
+      // when the working image is allocated
+      if(iter.CheckFixedMask(0.0))
         {
-        for(int j = 0; j < m_TotalWorkingImageComponents; j++)
-          *accum++ = 0.0;
-        }
-      else
-        {
+        // Interpolate at this location
+        typename FastInterpolator::InOut status = iter.Interpolate();
+
         // Split on weighted vs. unweighted mode, since the accumulated quantities
         // are going to be different
         if(m_Weighted)
           {
-          // TODO: what about the fixed mask contribution?
-          double w;
-
-          // Get and save the weight and save the weight gradient. The weight is one and
-          // weight gradient is zero for inside voxels
-          if(status == FastInterpolator::INSIDE)
+          // If status is outside, we must zero out all accumulated elements
+          if(status == FastInterpolator::OUTSIDE ||
+             (status == FastInterpolator::BORDER && iter.GetMask() == 0))
             {
-            w = 1.0;
-            if(m_NeedGradient)
-              {
-              *saved++ = w;
-              for(unsigned int d = 0; d < ImageDimension; d++)
-                *saved++ = 0.0;
-              }
+            for(unsigned int q = 0; q < m_TotalWorkingImageComponents; q++)
+              *accum++ = 0.0;
             }
           else
             {
-            w = iter.GetMask();
-            if(m_NeedGradient)
+            // TODO: what about the fixed mask contribution?
+            double w;
+
+            // Get and save the weight and save the weight gradient. The weight is one and
+            // weight gradient is zero for inside voxels
+            if(status == FastInterpolator::INSIDE)
               {
-              *saved++ = w;
-              for(unsigned int d = 0; d < ImageDimension; d++)
-                *saved++ = iter.GetMaskGradient()[d];
+              w = 1.0;
+              if(m_NeedGradient)
+                {
+                *saved++ = w;
+                for(unsigned int d = 0; d < ImageDimension; d++)
+                  *saved++ = 0.0;
+                }
               }
-            }
-
-          // Accumulate the weight
-          *accum++ = w;
-
-          // Iterate over the components
-          for(int k = 0; k < m_InputComponents; k++)
-            {
-            // The fixed value is just the moving component
-            InputComponentType x_fix = iter.GetFixedLine()[k];
-
-            // What we sample from the moving image is actually moving image intensity times the
-            // moving image mask
-            InputComponentType x_wmov = iter.GetMovingSample()[k];
-
-            // Compute the weighted fixed and unweighted moving values
-            double x_wfix = w * x_fix, x_mov = x_wmov / w;
-
-            // Write the five components that are averaged in the cross-correlation computation
-            *accum++ = x_wfix;                         // w * f
-            *accum++ = x_wmov;                         // w * m
-            *accum++ = x_wfix * x_fix;                 // w * f^2
-            *accum++ = x_wmov * x_mov;                 // w * m^2
-            *accum++ = x_fix * x_wmov;                 // w * f * m
-
-            // Store elements needed for gradient computation
-            if(m_NeedGradient)
+            else
               {
-              *saved++ = x_fix;
-              *saved++ = x_mov;
-              const InputComponentType *x_mov_grad = iter.GetMovingSampleGradient(k);
-              for(unsigned int d = 0; d < ImageDimension; d++)
-                *saved++ = x_mov_grad[d];
+              w = iter.GetMask();
+              if(m_NeedGradient)
+                {
+                *saved++ = w;
+                for(unsigned int d = 0; d < ImageDimension; d++)
+                  *saved++ = iter.GetMaskGradient()[d];
+                }
+              }
+
+            // Accumulate the weight
+            *accum++ = w;
+
+            // Iterate over the components
+            for(int k = 0; k < m_InputComponents; k++)
+              {
+              // The fixed value is just the moving component
+              InputComponentType x_fix = iter.GetFixedLine()[k];
+
+              // What we sample from the moving image is actually moving image intensity times the
+              // moving image mask
+              InputComponentType x_wmov = iter.GetMovingSample()[k];
+
+              // Compute the weighted fixed and unweighted moving values
+              double x_wfix = w * x_fix, x_mov = x_wmov / w;
+
+              // Write the five components that are averaged in the cross-correlation computation
+              *accum++ = x_wfix;                         // w * f
+              *accum++ = x_wmov;                         // w * m
+              *accum++ = x_wfix * x_fix;                 // w * f^2
+              *accum++ = x_wmov * x_mov;                 // w * m^2
+              *accum++ = x_fix * x_wmov;                 // w * f * m
+
+              // Store elements needed for gradient computation
+              if(m_NeedGradient)
+                {
+                *saved++ = x_fix;
+                *saved++ = x_mov;
+                const InputComponentType *x_mov_grad = iter.GetMovingSampleGradient(k);
+                for(unsigned int d = 0; d < ImageDimension; d++)
+                  *saved++ = x_mov_grad[d];
+                }
               }
             }
           }
-        else
+        else // i.e., m_Weighted is false
           {
-          // Just count this pixel
+          // The pixel is counted no matter what the interpolation status
           *accum++ = 1.0;
 
-          // Iterate over the components
-          for(int k = 0; k < m_InputComponents; k++)
+          // Handle the special case of outside status. Here the moving image is assumed
+          // to be zero, but the fixed image should still be recorded in the accumulation
+          if(status == FastInterpolator::OUTSIDE)
             {
-            // The fixed value is just the moving component
-            InputComponentType x_fix = iter.GetFixedLine()[k];
-
-            // What we sample from the moving image is actually moving image intensity times the
-            // moving image mask
-            InputComponentType x_mov = iter.GetMovingSample()[k];
-
-            // Write the five components that are averaged in the cross-correlation computation
-            *accum++ = x_fix;                         // f
-            *accum++ = x_mov;                         // m
-            *accum++ = x_fix * x_fix;                 // f^2
-            *accum++ = x_mov * x_mov;                 // m^2
-            *accum++ = x_fix * x_mov;                 // f * m
-
-            // Store elements needed for gradient computation
-            if(m_NeedGradient)
+            // Iterate over the components
+            for(int k = 0; k < m_InputComponents; k++)
               {
-              *saved++ = x_fix;
-              *saved++ = x_mov;
-              const InputComponentType *x_mov_grad = iter.GetMovingSampleGradient(k);
-              for(unsigned int d = 0; d < ImageDimension; d++)
-                *saved++ = x_mov_grad[d];
+              // The fixed value is just the moving component
+              InputComponentType x_fix = iter.GetFixedLine()[k];
+
+              // Write the five components that are averaged in the cross-correlation computation
+              *accum++ = x_fix;                         // f
+              *accum++ = 0.0;                           // m
+              *accum++ = x_fix * x_fix;                 // f^2
+              *accum++ = 0.0;                           // m^2
+              *accum++ = 0.0;                           // f * m
+
+              // Store elements needed for gradient computation
+              if(m_NeedGradient)
+                {
+                *saved++ = x_fix;
+                *saved++ = 0.0;
+                for(unsigned int d = 0; d < ImageDimension; d++)
+                  *saved++ = 0.0;
+                }
+              }
+            }
+          else // status is inside or border
+            {
+            // Iterate over the components
+            for(int k = 0; k < m_InputComponents; k++)
+              {
+              // The fixed value is just the moving component
+              InputComponentType x_fix = iter.GetFixedLine()[k];
+
+              // What we sample from the moving image is actually moving image intensity times the
+              // moving image mask
+              InputComponentType x_mov = iter.GetMovingSample()[k];
+
+              // Write the five components that are averaged in the cross-correlation computation
+              *accum++ = x_fix;                         // f
+              *accum++ = x_mov;                         // m
+              *accum++ = x_fix * x_fix;                 // f^2
+              *accum++ = x_mov * x_mov;                 // m^2
+              *accum++ = x_fix * x_mov;                 // f * m
+
+              // Store elements needed for gradient computation
+              if(m_NeedGradient)
+                {
+                *saved++ = x_fix;
+                *saved++ = x_mov;
+                const InputComponentType *x_mov_grad = iter.GetMovingSampleGradient(k);
+                for(unsigned int d = 0; d < ImageDimension; d++)
+                  *saved++ = x_mov_grad[d];
+                }
               }
             }
           }
@@ -187,15 +222,12 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
   for(unsigned int d = 0; d < ImageDimension; d++)
     patch_size *= (1 + 2 * m_Radius[d]);
 
-  /*
   // Added in Feb 2020, part of NaN masking. We now scale the patch NCC by the
   // number of non-background voxels in the mask, to prevent oversize contribution
   // of border pixels. To account for this, the weights are scaled by the patch size
   double one_over_patch_size = 1.0;
   for(unsigned int k = 0; k < ImageDimension; k++)
     one_over_patch_size /= (1 + 2.0 * this->m_Radius[k]);
-  typename Superclass::WeightVectorType wgt_scaled = this->m_Weights * one_over_patch_size;
-  */
 
   // Set up an iterator for the working image (which contains accumulation results)
   InputIteratorType it(m_WorkingImage, outputRegionForThread);
@@ -260,7 +292,12 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
           double sum_fm = *p_accum++;
 
           // How we calculate variance and covariance depends on weighting
-          double N = m_Weighted ? sum_w : patch_size;
+          double N = patch_size, w_scale = 1.0;
+          if(m_Weighted)
+            {
+            N = sum_w;
+            w_scale = std::pow(sum_w * one_over_patch_size, m_WeightScalingExponent);
+            }
 
           // Compute the weighted normalized correlation, it has a nice symmetrical formula;
           // However, to avoid division by zero issues, we should add epsilon to the components
@@ -275,13 +312,16 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
           double one_over_denom = 1.0 / (var_f * var_m);
           double ncc_fm = abs_cov_fm * cov_fm * one_over_denom;
 
+          // Scale ncc by weight
+          double ncc_fm_w_scaled = w_scale * ncc_fm;
+
           // Scale by the weight
           double w_comp = this->m_Weights[k];
 
           // We use sum_w as an additional scaling factor so that the contribution of
           // border pixels is reduced (seems like a fair way to do things)
           // MetricPixelType weighted_metric = (MetricPixelType) (w_comp * n * ncc_fm);
-          MetricPixelType weighted_metric = (MetricPixelType) w_comp * ncc_fm;
+          MetricPixelType weighted_metric = (MetricPixelType) w_comp * w_scale * ncc_fm;
 
           // Store the componentwise metric
           comp_metric[k] += weighted_metric;
@@ -294,18 +334,19 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
             {
             // These common quantities are just the NCC^2 metric divided by either
             // covariance, or one of the variances
-            double q_fm = abs_cov_fm * one_over_denom;
-            double q_m  = ncc_fm / var_m;
+            double q_fm = w_scale * abs_cov_fm * one_over_denom;
+            double q_m  = ncc_fm_w_scaled / var_m;
 
             if(m_Weighted)
               {
-              double q_f  = ncc_fm / var_f;
+              double q_f  = ncc_fm_w_scaled / var_f;
               *p_accum_out++ = sum_w * q_fm;
               *p_accum_out++ = sum_w * q_f;
               *p_accum_out++ = sum_w * q_m;
               *p_accum_out++ = sum_m * q_m - sum_f * q_fm;
               *p_accum_out++ = sum_f * q_f - sum_m * q_fm;
-              *p_accum_out++ = 2 * sum_fm * q_fm - sum_ff * q_f - sum_mm * q_m;
+              *p_accum_out++ = 2 * sum_fm * q_fm - sum_ff * q_f - sum_mm * q_m
+                               + m_WeightScalingExponent * ncc_fm_w_scaled / sum_w;
               }
             else
               {
@@ -443,8 +484,8 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
                 {
                 *p_affine_grad++ += d_metric_d_phi_k;
                 *p_affine_grad++ += d_metric_d_phi_k * i;
-                for(unsigned int d = 1; d < ImageDimension; d++)
-                  *p_affine_grad++ += d_metric_d_phi_k * cix[d];
+                for(unsigned int q = 1; q < ImageDimension; q++)
+                  *p_affine_grad++ += d_metric_d_phi_k * cix[q];
                 }
               }
             }
@@ -481,8 +522,8 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
                 {
                 *p_affine_grad++ += d_metric_d_phi_k;
                 *p_affine_grad++ += d_metric_d_phi_k * i;
-                for(unsigned int d = 1; d < ImageDimension; d++)
-                  *p_affine_grad++ += d_metric_d_phi_k * cix[d];
+                for(unsigned int q = 1; q < ImageDimension; q++)
+                  *p_affine_grad++ += d_metric_d_phi_k * cix[q];
                 }
               }
             }
@@ -572,6 +613,12 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
     m_WorkingImage->SetNumberOfComponentsPerPixel(m_TotalWorkingImageComponents);
     m_WorkingImage->SetRegions(working_region);
     m_WorkingImage->Allocate();
+
+    // It is very important to zero out the buffer
+    auto *p = m_WorkingImage->GetBufferPointer();
+    auto *p_end = m_WorkingImage->GetBufferPointer() + m_WorkingImage->GetPixelContainer()->Size();
+    while(p < p_end)
+      *p++ = 0.0;
     }
 
   // Fill the working image with quanitities that need to be accumulated
