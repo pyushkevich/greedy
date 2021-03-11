@@ -1608,7 +1608,9 @@ int GreedyApproach<VDim, TReal>
 
       // We have now computed the gradient vector field. Next, we smooth it
       tm_Gaussian1.Start();
-      LDDMMType::vimg_smooth_withborder(uk1, viTemp, sigma_pre_phys, 1);
+      // Why do we smooth with a border? What if there is data at the border?
+      // LDDMMType::vimg_smooth_withborder(uk1, viTemp, sigma_pre_phys, 1);
+      LDDMMType::vimg_smooth(uk1, viTemp, sigma_pre_phys);
       tm_Gaussian1.Stop();
 
       // After smoothing, compute the maximum vector norm and use it as a normalizing
@@ -1674,7 +1676,8 @@ int GreedyApproach<VDim, TReal>
 
       // Another layer of smoothing (diffusion-like)
       tm_Gaussian2.Start();
-      LDDMMType::vimg_smooth_withborder(uk1, uk, sigma_post_phys, 1);
+      // LDDMMType::vimg_smooth_withborder(uk1, uk, sigma_post_phys, 1);
+      LDDMMType::vimg_smooth(uk1, uk, sigma_post_phys);
       tm_Gaussian2.Stop();
 
       // Optional incompressibility step
