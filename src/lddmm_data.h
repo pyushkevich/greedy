@@ -49,6 +49,7 @@ class LDDMMData
 public:
   // Image data
   typedef itk::ImageBase<VDim> ImageBaseType;
+  typedef typename ImageBaseType::Pointer ImageBasePointer;
   typedef itk::Image<TFloat, VDim> ImageType;
   typedef typename ImageType::Pointer ImagePointer;
   typedef itk::ImageRegionIteratorWithIndex<ImageType> ImageIterator;
@@ -165,7 +166,7 @@ public:
   static void lie_bracket(VectorImageType *v, VectorImageType *u, MatrixImageType *work, VectorImageType *out);
 
   // Smooth an image in-place
-  static void img_smooth(ImageType *src, ImageType *out, double sigma);
+  static void img_smooth(ImageType *src, ImageType *out, Vec sigma);
   static void vimg_smooth(VectorImageType *src, VectorImageType *out, double sigma);
   static void vimg_smooth(VectorImageType *src, VectorImageType *out, Vec sigmas);
   static void cimg_smooth(CompositeImageType *src, CompositeImageType *out, Vec sigma);
@@ -215,14 +216,19 @@ public:
   // Generate a kernel image for navier-stokes operator
   static void compute_navier_stokes_kernel(ImageType *kernel, double alpha, double gamma);
 
+  // Create a reference space (unallocated) for downsampling. Mostly used internally
+  static ImageBasePointer create_reference_space_for_downsample(ImageBaseType *src, double factor);
+
+  // New, hopefully faster, downsample code
+  static ImagePointer img_downsample(ImageType *src, double factor);
+  static CompositeImagePointer cimg_downsample(CompositeImageType *img, double factor);
+
   // Downsample and upsample images (includes smoothing, use sparingly)
-  static void img_downsample(ImageType *src, ImageType *trg, double factor);
   static void img_shrink(ImageType *src, ImageType *trg, int factor);
   static void img_resample_identity(ImageType *src, ImageBaseType *ref, ImageType *trg);
   static void vimg_resample_identity(VectorImageType *src, ImageBaseType *ref, VectorImageType *trg);
 
   // Versions of these methods that return pointers
-  static ImagePointer img_downsample(ImageType *src, double factor);
   static VectorImagePointer vimg_resample_identity(VectorImageType *src, ImageBaseType *ref);
 
   // Threshold image
@@ -233,6 +239,15 @@ public:
 
   // Replace NaNs in an image using a mask
   static void img_reconstitute_nans_in_place(ImageType *src, ImageType *nan_mask);
+
+  // Apply noise to image components
+  static void cimg_add_gaussian_noise_in_place(CompositeImageType *img,
+                                               const std::vector<double> &sigma,
+                                               unsigned long stride = 0);
+
+  static void vimg_add_gaussian_noise_in_place(VectorImageType *img,
+                                               double sigma,
+                                               unsigned long stride = 0);
 
   // Convert voxel-space warp to a physical space warp
   static void warp_voxel_to_physical(VectorImageType *src, ImageBaseType *ref_space, VectorImageType *trg);
@@ -272,6 +287,18 @@ public:
   static bool img_auto_cast(const ImageType *src, ImageBaseType *trg);
   static bool cimg_auto_cast(const CompositeImageType *src, ImageBaseType *trg);
 
+  // Check if two images occupy same space
+  static bool img_same_space(const ImageBaseType *i1, const ImageBaseType *i2, double tol = 1e-6);
+
+  // Merge a bunch of images into one. If the input array only has one image, it will be returned
+  static CompositeImagePointer cimg_concat(const std::vector<CompositeImagePointer> &img);
+
+  // Count the number of NaNs in an image
+  static unsigned int cimg_nancount(const CompositeImageType *img);
+
+  // Compute (x / m if m >= t, 0 o/w)
+  static void cimg_mask_smooth_adjust_in_place(CompositeImageType *img, ImageType *mask, TFloat thresh);
+
   // Compute a array from v
   void compute_semi_lagrangean_a();
 
@@ -303,6 +330,12 @@ public:
   static void poisson_pde_zero_boundary_dealloc(void *solver_data);
 
 protected:
+
+  // Present a vector field as a cimg (for algorithms that only run on cimg). The two images will
+  // share memory, and this is meant to be used temporarily
+  static CompositeImagePointer vimg_as_cimg(VectorImageType *src);
+  static ImagePointer cimg_as_img(CompositeImageType *src);
+  static CompositeImagePointer img_as_cimg(ImageType *src);
 
   // A vector image for in-place interpolation operations
   VectorImagePointer vtmp;

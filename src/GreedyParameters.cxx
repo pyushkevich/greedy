@@ -28,51 +28,6 @@
 #include "CommandLineHelper.h"
 
 
-void
-GreedyParameters
-::SetToDefaults(GreedyParameters &param)
-{
-  param.dim = 2;
-  param.mode = GreedyParameters::GREEDY;
-  param.flag_dump_moving = false;
-  param.flag_debug_deriv = false;
-  param.flag_debug_aff_obj = false;
-  param.dump_frequency = 1;
-  param.epsilon_per_level = 1.0;
-  param.sigma_pre.sigma = sqrt(3.0);
-  param.sigma_pre.physical_units = false;
-  param.sigma_post.sigma = sqrt(0.5);
-  param.sigma_post.physical_units = false;
-  param.threads = 0;
-  param.metric = GreedyParameters::SSD;
-  param.time_step_mode = GreedyParameters::SCALE;
-  param.deriv_epsilon = 1e-4;
-  param.flag_powell = false;
-  param.warp_exponent = 6;
-  param.warp_precision = 0.1;
-  param.ncc_noise_factor = 0.001;
-  param.affine_init_mode = VOX_IDENTITY;
-  param.affine_dof = GreedyParameters::DOF_AFFINE;
-  param.affine_jitter = 0.5;
-  param.flag_float_math = false;
-  param.flag_stationary_velocity_mode = false;
-  param.flag_incompressibility_mode = false;
-  param.flag_stationary_velocity_mode_use_lie_bracket = false;
-  param.background = 0.0;
-  param.current_weight = 1.0;
-
-  param.iter_per_level.push_back(100);
-  param.iter_per_level.push_back(100);
-
-  // Moments of inertia parameters
-  param.moments_flip_determinant = 0;
-  param.flag_moments_id_covariance = false;
-  param.moments_order = 1;
-  
-  // Verbosity
-  param.verbosity = VERB_DEFAULT;
-}
-
 bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelper &cl)
 {
   if(cmd == "-d")
@@ -206,29 +161,45 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     for(int i = 0; i < nFiles; i++)
       this->moving_pre_transforms.push_back(cl.read_transform_spec());
     }
+  else if(cmd == "-ref")
+    {
+    this->reference_space = cl.read_existing_filename();
+    }
+  else if(cmd == "-bg")
+    {
+    this->background = cl.read_double();
+    }
+  else if(cmd == "-ref-pad")
+    {
+    this->reference_space_padding = cl.read_int_vector();
+    }
   else if(cmd == "-gm")
     {
-    this->gradient_mask = cl.read_existing_filename();
+    this->fixed_mask = cl.read_existing_filename();
     }
   else if(cmd == "-gm-trim")
     {
-    this->gradient_mask_trim_radius = cl.read_int_vector();
+    this->fixed_mask_trim_radius = cl.read_int_vector();
     }
   else if(cmd == "-mm")
     {
     this->moving_mask = cl.read_existing_filename();
     }
-  else if(cmd == "-fm")
-    {
-    this->fixed_mask = cl.read_existing_filename();
-    }
   else if(cmd == "-o")
     {
     this->output = cl.read_output_filename();
     }
+  else if(cmd == "-dump-prefix")
+    {
+    this->dump_prefix = cl.read_string();
+    }
   else if(cmd == "-dump-moving")
     {
     this->flag_dump_moving = true;
+    }
+  else if(cmd == "-dump-pyramid")
+    {
+    this->flag_dump_pyramid = true;
     }
   else if(cmd == "-powell")
     {
@@ -563,20 +534,32 @@ std::string GreedyParameters::GenerateCommandLine()
       }
     }
 
-  if(this->gradient_mask.size())
-    oss << " -gm " << this->gradient_mask;
+  if(this->reference_space.size())
+    oss << " -ref " << this->reference_space;
 
-  if(this->gradient_mask_trim_radius != def.gradient_mask_trim_radius)
-    oss << " -gm-trim " << this->gradient_mask_trim_radius;
+  if(this->reference_space_padding != def.reference_space_padding)
+    oss << " -ref-pad " << this->reference_space_padding;
+
+  if(this->background != def.background)
+    oss << " -bg " << this->background;
+
+  if(this->fixed_mask.size())
+    oss << " -gm " << this->fixed_mask;
+
+  if(this->fixed_mask_trim_radius != def.fixed_mask_trim_radius)
+    oss << " -gm-trim " << this->fixed_mask_trim_radius;
 
   if(this->moving_mask.size())
     oss << " -mm " << this->moving_mask;
 
-  if(this->moving_mask.size())
-    oss << " -fm " << this->fixed_mask;
-
   if(this->output.size())
     oss << " -o " << this->output;
+
+  if(this->dump_prefix.size())
+    oss << " -dump-prefix" << this->dump_prefix;
+
+  if(this->flag_dump_pyramid)
+    oss << " -dump-pyramid";
 
   if(this->flag_dump_moving)
     oss << " -dump-moving";

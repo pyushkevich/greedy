@@ -100,7 +100,7 @@ int RunMaskedInterpolationTest()
     }
 
   // Dilate to create actual mask (smooth and threshold works fine)
-  LDDMMType::img_smooth(W, W, 3.0);
+  LDDMMType::img_smooth(W, W, typename LDDMMType::Vec(3.0));
   LDDMMType::img_threshold_in_place(W, 0.1, 1.1, 1.0, 0.0);
 
   // Multiply the moving image by the mask, so that we consistently return W*M for
@@ -231,7 +231,7 @@ int RunPhantomTest(CommandLineHelper &cl)
     }
   else if(metric == "WNCC")
     {
-    gp.metric = GreedyParameters::NCC;
+    gp.metric = GreedyParameters::WNCC;
     gp.metric_radius = std::vector<int>(3, 2);
     }
   else if(metric == "SSD")
@@ -246,14 +246,14 @@ int RunPhantomTest(CommandLineHelper &cl)
 
   gp.inputs.push_back(ImagePairSpec(fn_fix, fn_mov));
   if(use_mask)
-    gp.gradient_mask = fn_mask;
+    gp.fixed_mask = fn_mask;
 
   gp.affine_dof = dof == 6 ? GreedyParameters::DOF_RIGID : (
                                dof == 7 ? GreedyParameters::DOF_SIMILARITY :
                                           GreedyParameters::DOF_AFFINE);
 
   // Set number of steps
-  gp.iter_per_level = {{40, 100, 0}};
+  gp.iter_per_level = {{100, 60, 20}};
 
   // Store transform somewhere
   gp.output = "my_transform";
@@ -652,6 +652,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
   struct SampleData {
     itk::Index<VDim> pos;
     double fixed_value = 0.0, moving_value = 0.0, weight_value = 0.0;
+    double fixed_mask_value = 0.0;
     double mask_vol = 0.0;
     typename GreedyAPI::VectorImageType::PixelType f1, f2, df_analytic, df_numeric;
     vnl_vector_fixed<double, VDim> grad_W, grad_WM;
@@ -679,12 +680,8 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
       for(unsigned int k = 0; k < VDim; k++)
         s.pos[k] = rnd.lrand32(0, refspace->GetBufferedRegion().GetSize(k)-1);
 
-      // TODO: remove this exception
-      if(is == 0)
-        {
-        s.pos[0] = 97;
-        s.pos[1] = 58;
-        }
+      // Check the fixed mask
+      s.fixed_mask_value = of_helper.GetFixedMask(0) ? of_helper.GetFixedMask(0)->GetPixel(s.pos) : 1.0;
 
       // Look up phi at this location
       typename GreedyAPI::VectorImageType::PixelType s_phi = phi->GetPixel(s.pos);
@@ -706,7 +703,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
           s.weight_value = interp.GetMaskAndGradient(s.grad_W.data_block()); break;
         }
 
-      if(s.status == wanted_status || is == 0)
+      if(s.status == wanted_status && s.fixed_mask_value > 0)
         break;
       }
 

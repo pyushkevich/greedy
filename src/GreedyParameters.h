@@ -260,9 +260,17 @@ struct GreedyParameters
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
   enum Verbosity { VERB_NONE=0, VERB_DEFAULT, VERB_VERBOSE, VERB_INVALID };
 
+  // Pairs of input images
   std::vector<ImagePairSpec> inputs;
+
+  // Output affine or warp
   std::string output;
-  unsigned int dim;
+
+  // Image dimension
+  unsigned int dim = 2;
+
+  // Number of threads to use, default 0 means all available
+  int threads = 0;
 
   // Output for each iteration. This can be in the format "blah_%04d_%04d.mat" for
   // saving intermediate results into separate files. Or it can point to an object
@@ -282,26 +290,36 @@ struct GreedyParameters
   GreedyWarpRootParameters warproot_param;
 
   // Registration mode
-  Mode mode;
+  Mode mode = GREEDY;
 
-  bool flag_dump_moving, flag_debug_deriv, flag_powell;
-  int dump_frequency, threads;
-  double deriv_epsilon;
+  // Debug dumo related
+  bool flag_dump_moving = false, flag_dump_pyramid = false, flag_debug_deriv = false;
+  int dump_frequency = 1;
 
-  double affine_jitter;
+  // Epsilon for derivative calculations (debug related)
+  double deriv_epsilon = 1e-4;
 
-  double background;
+  // Standard deviation of jitter noise added to the sampling grid during affine
+  double affine_jitter = 0.5;
+
+  // Background fill for reslicing operations
+  double background = 0.0;
 
   // Smoothing parameters
-  SmoothingParameters sigma_pre, sigma_post;
+  SmoothingParameters sigma_pre = { 1.7320508076, false };
+  SmoothingParameters sigma_post = { 0.7071067812, false };
 
-  MetricType metric;
-  TimeStepMode time_step_mode;
+  // Which metric to use
+  MetricType metric = SSD;
+
+  // Time step scaling
+  TimeStepMode time_step_mode = SCALE;
 
   // Iterations per level (i.e., 40x40x100)
-  PerLevelSpec<double> epsilon_per_level;
-  
-  std::vector<int> iter_per_level;
+  std::vector<int> iter_per_level = {{100, 100}};
+
+  // Epsilon factor for each level
+  PerLevelSpec<double> epsilon_per_level = 1.0;
 
   std::vector<int> metric_radius;
 
@@ -310,19 +328,29 @@ struct GreedyParameters
   // List of transforms to apply to the moving image before registration
   std::vector<TransformSpec> moving_pre_transforms;
 
+  // An image used to specify the reference space
+  std::string reference_space;
+
+  // Amount of padding applied to the reference space when applying the moving pre-transform
+  // This allows the moving image to extend past the fixed image when applying the moving
+  // pre-transforms, so that during warping we can actually sample from outside of the fixed
+  // image region.
+  std::vector<int> reference_space_padding;
+
+  // Initial affine transform mode
+  AffineInitMode affine_init_mode = VOX_IDENTITY;
+
+  // Degrees of freedom (rigid or affine)
+  AffineDOF affine_dof = DOF_AFFINE;
+
   // Initial affine transform
-  AffineInitMode affine_init_mode;
-  AffineDOF affine_dof;
   TransformSpec affine_init_transform;
 
   // Filename of initial warp
   std::string initial_warp;
 
-  // Mask for gradient computation (fixed mask)
-  std::string gradient_mask;
-
   // Trim for the gradient mask
-  std::vector<int> gradient_mask_trim_radius;
+  std::vector<int> fixed_mask_trim_radius;
 
   // Mask for the moving image
   std::string moving_mask;
@@ -332,50 +360,53 @@ struct GreedyParameters
 
   // Inverse warp and root warp, for writing in deformable mode
   std::string inverse_warp, root_warp;
-  int warp_exponent;
 
-  // Precision for output warps
-  double warp_precision;
+  // Exponent for scaling and squaring
+  int warp_exponent = 6;
 
-  // Noise for NCC
-  double ncc_noise_factor;
+  // Precision for output warps (in voxel units, to save space)
+  double warp_precision = 0.1;
+
+  // Noise for NCC, relative to image intensity range
+  double ncc_noise_factor = 0.001;
 
   // Debugging matrices
-  bool flag_debug_aff_obj;
+  bool flag_debug_aff_obj = false;
 
   // Rigid search
   RigidSearchSpec rigid_search;
 
   // Moments of inertia specification
-  int moments_flip_determinant;
-  int moments_order;
-  bool flag_moments_id_covariance;
+  int moments_flip_determinant = 0;
+  int moments_order = 1;
+  bool flag_moments_id_covariance = false;
 
   // Stationary velocity (Vercauteren 2008 LogDemons) mode
-  bool flag_stationary_velocity_mode;
+  bool flag_stationary_velocity_mode = false;
 
   // Whether the Lie bracket is used in the y velocity update
-  bool flag_stationary_velocity_mode_use_lie_bracket;
+  bool flag_stationary_velocity_mode_use_lie_bracket = false;
 
   // Incompressibility mode (Mansi 2011 iLogDemons)
-  bool flag_incompressibility_mode;
+  bool flag_incompressibility_mode = false;
 
   // Floating point precision?
-  bool flag_float_math;
+  bool flag_float_math = false;
+
+  // Whether to use an alternative solver for affine optimization
+  bool flag_powell = false;
 
   // Weight applied to new image pairs
-  double current_weight;
+  double current_weight = 1.0;
 
   // Interpolation applied to new reslice image pairs
   InterpSpec current_interp;
-
-  static void SetToDefaults(GreedyParameters &param);
 
   // Read parameters from the
   bool ParseCommandLine(const std::string &cmd, CommandLineHelper &cl);
   
   // Verbosity flag
-  Verbosity verbosity;
+  Verbosity verbosity = VERB_DEFAULT;
 
   // Optimization parameters
   LBFGSParameters lbfgs_param;
@@ -386,8 +417,8 @@ struct GreedyParameters
   // Data root (used when testing to provide relative paths)
   std::string data_root;
 
-  // Constructor
-  GreedyParameters() { SetToDefaults(*this); }
+  // Data root (used when testing to provide relative paths)
+  std::string dump_prefix;
 
   // Get an existing filename
   std::string GetExistingFilename(CommandLineHelper &cl);

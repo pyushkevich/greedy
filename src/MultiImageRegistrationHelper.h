@@ -78,9 +78,6 @@ public:
   /** Add a pair of multi-component images to the class - same weight for each component */
   void AddImagePair(MultiComponentImageType *fixed, MultiComponentImageType *moving, double weight);
 
-  /** Set the gradient image mask */
-  void SetGradientMask(FloatImageType *maskImage) { m_GradientMaskImage = maskImage; }
-
   /** Set the fixed image mask. It will just be used to set NaNs in the fixed image. */
   void SetFixedMask(FloatImageType *maskImage) { m_FixedMaskImage = maskImage; }
 
@@ -97,7 +94,7 @@ public:
   void DownsampleImage(VectorImageType *src, VectorImageType *dst, int factor, bool has_nans);
   
   /** Compute the composite image - must be run before any sampling is done */
-  void BuildCompositeImages(double noise_sigma_relative = 0.0);
+  void BuildCompositeImages(double noise_sigma_relative, bool masked_downsampling);
 
   /**
    * Apply a dilation to the fixed gradient masks - this is used with the NCC metric. The initial
@@ -111,23 +108,26 @@ public:
    */
   void DilateCompositeGradientMasksForNCC(SizeType radius);
 
+  /** Get number of pyramid levels */
+  unsigned int GetNumberOfLevels() const { return m_PyramidFactors.size(); }
+
   /** Get the reference image for level k */
   ImageBaseType *GetReferenceSpace(int level);
 
   /** Get the reference image for level k */
   ImageBaseType *GetMovingReferenceSpace(int level);
 
-  /** Get the gradient mask at a pyramid level */
-  FloatImageType *GetGradientMask(int level) { return m_GradientMaskComposite[level]; }
+  /** Get the moving mask at a pyramid level */
+  FloatImageType *GetFixedMask(int level) { return m_FixedPyramid.mask_pyramid[level]; }
 
   /** Get the moving mask at a pyramid level */
-  FloatImageType *GetMovingMask(int level) { return m_MovingMaskComposite[level]; }
+  FloatImageType *GetMovingMask(int level) { return m_MovingPyramid.mask_pyramid[level]; }
 
   /** Get the fixed image at a pyramid level */
-  MultiComponentImageType *GetFixedComposite(int level) { return m_FixedComposite[level]; }
+  MultiComponentImageType *GetFixedComposite(int level) { return m_FixedPyramid.image_pyramid[level]; }
 
   /** Get the moving image at a pyramid level */
-  MultiComponentImageType *GetMovingComposite(int level) { return m_MovingComposite[level]; }
+  MultiComponentImageType *GetMovingComposite(int level) { return m_MovingPyramid.image_pyramid[level]; }
 
   /** Get the smoothing factor for given level based on parameters */
   Vec GetSmoothingSigmasInPhysicalUnits(int level, double sigma, bool in_physical_units);
@@ -235,6 +235,10 @@ public:
     VectorImageType *warp, VectorImageType *out, VectorImageType *work, 
     FloatImageType *error_norm = NULL, double tol = 0.0, int max_iter = 20);
 
+  /**
+   * Internal method used to pack a bunch of multi-component images into a single one
+   */
+
   MultiImageOpticalFlowHelper() : 
     m_JitterSigma(0.0), m_ScaleFixedImageWithVoxelSize(false) {}
 
@@ -251,26 +255,41 @@ protected:
   typedef std::vector<typename FloatImageType::Pointer> FloatImageSet;
   typedef std::vector<typename VectorImageType::Pointer> VectorImageSet;
 
+  // A structure represetning an image pyramid layer
+  struct ImagePyramid {
+    // Multi-component image at full resolution
+    typename MultiComponentImageType::Pointer image_full;
+
+    // Mask image at full resolution
+    typename FloatImageType::Pointer mask_full;
+
+    // Pyramid of images
+    MultiCompImageSet image_pyramid;
+
+    // Pyramid of masks
+    FloatImageSet mask_pyramid;
+
+    // Noise factor for each component
+    std::vector<double> noise_sigma;
+
+    // Whether the original image had nans
+    bool have_nans = false;
+  };
+
   // Fixed and moving images
   MultiCompImageSet m_Fixed, m_Moving;
 
   // Composite image at each resolution level
-  MultiCompImageSet m_FixedComposite, m_MovingComposite;
+  ImagePyramid m_FixedPyramid, m_MovingPyramid;
 
   // Working memory image for NCC computation
   typename MultiComponentImageType::Pointer m_NCCWorkingImage;
-
-  // Gradient mask image - used to multiply the gradient
-  typename FloatImageType::Pointer m_GradientMaskImage;
 
   // Moving mask image - used to reduce region where metric is computed
   typename FloatImageType::Pointer m_MovingMaskImage;
 
   // Fixed mask image - used to reduce region where metric is computed
   typename FloatImageType::Pointer m_FixedMaskImage;
-
-  // Mask composites
-  FloatImageSet m_GradientMaskComposite, m_MovingMaskComposite;
 
   // Amount of jitter - for affine only
   double m_JitterSigma;
@@ -280,6 +299,12 @@ protected:
 
   // Jitter composite
   VectorImageSet m_JitterComposite;
+
+  // Remove NaNs and determine noise sigmas for either fixed or moving image
+  void InitializePyramid(const MultiCompImageSet &src, FloatImageType *mask,
+                         ImagePyramid &pyramid, double noise_sigma_rel,
+                         bool masked_downsampling,
+                         bool scale_intensity_by_voxel_size);
 
   void PlaceIntoComposite(FloatImageType *src, MultiComponentImageType *target, int offset);
   void PlaceIntoComposite(VectorImageType *src, MultiComponentImageType *target, int offset);

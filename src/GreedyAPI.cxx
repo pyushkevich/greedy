@@ -55,6 +55,8 @@
 #include <vnl/algo/vnl_symmetric_eigensystem.h>
 #include <vnl/vnl_trace.h>
 #include <vnl/vnl_numeric_traits.h>
+#include <vnl/algo/vnl_lbfgs.h>
+#include <vnl/algo/vnl_conjugate_gradient.h>
 
 
 // A helper class for printing results. Wraps around printf but
@@ -502,6 +504,49 @@ GreedyApproach<VDim, TReal>
 
 
 #include <itkBinaryErodeImageFilter.h>
+#include <itkConstantPadImageFilter.h>
+
+template <unsigned int VDim, typename TReal>
+typename GreedyApproach<VDim, TReal>::CompositeImagePointer
+GreedyApproach<VDim, TReal>
+::ResampleImageToReferenceSpaceIfNeeded(
+    CompositeImageType *img,
+    ImageBaseType *ref_space,
+    VectorImageType *resample_warp,
+    TReal fill_value)
+{
+  if(LDDMMType::img_same_space(ref_space, img) && !resample_warp)
+    return CompositeImagePointer(img);
+
+  CompositeImagePointer resampled =
+      LDDMMType::new_cimg(ref_space, img->GetNumberOfComponentsPerPixel());
+
+  VectorImagePointer phi = resample_warp;
+  if(!phi)
+    phi = LDDMMType::new_vimg(ref_space);
+
+  LDDMMType::interp_cimg(img, phi, resampled, false, true, fill_value);
+  return resampled;
+}
+
+template<unsigned int VDim, typename TReal>
+typename GreedyApproach<VDim, TReal>::ImagePointer
+GreedyApproach<VDim, TReal>
+::ResampleMaskToReferenceSpaceIfNeeded(
+    ImageType *mask, ImageBaseType *ref_space, VectorImageType *resample_warp)
+{
+  if(LDDMMType::img_same_space(ref_space, mask) && !resample_warp)
+    return ImagePointer(mask);
+
+  ImagePointer resampled = LDDMMType::new_img(ref_space);
+
+  VectorImagePointer phi = resample_warp;
+  if(!phi)
+    phi = LDDMMType::new_vimg(ref_space);
+
+  LDDMMType::interp_img(mask, phi, resampled, true, true, 0);
+  return resampled;
+}
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
@@ -510,12 +555,14 @@ void GreedyApproach<VDim, TReal>
   // If the parameters include a sequence of transforms, apply it first
   VectorImagePointer moving_pre_warp;
 
-  // Keep a pointer to the fixed image space
-  typename OFHelperType::ImageBaseType *ref_space = nullptr;
-
   // Read the input images and stick them into an image array
   if(param.inputs.size() == 0)
     throw GreedyException("No image inputs have been specified");
+
+  // Read the optional reference space
+  typename OFHelperType::ImageBaseType::Pointer ref_space;
+  if(param.reference_space.size())
+    ref_space = ReadImageViaCache<ImageType>(param.reference_space);
 
   for(unsigned int i = 0; i < param.inputs.size(); i++)
     {
@@ -523,84 +570,73 @@ void GreedyApproach<VDim, TReal>
     CompositeImagePointer imgFix = ReadImageViaCache<CompositeImageType>(param.inputs[i].fixed);
     CompositeImagePointer imgMov = ReadImageViaCache<CompositeImageType>(param.inputs[i].moving);
 
-    // Store the fixed image and/or check it
-    if(ref_space == nullptr)
-      ref_space = imgFix;
-
-    // Read the pre-warps (only once)
-    if(param.moving_pre_transforms.size() && moving_pre_warp.IsNull())
+    // Check if the reference space has already been defined
+    if(!ref_space)
       {
-      ReadTransformChain(param.moving_pre_transforms, imgFix, moving_pre_warp);
+      // Reference space may involve padding the first input image
+      if(param.reference_space_padding.size())
+        {
+        // Check the padding size
+        itk::Size<VDim> pad_size;
+        if(param.reference_space_padding.size() != VDim)
+          throw GreedyException("Incorrect parameter to -mm-pad, should have %d elements", VDim);
+        for(unsigned int d = 0; d < VDim; d++)
+          pad_size[d] = param.reference_space_padding[d];
+
+        // Apply the padding to the fixed image
+        ImagePointer imgRef = LDDMMType::new_img(imgFix);
+        typedef itk::ConstantPadImageFilter<ImageType, ImageType> PadFilter;
+        typename PadFilter::Pointer pad = PadFilter::New();
+        pad->SetInput(imgRef);
+        pad->SetPadBound(pad_size);
+        pad->Update();
+        ref_space = pad->GetOutput();
+        }
+      else
+        {
+        ref_space = imgFix;
+        }
+
+      // Once we know the reference space, we can read the moving image pre-transforms
+      if(param.moving_pre_transforms.size())
+        {
+        ReadTransformChain(param.moving_pre_transforms, ref_space, moving_pre_warp);
+        }
       }
 
-    if(moving_pre_warp.IsNotNull())
-      {
-      // Create an image to store the warp
-      CompositeImagePointer warped_moving =
-          LDDMMType::new_cimg(imgFix, imgMov->GetNumberOfComponentsPerPixel());
+    // Use NaN as the outside value if we want to create a moving mask
+    TReal fill_value = param.background;
 
-      // Interpolate the moving image using the transform chain
-      LDDMMType::interp_cimg(imgMov, moving_pre_warp, warped_moving, false, true);
+    // If the reference space does not match the fixed image space, reslice the fixed image
+    // to the reference space
+    imgFix = ResampleImageToReferenceSpaceIfNeeded(imgFix, ref_space, nullptr, fill_value);
+    imgMov = ResampleImageToReferenceSpaceIfNeeded(imgMov, ref_space, moving_pre_warp, fill_value);
 
-      // Add the image pair to the helper
-      ofhelper.AddImagePair(imgFix, warped_moving, param.inputs[i].weight);
-      }
-    else
-      {
-      // Add to the helper object
-      ofhelper.AddImagePair(imgFix, imgMov, param.inputs[i].weight);
-      }
+    // Add to the helper object
+    ofhelper.AddImagePair(imgFix, imgMov, param.inputs[i].weight);
     }
 
-  // Read the fixed-space mask
-  if(param.gradient_mask.size())
+  if(param.fixed_mask_trim_radius.size() == VDim)
     {
-    typedef typename OFHelperType::FloatImageType MaskType;
-    typename MaskType::Pointer imgMask =
-        ReadImageViaCache<MaskType>(param.gradient_mask);
-
-    ofhelper.SetGradientMask(imgMask);
-    }
-
-  if(param.gradient_mask_trim_radius.size() == VDim)
-    {
-    if(param.gradient_mask.size())
+    if(param.fixed_mask.size())
       throw GreedyException("Cannot specify both gradient mask and gradient mask trim radius");
 
-    ofhelper.SetGradientMaskTrimRadius(param.gradient_mask_trim_radius);
+    ofhelper.SetGradientMaskTrimRadius(param.fixed_mask_trim_radius);
     }
 
   // Read the moving-space mask
   if(param.moving_mask.size())
     {
-    typedef typename OFHelperType::FloatImageType MaskType;
-    typename MaskType::Pointer imgMovMask =
-        ReadImageViaCache<MaskType>(param.moving_mask);
-
-    if(moving_pre_warp.IsNotNull())
-      {
-      // Create an image to store the warp
-      typename MaskType::Pointer warped_moving_mask = LDDMMType::new_img(moving_pre_warp);
-
-      // Interpolate the moving image using the transform chain
-      LDDMMType::interp_img(imgMovMask, moving_pre_warp, warped_moving_mask, false, true);
-
-      // Add the warped mask to the helper
-      ofhelper.SetMovingMask(warped_moving_mask);
-      }
-    else
-      {
-      // Add the mask to the helper object
-      ofhelper.SetMovingMask(imgMovMask);
-      }
+    ImagePointer imgMovMask = ReadImageViaCache<ImageType>(param.moving_mask);
+    imgMovMask = ResampleMaskToReferenceSpaceIfNeeded(imgMovMask, ref_space, moving_pre_warp);
+    ofhelper.SetMovingMask(imgMovMask);
     }
 
   // Set the fixed mask (distinct from gradient mask)
   if(param.fixed_mask.size())
     {
-    typedef typename OFHelperType::FloatImageType MaskType;
-    typename MaskType::Pointer imgFixMask =
-        ReadImageViaCache<MaskType>(param.fixed_mask);
+    ImagePointer imgFixMask = ReadImageViaCache<ImageType>(param.fixed_mask);
+    imgFixMask = ResampleMaskToReferenceSpaceIfNeeded(imgFixMask, ref_space, nullptr);
     ofhelper.SetFixedMask(imgFixMask);
     }
 
@@ -609,18 +645,35 @@ void GreedyApproach<VDim, TReal>
   bool ncc_metric = param.metric == GreedyParameters::NCC
                     || param.metric == GreedyParameters::WNCC;
 
+  // Additive noise - needed for ncc metric over constant regions, although not sure how much
   double noise = ncc_metric ? param.ncc_noise_factor : 0.0;
 
+  // Are we going to use masked downsampling? Currently it is only a problem for the NCC
+  // metric since that metric ignores masks and treats all background as zero
+  bool masked_downsampling = (param.metric != GreedyParameters::NCC);
+
   // Build the composite images
-  ofhelper.BuildCompositeImages(noise);
+  ofhelper.BuildCompositeImages(noise, masked_downsampling);
 
   // If the metric is NCC, then also apply special processing to the gradient masks
   if(ncc_metric)
     ofhelper.DilateCompositeGradientMasksForNCC(array_caster<VDim>::to_itkSize(param.metric_radius));
+
+  // Save the image pyramid
+  if(param.flag_dump_pyramid)
+    {
+    for(unsigned int i = 0; i < ofhelper.GetNumberOfLevels(); i++)
+      {
+      WriteImageViaCache(ofhelper.GetFixedComposite(i), GetDumpFile(param, "dump_pyramid_fixed_%02d.nii.gz", i));
+      WriteImageViaCache(ofhelper.GetMovingComposite(i), GetDumpFile(param, "dump_pyramid_moving_%02d.nii.gz", i));
+      if(ofhelper.GetFixedMask(i))
+        WriteImageViaCache(ofhelper.GetFixedMask(i), GetDumpFile(param, "dump_pyramid_fixed_mask_%02d.nii.gz", i));
+      if(ofhelper.GetMovingMask(i))
+        WriteImageViaCache(ofhelper.GetMovingMask(i), GetDumpFile(param, "dump_pyramid_moving_mask_%02d.nii.gz", i));
+      }
+    }
 }
 
-#include <vnl/algo/vnl_lbfgs.h>
-#include <vnl/algo/vnl_conjugate_gradient.h>
 
 template <unsigned int VDim, typename TReal>
 vnl_matrix<double>
@@ -1051,6 +1104,28 @@ int GreedyApproach<VDim, TReal>
   return status;
 }
 
+template<unsigned int VDim, typename TReal>
+std::string
+GreedyApproach<VDim, TReal>
+::GetDumpFile(const GreedyParameters &param, const char *pattern, ...)
+{
+  // Fill out the pattern with sprintf-like parameters
+  char buffer[4096];
+  va_list args;
+  va_start (args, pattern);
+  vsprintf (buffer,pattern, args);
+  va_end (args);
+
+  // Prepend dump path
+  std::string full_path = param.dump_prefix + buffer;
+  std::string dump_dir = itksys::SystemTools::GetFilenamePath(full_path);
+  if(dump_dir.size())
+    itksys::SystemTools::MakeDirectory(dump_dir);
+
+  // Return the filename
+  return full_path;
+}
+
 
 template <unsigned int VDim, typename TReal>
 int GreedyApproach<VDim, TReal>
@@ -1337,10 +1412,6 @@ void GreedyApproach<VDim, TReal>
     {
     of_helper.ComputeOpticalFlowField(level, phi, out_metric_image, metric_report, out_metric_gradient, eps);
     metric_report.Scale(1.0 / eps);
-
-    // If there is a mask, multiply the gradient by the mask
-    if(param.gradient_mask.size())
-      LDDMMType::vimg_multiply_in_place(out_metric_gradient, of_helper.GetGradientMask(level));
     }
 
   else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
@@ -1348,8 +1419,8 @@ void GreedyApproach<VDim, TReal>
     of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, phi, out_metric_image, metric_report, out_metric_gradient, eps);
 
     // If there is a mask, multiply the gradient by the mask
-    if(param.gradient_mask.size())
-      LDDMMType::vimg_multiply_in_place(out_metric_gradient, of_helper.GetGradientMask(level));
+    if(param.fixed_mask.size())
+      LDDMMType::vimg_multiply_in_place(out_metric_gradient, of_helper.GetFixedMask(level));
     }
 
   else if(param.metric == GreedyParameters::NCC)
@@ -1527,11 +1598,11 @@ int GreedyApproach<VDim, TReal>
 
       if(param.flag_stationary_velocity_mode && param.flag_incompressibility_mode)
         {
-        if(param.gradient_mask.size())
+        if(param.fixed_mask.size())
           {
           std::cout << "Setting up incompressibility mask" << std::endl;
-          incompressibility_mask = LDDMMType::new_img(of_helper.GetGradientMask(level));
-          LDDMMType::img_copy(of_helper.GetGradientMask(level), incompressibility_mask);
+          incompressibility_mask = LDDMMType::new_img(of_helper.GetFixedMask(level));
+          LDDMMType::img_copy(of_helper.GetFixedMask(level), incompressibility_mask);
           LDDMMType::img_threshold_in_place(incompressibility_mask, 0.9, 1.0, 1.0, 0.0);
           }
 
@@ -1556,11 +1627,14 @@ int GreedyApproach<VDim, TReal>
     // Iterate for this level
     for(int iter = 0; iter < param.iter_per_level[level]; iter++)
       {
+      // Does a debug dump get generated on this iteration?
+      bool flag_dump = param.flag_dump_moving && 0 == iter % param.dump_frequency;
+
       // Start the iteration timer
       tm_Iteration.Start();
 
       // The epsilon for this level
-      double eps= param.epsilon_per_level[level];
+      double eps = param.epsilon_per_level[level];
 
       // Integrate the total deformation field for this iteration
       if(param.flag_stationary_velocity_mode)
@@ -1599,17 +1673,18 @@ int GreedyApproach<VDim, TReal>
       this->RecordMetricValue(metric_report);
 
       // Dump the gradient image if requested
-      if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
+      if(flag_dump)
         {
-        char fname[256];
-        sprintf(fname, "dump_gradient_lev%02d_iter%04d.nii.gz", level, iter);
-        LDDMMType::vimg_write(uk1, fname);
+        WriteImageViaCache(iTemp.GetPointer(), GetDumpFile(param, "dump_metric_lev%02d_iter%04d.nii.gz", level, iter));
+        WriteImageViaCache(uk1.GetPointer(), GetDumpFile(param, "dump_gradient_lev%02d_iter%04d.nii.gz", level, iter));
         }
 
       // We have now computed the gradient vector field. Next, we smooth it
       tm_Gaussian1.Start();
+
       // Why do we smooth with a border? What if there is data at the border?
-      // LDDMMType::vimg_smooth_withborder(uk1, viTemp, sigma_pre_phys, 1);
+      // TODO: revisit smoothing around mask, think it through!
+      // --- LDDMMType::vimg_smooth_withborder(uk1, viTemp, sigma_pre_phys, 1);
       LDDMMType::vimg_smooth(uk1, viTemp, sigma_pre_phys);
       tm_Gaussian1.Stop();
 
@@ -1621,12 +1696,8 @@ int GreedyApproach<VDim, TReal>
         LDDMMType::vimg_normalize_to_fixed_max_length(viTemp, iTemp, eps, true);
 
       // Dump the smoothed gradient image if requested
-      if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
-        {
-        char fname[256];
-        sprintf(fname, "dump_optflow_lev%02d_iter%04d.nii.gz", level, iter);
-        LDDMMType::vimg_write(viTemp, fname);
-        }
+      if(flag_dump)
+        WriteImageViaCache(viTemp.GetPointer(), GetDumpFile(param, "dump_optflow_lev%02d_iter%04d.nii.gz", level, iter));
 
       // Compute the updated deformation field - in uk1
       tm_Update.Start();
@@ -1667,12 +1738,8 @@ int GreedyApproach<VDim, TReal>
       tm_Update.Stop();
 
       // Dump if requested
-      if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
-        {
-        char fname[256];
-        sprintf(fname, "dump_uk1_lev%02d_iter%04d.nii.gz", level, iter);
-        LDDMMType::vimg_write(uk1, fname);
-        }
+      if(flag_dump)
+        WriteImageViaCache(uk1.GetPointer(), GetDumpFile(param, "dump_uk1_lev%02d_iter%04d.nii.gz", level, iter));
 
       // Another layer of smoothing (diffusion-like)
       tm_Gaussian2.Start();
@@ -1715,12 +1782,10 @@ int GreedyApproach<VDim, TReal>
 
         // Compute the divergence of the updated image. Should be zero
         // Dump the divergence after correction
-        if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
+        if(flag_dump)
           {
-          char fname[256];
-          sprintf(fname, "dump_divv_post_lev%02d_iter%04d.nii.gz", level, iter);
           LDDMMType::field_divergence(uk, iTemp, true);
-          LDDMMType::img_write(iTemp, fname);
+          WriteImageViaCache(iTemp.GetPointer(), GetDumpFile(param, "dump_divv_lev%02d_iter%04d.nii.gz", level, iter));
           }
         }
       tm_UpdatePDE.Stop();

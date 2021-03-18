@@ -577,7 +577,7 @@ public:
           if(m_UseMasks)
             {
             greedy_api.AddCachedInputObject(m_Slices[it.second].mask_filename, i_mask.GetPointer());
-            my_param.gradient_mask = m_Slices[it.second].mask_filename;
+            my_param.fixed_mask = m_Slices[it.second].mask_filename;
             }
 
           // Set other parameters
@@ -866,7 +866,7 @@ public:
             // TODO: we are not caching because of different image types
             SlideImagePointer mask_slice_2d = ExtractSliceFromVolume(mask, m_Slices[i].z_pos);
             LDDMMType::cimg_write(mask_slice_2d, fn_vol_mask_slide.c_str());
-            my_param.gradient_mask = fn_vol_mask_slide;
+            my_param.fixed_mask = fn_vol_mask_slide;
             }
 
           // Set other parameters
@@ -917,7 +917,7 @@ public:
 
         // TODO: this is really bad, can't cache mask images
         if(fn_mask.length())
-          my_param.gradient_mask = GetFilenameForSlice(m_Slices[i], VOL_MASK_SLIDE);
+          my_param.fixed_mask = GetFilenameForSlice(m_Slices[i], VOL_MASK_SLIDE);
 
         // Set other parameters
         my_param.affine_init_mode = RAS_FILENAME;
@@ -1012,7 +1012,7 @@ public:
     if(mask)
       {
       api_reg.AddCachedInputObject("mask", mask);
-      my_param.gradient_mask = "mask";
+      my_param.fixed_mask = "mask";
       std::cout << "MASK!!!!!!!!!!!!!!!!!!!!!!!!!1" << std::endl;
       }
 
@@ -1050,7 +1050,7 @@ public:
     if(mask)
       {
       api_reg.AddCachedInputObject("mask", mask);
-      my_param.gradient_mask = "mask";
+      my_param.fixed_mask = "mask";
       }
 
     // Set up the output transform
@@ -1639,7 +1639,7 @@ public:
             if(resliced_mask)
               {
               api_reg.AddCachedInputObject("mask", resliced_mask);
-              my_param.gradient_mask = "mask";
+              my_param.fixed_mask = "mask";
               }
 
             // Set up the output transform
@@ -1772,7 +1772,7 @@ public:
             if(resliced_mask)
               {
               api_reg.AddCachedInputObject("mask", resliced_mask);
-              my_param.gradient_mask = "mask";
+              my_param.fixed_mask = "mask";
               }
 
             // Set up the output transform
@@ -1845,7 +1845,7 @@ public:
           if(m_UseMasks && !ignore_masks)
             {
             api_metric.AddCachedInputObject("mask", resliced_mask);
-            m_param.gradient_mask = "mask";
+            m_param.fixed_mask = "mask";
             }
 
           std::cout << "greedy " << m_param.GenerateCommandLine() << std::endl;
@@ -2854,7 +2854,6 @@ int main(int argc, char *argv[])
 
   // Parameters for running Greedy in general
   GreedyParameters gparam;
-  GreedyParameters::SetToDefaults(gparam);
   if(argc < 2)
     return usage();
 

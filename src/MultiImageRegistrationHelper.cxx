@@ -43,6 +43,7 @@
 #include "itkImageFileWriter.h"
 #include "GreedyException.h"
 #include "WarpFunctors.h"
+#include "CompositeImageNanMaskingFilter.h"
 
 template <class TFloat, unsigned int VDim>
 void
@@ -145,6 +146,7 @@ void
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::DilateCompositeGradientMasksForNCC(SizeType radius)
 {
+  /*
   typedef LDDMMData<TFloat, VDim> LDDMMType;
 
   for(int level = 0; level < m_PyramidFactors.size(); level++)
@@ -169,12 +171,230 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       LDDMMType::img_add_in_place(m_GradientMaskComposite[level], mask_accum);
       }
     }
+    */
+}
+
+#include "CompositeImageNanMaskingFilter.h"
+
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::InitializePyramid(const MultiCompImageSet &src,
+                    FloatImageType *mask,
+                    ImagePyramid &pyramid,
+                    double noise_sigma_rel,
+                    bool masked_downsampling,
+                    bool scale_intensity_by_voxel_size)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  // Concatentate the input images into a single multi-component image
+  pyramid.image_full = LDDMMType::cimg_concat(src);
+  unsigned int nc = pyramid.image_full->GetNumberOfComponentsPerPixel();
+
+  // Noise for each components
+  std::vector<double> comp_noise;
+  bool have_nans = false;
+
+  // If noise is requested, compute the range of the input image
+  if(noise_sigma_rel > 0)
+    {
+    // Use the quantile filter
+    typedef MutualInformationPreprocessingFilter<MultiComponentImageType, MultiComponentImageType> QuantileFilter;
+    typename QuantileFilter::Pointer fltQuantile = QuantileFilter::New();
+    fltQuantile->SetLowerQuantile(0.01);
+    fltQuantile->SetUpperQuantile(0.99);
+    fltQuantile->SetInput(pyramid.image_full);
+    fltQuantile->Update();
+
+    // Get the noise sigmas and nan count
+    for(unsigned int j = 0; j < nc; j++)
+      {
+      double range = fltQuantile->GetUpperQuantileValue(j) - fltQuantile->GetLowerQuantileValue(j);
+      comp_noise.push_back(noise_sigma_rel * range);
+
+      if(fltQuantile->GetNumberOfNaNs(j) > 0)
+        have_nans = true;
+      }
+    }
+  else if(!mask)
+    {
+    // Otherwise check for nans but only if mask is not supplied
+    have_nans = LDDMMType::cimg_nancount(pyramid.image_full) > 0;
+    }
+
+  // Store the mask
+  pyramid.mask_full = mask;
+  if(!mask && have_nans)
+    {
+    // If there are nans and no mask, the mask has to be created and initialized to all ones
+    pyramid.mask_full = LDDMMType::new_img(pyramid.image_full);
+    pyramid.mask_full->FillBuffer(1.0);
+    }
+
+  // Remove NaNs from the image and replace them with zeros, knocking them out of the mask
+  if(have_nans)
+    {
+    typedef CompositeImageNanMaskingFilter<MultiComponentImageType, FloatImageType> NaNFilterType;
+    typename NaNFilterType::Pointer nanfilter = NaNFilterType::New();
+    nanfilter->SetInputCompositeImage(pyramid.image_full);
+    nanfilter->SetInputMaskImage(pyramid.mask_full);
+    nanfilter->Update();
+    pyramid.image_full = nanfilter->GetOutputCompositeImage();
+    pyramid.mask_full = nanfilter->GetOutputMaskImage();
+    }
+
+  // Compute the pyramid
+  pyramid.image_pyramid.resize(m_PyramidFactors.size());
+  pyramid.mask_pyramid.resize(m_PyramidFactors.size());
+  for(unsigned int i = 0; i < m_PyramidFactors.size(); i++)
+    {
+    if(m_PyramidFactors[i] == 1)
+      {
+      // Retain the image
+      pyramid.image_pyramid[i] = pyramid.image_full;
+      pyramid.mask_pyramid[i] = pyramid.mask_full;
+      }
+    else
+      {
+      // Downsample the image itself
+      pyramid.image_pyramid[i] = LDDMMType::cimg_downsample(pyramid.image_full, m_PyramidFactors[i]);
+      if(pyramid.mask_full)
+        {
+        // Downsample the mask
+        pyramid.mask_pyramid[i] = LDDMMType::img_downsample(pyramid.mask_full, m_PyramidFactors[i]);
+
+        // This command applies masked downsampling, i.e., we normalize the smoothed downsampled image
+        // by the smoothed downsampled mask to avoid the bleeding in of pixels outside of the mask into
+        // the downsampled image. The alternative below, is to threshold the mask and leave the image
+        // without downsampling. This should be used with the NCC metric, which does not account for 'missing'
+        // values and would be confused by the sharp boundary between the masked region and the background
+        if(masked_downsampling)
+          LDDMMType::cimg_mask_smooth_adjust_in_place(pyramid.image_pyramid[i], pyramid.mask_pyramid[i], 0.5);
+        else
+          LDDMMType::img_threshold_in_place(pyramid.mask_pyramid[i], 0.5,
+                                            std::numeric_limits<double>::infinity(), 1.0, 0.0);
+        }
+      }
+
+    // For some metrics, image intensity needs scaling (TODO: implement scaling for cimg)
+    // if(scale_intensity_by_voxel_size)
+    //   LDDMMType::img_scale_in_place(pyramid.image_pyramid[i], 1.0 / m_PyramidFactors[i]);
+
+    // Apply random noise if requested to the pixels (using this randomly picked prime number of
+    // random samples, repeated over and over
+    if(comp_noise.size())
+      LDDMMType::cimg_add_gaussian_noise_in_place(pyramid.image_pyramid[i], comp_noise, 17317);
+    }
 }
 
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::BuildCompositeImages(double noise_sigma_relative)
+::BuildCompositeImages(double noise_sigma_relative, bool masked_downsampling)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  // Build the fixed pyramid
+  this->InitializePyramid(m_Fixed, m_FixedMaskImage, m_FixedPyramid,
+                          noise_sigma_relative,
+                          masked_downsampling,
+                          m_ScaleFixedImageWithVoxelSize);
+
+  // Release memory
+  m_Fixed.clear(); m_FixedMaskImage = nullptr;
+
+  // Build the moving pyramid
+  this->InitializePyramid(m_Moving, m_MovingMaskImage, m_MovingPyramid,
+                          noise_sigma_relative,
+                          masked_downsampling,
+                          false);
+
+  // Release memory
+  m_Moving.clear(); m_MovingMaskImage = nullptr;
+
+  // Configure the gradient mask. This mask is supplied by the user and is independent
+  // of the fixed/moving image masks (nan-masks)
+  /*
+  m_GradientMaskComposite.resize(m_PyramidFactors.size(), nullptr);
+  if(m_GradientMaskImage)
+    {
+    for(unsigned int i = 0; i < m_PyramidFactors.size(); i++)
+      {
+      // Downsample the image to the right pyramid level
+      if (m_PyramidFactors[i] == 1)
+        {
+        m_Composite[i] = m_GradientMaskImage;
+        }
+      else
+        {
+        // Downsampling the mask involves smoothing, so the mask will no longer be binary
+        m_GradientMaskComposite[i] = LDDMMType::img_downsample(m_GradientMaskImage, m_PyramidFactors[i]);
+        LDDMMType::img_threshold_in_place(m_GradientMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
+        }
+      }
+    }
+  else if(m_GradientMaskTrimRadius.size() == VDim)
+    {
+    // How much to trim by
+    typename LDDMMType::RegionType::SizeType sz_trim;
+    for(unsigned int d = 0; d < VDim; d++)
+      sz_trim[d] = m_GradientMaskTrimRadius[d];
+
+    // User wants auto-generated box masks. Create them for every pyramid level
+    for(unsigned int i = 0; i < m_PyramidFactors.size(); i++)
+      {
+      // Allocate the image
+      m_GradientMaskComposite[i] = LDDMMType::new_img(m_FixedPyramid.image_pyramid[i]);
+
+      // Create the inside region to mask
+      typename LDDMMType::RegionType region = m_GradientMaskComposite[i]->GetBufferedRegion();
+      region.ShrinkByRadius(sz_trim);
+
+      // Mask the inside region
+      typedef itk::ImageRegionIteratorWithIndex<FloatImageType> IterType;
+      for(IterType it(m_GradientMaskComposite[i], region); !it.IsAtEnd(); ++it)
+        it.Set(1.0);
+      }
+    }
+
+  // Apply the gradient mask to the fixed mask - since the metric is only computed over the
+  // gradient mask, everything farther than the radius away from the gradient mask should
+  // be excluded from metric calculations (for NCC/WNCC; for other metrics the fixed mask
+  // should be zero where the gradient mask is zero)
+  for(unsigned int i = 0; i < m_PyramidFactors.size(); i++)
+    {
+    //
+    if(m_GradientMaskComposite[i] && m_FixedPyramid.mask_pyramid[i])
+      {
+
+      }
+    }
+
+    */
+
+
+  // Set up the jitter images
+  m_JitterComposite.resize(m_PyramidFactors.size(), nullptr);
+  if(m_JitterSigma > 0)
+    {
+    for(unsigned int i = 0; i < m_PyramidFactors.size(); i++)
+      {
+      // Create a jitter image
+      m_JitterComposite[i] = LDDMMType::new_vimg(this->GetReferenceSpace(i));
+      LDDMMType::vimg_add_gaussian_noise_in_place(m_JitterComposite[i], m_JitterSigma, 17317);
+      }
+    }
+}
+
+/*
+
+
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::BuildCompositeImagesOld(double noise_sigma_relative)
 {
   typedef LDDMMData<TFloat, VDim> LDDMMType;
 
@@ -189,31 +409,12 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   if(m_FixedMaskImage)
     LDDMMType::img_threshold_in_place(m_FixedMaskImage, 0.5, 1e100, 0.0, 1.0);
 
-  // Set up the moving mask pyramid
-  m_MovingMaskComposite.resize(m_PyramidFactors.size(), nullptr);
-  if(m_MovingMaskImage)
-    {
-    LDDMMType::img_threshold_in_place(m_MovingMaskImage, 0.5, 1e100, 1.0, 0.0);
-    for(unsigned int i = 0; i < m_PyramidFactors.size(); i++)
-      {
-      // Downsample the image to the right pyramid level
-      if (m_PyramidFactors[i] == 1)
-        {
-        m_MovingMaskComposite[i] = m_MovingMaskImage;
-        }
-      else
-        {
-        m_MovingMaskComposite[i] = FloatImageType::New();
 
-        // Downsampling the mask involves smoothing, so the mask will no longer be binary
-        LDDMMType::img_downsample(m_MovingMaskImage, m_MovingMaskComposite[i], m_PyramidFactors[i]);
 
-        // We might not need the moving mask to be binary, we can leave it be floating point
-        // but for now we binarize it
-        LDDMMType::img_threshold_in_place(m_MovingMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
-        }
-      }
-    }
+  // Keep track of teh number of NaNs in the fixed and moving images. NaNs are handled
+  // as masking elements, i.e., if any component of the fixed or moving image is NaN
+  // then the corresponding mask is set to zero and the NaN replaced by zero
+  bool fixed_has_nans = 0, moving_has_nans = 0;
 
   // Repeat for each of the input images
   for(unsigned int j = 0; j < m_Fixed.size(); j++)
@@ -237,9 +438,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
       // Deal with additive noise
       double noise_sigma_fixed = 0.0, noise_sigma_moving = 0.0;
-
-      // Do the fixed and moving images have NaNs?
-      bool nans_fixed, nans_moving;
 
       // If the fixed mask is present, we use it to set nans in the fixed image
       if(m_FixedMaskImage)
@@ -272,33 +470,13 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         printf("Noise on image %d component %d: fixed = %g, moving = %g\n", j, k, noise_sigma_fixed, noise_sigma_moving);
 
         // Record the number of NaNs
-        nans_fixed = fltQuantileFixed->GetNumberOfNaNs(0);
-        nans_moving = fltQuantileMoving->GetNumberOfNaNs(0);
+        fixed_has_nans = fltQuantileFixed->GetNumberOfNaNs(0) > 0;
+        moving_has_nans = fltQuantileMoving->GetNumberOfNaNs(0) > 0;
         }
       else
         {
-        nans_fixed = isnan(LDDMMType::img_voxel_sum(fltExtractFixed->GetOutput()));
-        nans_moving = isnan(LDDMMType::img_voxel_sum(fltExtractMoving->GetOutput()));
-        }
-
-      // Report number of NaNs in fixed and moving images
-      if(j==0 && k==0)
-        {
-        printf("Number of NaNs: fixed: %d, moving %d\n", nans_fixed, nans_moving);
-        }
-      
-      // Split the extracted images into a NaN mask and a non-NaN component
-      FloatImagePointer nanMaskFixed, nanMaskMoving;
-      if(nans_fixed)
-        {
-        nanMaskFixed = LDDMMType::new_img(fltExtractFixed->GetOutput());
-        LDDMMType::img_filter_nans_in_place(fltExtractFixed->GetOutput(), nanMaskFixed);
-        }
-      
-      if(nans_moving)
-        {
-        nanMaskMoving = LDDMMType::new_img(fltExtractMoving->GetOutput());
-        LDDMMType::img_filter_nans_in_place(fltExtractMoving->GetOutput(), nanMaskMoving);
+        fixed_has_nans = isnan(LDDMMType::img_voxel_sum(fltExtractFixed->GetOutput()));
+        moving_has_nans = isnan(LDDMMType::img_voxel_sum(fltExtractMoving->GetOutput()));
         }
 
       // Compute the pyramid for this component
@@ -309,12 +487,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         if (m_PyramidFactors[i] == 1)
           {
           lFixed = fltExtractFixed->GetOutput();
-          if(nans_fixed)
-            LDDMMType::img_reconstitute_nans_in_place(lFixed, nanMaskFixed);
-
           lMoving = fltExtractMoving->GetOutput();
-          if(nans_moving)
-            LDDMMType::img_reconstitute_nans_in_place(lMoving, nanMaskMoving);
           }
         else
           {
@@ -323,23 +496,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
           lMoving = FloatImageType::New();
           LDDMMType::img_downsample(fltExtractFixed->GetOutput(), lFixed, m_PyramidFactors[i]);
           LDDMMType::img_downsample(fltExtractMoving->GetOutput(), lMoving, m_PyramidFactors[i]);
-
-          // Downsample the nan-masks
-          if(nans_fixed)
-            {
-            FloatImagePointer mask_ds = FloatImageType::New();
-            LDDMMType::img_downsample(nanMaskFixed, mask_ds, m_PyramidFactors[i]);
-            LDDMMType::img_threshold_in_place(mask_ds, 0.5, 100.0, 1, 0);
-            LDDMMType::img_reconstitute_nans_in_place(lFixed, mask_ds);
-            }
-
-          if(nans_moving)
-            {
-            FloatImagePointer mask_ds = FloatImageType::New();
-            LDDMMType::img_downsample(nanMaskMoving, mask_ds, m_PyramidFactors[i]);
-            LDDMMType::img_threshold_in_place(mask_ds, 0.5, 100.0, 1, 0);
-            LDDMMType::img_reconstitute_nans_in_place(lMoving, mask_ds);
-            }
 
           // For the Mahalanobis metric, the fixed image needs to be scaled by the factor of the
           // pyramid level because it describes voxel coordinates
@@ -356,13 +512,6 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
           for(unsigned long i = 0; i < lMoving->GetPixelContainer()->Size(); i++)
             lMoving->GetBufferPointer()[i] += randy.normal() * noise_sigma_moving;
           }        
-
-        // The moving image must be multiplied by the moving mask to achieve the desired effect
-        // of moving image masking, i.e, when we interpolate the moving image, we get pairs
-        // (w*M, w) where w is the weight for the sample and M is the intensity of the masked
-        // portion of the image.
-        if(m_MovingMaskImage)
-          LDDMMType::img_multiply_in_place(lMoving, m_MovingMaskComposite[i]);
 
         // Allocate the composite images if they have not been allocated
         if(j == 0 && k == 0)
@@ -388,6 +537,62 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       // Update the offsets
       off_fixed++;
       off_moving++;
+      }
+    }
+
+  // If the moving image contains NaNs, then a moving mask must be created
+  if(moving_has_nans && !m_MovingMaskImage)
+    {
+    m_MovingMaskImage = LDDMMType::new_img(m_Moving[0]);
+    m_MovingMaskImage->FillBuffer(1.0);
+    }
+
+  // Set up the moving mask pyramid
+  // TODO: set same thing up for fixed mask
+  m_MovingMaskComposite.resize(m_PyramidFactors.size(), nullptr);
+  if(m_MovingMaskImage)
+    {
+    LDDMMType::img_threshold_in_place(m_MovingMaskImage, 0.5, 1e100, 1.0, 0.0);
+    for(unsigned int i = 0; i < m_PyramidFactors.size(); i++)
+      {
+      // Downsample the image to the right pyramid level
+      if (m_PyramidFactors[i] == 1)
+        {
+        m_MovingMaskComposite[i] = m_MovingMaskImage;
+        }
+      else
+        {
+        m_MovingMaskComposite[i] = FloatImageType::New();
+
+        // Downsampling the mask involves smoothing, so the mask will no longer be binary
+        LDDMMType::img_downsample(m_MovingMaskImage, m_MovingMaskComposite[i], m_PyramidFactors[i]);
+
+        // We might not need the moving mask to be binary, we can leave it be floating point
+        // but for now we binarize it
+        LDDMMType::img_threshold_in_place(m_MovingMaskComposite[i], 0.5, 1e100, 1.0, 0.0);
+        }
+
+      // Any NaNs in the moving image must be replaced by zeros and those nans must be
+      // also set to zero in the mask. Then, the moving image must be multiplied by the
+      // moving mask to achieve the desired effectof moving image masking, i.e,
+      // when we interpolate the moving image, we get pairs (w*M, w) where w is the weight
+      // for the sample and M is the intensity of the masked portion of the image.
+      typedef CompositeImageNanMaskingFilter<MultiComponentImageType, FloatImageType> NanMaskFilter;
+      typename NanMaskFilter::Pointer nan_mask_filter = NanMaskFilter::New();
+      nan_mask_filter->SetInputCompositeImage(m_MovingComposite[i]);
+      nan_mask_filter->SetInputMaskImage(m_MovingMaskComposite[i]);
+      nan_mask_filter->Update();
+
+      // The in-place filter creates new outputs that share the bulk data of the inputs
+      m_MovingComposite[i] = nan_mask_filter->GetOutputCompositeImage();
+      m_MovingMaskComposite[i] = nan_mask_filter->GetOutputMaskImage();
+
+      char buffer[256];
+      sprintf(buffer, "/tmp/moving_mask_%d.nii.gz", i);
+      LDDMMType::img_write(m_MovingMaskComposite[i], buffer);
+
+      sprintf(buffer, "/tmp/moving_masked_%d.nii.gz", i);
+      LDDMMType::cimg_write(m_MovingComposite[i], buffer);
       }
     }
 
@@ -471,12 +676,14 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 }
 
+*/
+
 template <class TFloat, unsigned int VDim>
 typename MultiImageOpticalFlowHelper<TFloat, VDim>::ImageBaseType *
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::GetMovingReferenceSpace(int level)
 {
-  return m_MovingComposite[level];
+  return m_MovingPyramid.image_pyramid[level];
 }
 
 template <class TFloat, unsigned int VDim>
@@ -484,7 +691,7 @@ typename MultiImageOpticalFlowHelper<TFloat, VDim>::ImageBaseType *
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::GetReferenceSpace(int level)
 {
-  return m_FixedComposite[level];
+  return m_FixedPyramid.image_pyramid[level];
 }
 
 template <class TFloat, unsigned int VDim>
@@ -499,7 +706,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
   else
     {
-    for(int k = 0; k < VDim; k++)
+    for(unsigned int k = 0; k < VDim; k++)
       sigmas[k] = this->GetReferenceSpace(level)->GetSpacing()[k] * sigma;
     }
   return sigmas;
@@ -531,8 +738,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetDemonsSigma(0.01);
 
   // Run the filter
-  filter->SetFixedImage(m_FixedComposite[level]);
-  filter->SetMovingImage(m_MovingComposite[level]);
+  filter->SetFixedImage(m_FixedPyramid.image_pyramid[level]);
+  filter->SetMovingImage(m_MovingPyramid.image_pyramid[level]);
+  filter->SetFixedMaskImage(m_FixedPyramid.mask_pyramid[level]);
+  filter->SetMovingMaskImage(m_MovingPyramid.mask_pyramid[level]);
   filter->SetDeformationField(def);
   filter->SetWeights(wscaled);
   filter->SetComputeGradient(true);
@@ -553,10 +762,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 {
   typedef MutualInformationPreprocessingFilter<MultiComponentImageType, BinnedImageType> BinnerType;
   if(m_FixedBinnedImage.IsNull()
-     || m_FixedBinnedImage->GetBufferedRegion() != m_FixedComposite[level]->GetBufferedRegion())
+     || m_FixedBinnedImage->GetBufferedRegion() != m_FixedPyramid.image_pyramid[level]->GetBufferedRegion())
     {
     typename BinnerType::Pointer fixed_binner = BinnerType::New();
-    fixed_binner->SetInput(m_FixedComposite[level]);
+    fixed_binner->SetInput(m_FixedPyramid.image_pyramid[level]);
     fixed_binner->SetBins(128);
     fixed_binner->SetLowerQuantile(0.01);
     fixed_binner->SetUpperQuantile(0.99);
@@ -566,7 +775,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
     typename BinnerType::Pointer moving_binner = BinnerType::New();
     moving_binner = BinnerType::New();
-    moving_binner->SetInput(m_MovingComposite[level]);
+    moving_binner->SetInput(m_MovingPyramid.image_pyramid[level]);
     moving_binner->SetBins(128);
     moving_binner->SetLowerQuantile(0.01);
     moving_binner->SetUpperQuantile(0.99);
@@ -634,7 +843,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   SizeType radius_fix = radius;
   for(int d = 0; d < VDim; d++)
     {
-    int sz_d = (int) m_FixedComposite[level]->GetBufferedRegion().GetSize()[d];
+    int sz_d = (int) m_FixedPyramid.image_pyramid[level]->GetBufferedRegion().GetSize()[d];
     if(radius_fix[d] * 2 + 1 >= sz_d)
       radius_fix[d] = (sz_d - 1) / 2;
     }
@@ -643,7 +852,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     {
     std::cout << "  *** NCC radius adjusted to " << radius_fix
               << " because image too small at level " << level
-              << " (" << m_FixedComposite[level]->GetBufferedRegion().GetSize() << ")" << std::endl;
+              << " (" << m_FixedPyramid.image_pyramid[level]->GetBufferedRegion().GetSize() << ")" << std::endl;
     }
 
   return radius_fix;
@@ -679,14 +888,14 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   // Is this the first time that this function is being called with this image?
   bool first_run =
-      m_NCCWorkingImage->GetBufferedRegion() != m_FixedComposite[level]->GetBufferedRegion();
+      m_NCCWorkingImage->GetBufferedRegion() != m_FixedPyramid.image_pyramid[level]->GetBufferedRegion();
 
   // Check the radius against the size of the image
   SizeType radius_fix = AdjustNCCRadius(level, radius, first_run);
 
   // Run the filter
-  filter->SetFixedImage(m_FixedComposite[level]);
-  filter->SetMovingImage(m_MovingComposite[level]);
+  filter->SetFixedImage(m_FixedPyramid.image_pyramid[level]);
+  filter->SetMovingImage(m_MovingPyramid.image_pyramid[level]);
   filter->SetDeformationField(def);
   filter->SetWeights(wscaled);
   filter->SetComputeGradient(true);
@@ -695,12 +904,11 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetRadius(radius_fix);
   filter->SetWorkingImage(m_NCCWorkingImage);
   filter->SetReuseWorkingImageFixedComponents(!first_run);
-  filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
-  filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
+  filter->SetFixedMaskImage(m_FixedPyramid.mask_pyramid[level]);
+  filter->SetMovingMaskImage(m_MovingPyramid.mask_pyramid[level]);
   filter->SetWeighted(weighted);
 
   // TODO: support moving masks...
-  // filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
   filter->Update();
 
   // Get the vector of the normalized metrics
@@ -720,14 +928,14 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   typedef MahalanobisDistanceToTargetWarpMetric<TraitsType> FilterType;
   typename FilterType::Pointer filter = FilterType::New();
 
-  filter->SetFixedImage(m_FixedComposite[level]);
-  filter->SetMovingImage(m_MovingComposite[level]);
+  filter->SetFixedImage(m_FixedPyramid.image_pyramid[level]);
+  filter->SetMovingImage(m_MovingPyramid.image_pyramid[level]);
   filter->SetDeformationField(def);
   filter->SetComputeGradient(true);
   filter->GetMetricOutput()->Graft(out_metric_image);
   filter->GetDeformationGradientOutput()->Graft(out_gradient);
-  filter->SetFixedMaskImage(m_GradientMaskComposite[level]);
-  filter->SetMovingMaskImage(m_MovingMaskComposite[level]);
+  filter->SetFixedMaskImage(m_FixedPyramid.mask_pyramid[level]);
+  filter->SetMovingMaskImage(m_MovingPyramid.mask_pyramid[level]);
 
   filter->Update();
 
@@ -760,15 +968,15 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   typedef MultiImageOpticalFlowImageFilter<TraitsType> MetricType;
   typename MetricType::Pointer metric = MetricType::New();
 
-  metric->SetFixedImage(m_FixedComposite[level]);
-  metric->SetMovingImage(m_MovingComposite[level]);
+  metric->SetFixedImage(m_FixedPyramid.image_pyramid[level]);
+  metric->SetMovingImage(m_MovingPyramid.image_pyramid[level]);
   metric->SetWeights(wscaled);
   metric->SetAffineTransform(tran);
   metric->SetComputeMovingDomainMask(true);
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad != NULL);
-  metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
-  metric->SetMovingMaskImage(m_MovingMaskComposite[level]);
+  metric->SetFixedMaskImage(m_FixedPyramid.mask_pyramid[level]);
+  metric->SetMovingMaskImage(m_MovingPyramid.mask_pyramid[level]);
   metric->SetJitterImage(m_JitterComposite[level]);
   metric->Update();
 
@@ -836,8 +1044,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetComputeMovingDomainMask(true);
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad != NULL);
-  metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
-  metric->SetMovingMaskImage(m_MovingMaskComposite[level]);
+  metric->SetFixedMaskImage(m_FixedPyramid.mask_pyramid[level]);
+  metric->SetMovingMaskImage(m_MovingPyramid.mask_pyramid[level]);
   metric->SetBins(128);
   metric->SetJitterImage(m_JitterComposite[level]);
   metric->Update();
@@ -888,13 +1096,13 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 
   // Is this the first time that this function is being called with this image?
   bool first_run =
-      m_NCCWorkingImage->GetBufferedRegion() != m_FixedComposite[level]->GetBufferedRegion();
+      m_NCCWorkingImage->GetBufferedRegion() != m_FixedPyramid.image_pyramid[level]->GetBufferedRegion();
 
   // Check the radius against the size of the image
   SizeType radius_fix = AdjustNCCRadius(level, radius, first_run);
 
-  metric->SetFixedImage(m_FixedComposite[level]);
-  metric->SetMovingImage(m_MovingComposite[level]);
+  metric->SetFixedImage(m_FixedPyramid.image_pyramid[level]);
+  metric->SetMovingImage(m_MovingPyramid.image_pyramid[level]);
   metric->SetWeights(wscaled);
   metric->SetAffineTransform(tran);
   metric->SetComputeMovingDomainMask(false);
@@ -903,8 +1111,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->SetRadius(radius_fix);
   metric->SetWorkingImage(m_NCCWorkingImage);
   metric->SetReuseWorkingImageFixedComponents(!first_run);
-  metric->SetFixedMaskImage(m_GradientMaskComposite[level]);
-  metric->SetMovingMaskImage(m_MovingMaskComposite[level]);
+  metric->SetFixedMaskImage(m_FixedPyramid.mask_pyramid[level]);
+  metric->SetMovingMaskImage(m_MovingPyramid.mask_pyramid[level]);
   metric->SetJitterImage(m_JitterComposite[level]);
   // metric->GetDeformationGradientOutput()->Graft(wrkGradMetric);
   metric->SetWeighted(weighted);

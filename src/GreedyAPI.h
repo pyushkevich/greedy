@@ -252,6 +252,9 @@ protected:
 
   template<class TObject> TObject *CheckCache(const std::string &filename) const;
 
+  // Get a filename for dumping intermediate outputs
+  std::string GetDumpFile(const GreedyParameters &param, const char *pattern, ...);
+
   // This function reads an image base object via cache. It is more permissive than using
   // ReadImageViaCache.
   typename ImageBaseType::Pointer ReadImageBaseViaCache(const std::string &filename);
@@ -273,7 +276,12 @@ protected:
   // Compute the moments of a composite image (mean and covariance matrix of coordinate weighted by intensity)
   void ComputeImageMoments(CompositeImageType *image, const std::vector<double> &weights, VecFx &m1, MatFx &m2);
 
+  // Resample an image to reference space if the spaces do not match or if an explicit warp is provided
+  CompositeImagePointer ResampleImageToReferenceSpaceIfNeeded(
+      CompositeImageType *img, ImageBaseType *ref_space, VectorImageType *resample_warp, TReal fill_value);
 
+  ImagePointer ResampleMaskToReferenceSpaceIfNeeded(
+      ImageType *mask, ImageBaseType *ref_space, VectorImageType *resample_warp);
 
   // friend class PureAffineCostFunction<VDim, TReal>;
 

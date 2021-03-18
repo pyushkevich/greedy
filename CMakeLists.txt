@@ -124,6 +124,8 @@ CONFIGURE_FILE(
 
 # Define header files
 SET(HEADERS
+  src/ITKFilters/include/CompositeImageNanMaskingFilter.h
+  src/ITKFilters/include/CompositeImageNanMaskingFilter.txx
   src/ITKFilters/include/FastLinearInterpolator.h
   src/ITKFilters/include/FastWarpCompositeImageFilter.h
   src/ITKFilters/include/FastWarpCompositeImageFilter.txx
