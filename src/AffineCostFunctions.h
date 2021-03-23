@@ -31,6 +31,7 @@
 #include <vnl/vnl_random.h>
 #include <vnl/vnl_trace.h>
 #include <lddmm_data.h>
+#include <deque>
 
 namespace itk {
   template <typename T, unsigned int D1, unsigned int D2> class MatrixOffsetTransformBase;
