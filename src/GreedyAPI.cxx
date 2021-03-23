@@ -550,7 +550,8 @@ GreedyApproach<VDim, TReal>
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
-::ReadImages(GreedyParameters &param, OFHelperType &ofhelper)
+::ReadImages(GreedyParameters &param, OFHelperType &ofhelper,
+             bool force_resample_to_fixed_space)
 {
   // If the parameters include a sequence of transforms, apply it first
   VectorImagePointer moving_pre_warp;
@@ -561,8 +562,12 @@ void GreedyApproach<VDim, TReal>
 
   // Read the optional reference space
   typename OFHelperType::ImageBaseType::Pointer ref_space;
+  bool use_ref_space_for_moving = force_resample_to_fixed_space;
   if(param.reference_space.size())
+    {
     ref_space = ReadImageViaCache<ImageType>(param.reference_space);
+    use_ref_space_for_moving = true;
+    }
 
   for(unsigned int i = 0; i < param.inputs.size(); i++)
     {
@@ -591,17 +596,18 @@ void GreedyApproach<VDim, TReal>
         pad->SetPadBound(pad_size);
         pad->Update();
         ref_space = pad->GetOutput();
+        use_ref_space_for_moving = true;
         }
       else
         {
         ref_space = imgFix;
         }
+      }
 
-      // Once we know the reference space, we can read the moving image pre-transforms
-      if(param.moving_pre_transforms.size())
-        {
-        ReadTransformChain(param.moving_pre_transforms, ref_space, moving_pre_warp);
-        }
+    // Once we know the reference space, we can read the moving image pre-transforms
+    if(param.moving_pre_transforms.size())
+      {
+      ReadTransformChain(param.moving_pre_transforms, ref_space, moving_pre_warp);
       }
 
     // Use NaN as the outside value if we want to create a moving mask
@@ -610,7 +616,11 @@ void GreedyApproach<VDim, TReal>
     // If the reference space does not match the fixed image space, reslice the fixed image
     // to the reference space
     imgFix = ResampleImageToReferenceSpaceIfNeeded(imgFix, ref_space, nullptr, fill_value);
-    imgMov = ResampleImageToReferenceSpaceIfNeeded(imgMov, ref_space, moving_pre_warp, fill_value);
+
+    // The moving image gets resampled to reference space if the reference space is specified or
+    // if a moving pre-warp is specified.
+    if(moving_pre_warp || use_ref_space_for_moving)
+      imgMov = ResampleImageToReferenceSpaceIfNeeded(imgMov, ref_space, moving_pre_warp, fill_value);
 
     // Add to the helper object
     ofhelper.AddImagePair(imgFix, imgMov, param.inputs[i].weight);
@@ -628,7 +638,8 @@ void GreedyApproach<VDim, TReal>
   if(param.moving_mask.size())
     {
     ImagePointer imgMovMask = ReadImageViaCache<ImageType>(param.moving_mask);
-    imgMovMask = ResampleMaskToReferenceSpaceIfNeeded(imgMovMask, ref_space, moving_pre_warp);
+    if(moving_pre_warp || use_ref_space_for_moving)
+      imgMovMask = ResampleMaskToReferenceSpaceIfNeeded(imgMovMask, ref_space, moving_pre_warp);
     ofhelper.SetMovingMask(imgMovMask);
     }
 
@@ -1149,7 +1160,8 @@ int GreedyApproach<VDim, TReal>
   of_helper.SetJitterSigma(param.affine_jitter);
 
   // Read the image pairs to register - this will also build the composite pyramids
-  ReadImages(param, of_helper);
+  // In affine mode, we do not force resampling of moving image to fixed image space
+  ReadImages(param, of_helper, false);
 
   // Matrix describing current transform in physical space
   vnl_matrix<double> Q_physical;
@@ -1517,7 +1529,8 @@ int GreedyApproach<VDim, TReal>
     of_helper.SetScaleFixedImageWithVoxelSize(true);
 
   // Read the image pairs to register
-  ReadImages(param, of_helper);
+  // In deformable mode, we force resampling of moving image to fixed image space
+  ReadImages(param, of_helper, true);
 
   // An image pointer desribing the current estimate of the deformation
   VectorImagePointer uLevel = nullptr;
@@ -1937,7 +1950,7 @@ int GreedyApproach<VDim, TReal>
     of_helper.SetScaleFixedImageWithVoxelSize(true);
 
   // Read the image pairs to register
-  ReadImages(param, of_helper);
+  ReadImages(param, of_helper, true);
 
   // Reference space
   ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
@@ -2008,7 +2021,7 @@ int GreedyApproach<VDim, TReal>
   of_helper.SetDefaultPyramidFactors(1);
 
   // Read the image pairs to register
-  ReadImages(param, of_helper);
+  ReadImages(param, of_helper, true);
 
   // Reference space
   ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
@@ -2714,7 +2727,7 @@ int GreedyApproach<VDim, TReal>
   of_helper.SetDefaultPyramidFactors(1);
 
   // Read the image pairs to register
-  ReadImages(param, of_helper);
+  ReadImages(param, of_helper, false);
 
   // Compute the moments of intertia for the fixed and moving images. For now
   // this is done in an iterator loop, out of laziness. Should be converted to

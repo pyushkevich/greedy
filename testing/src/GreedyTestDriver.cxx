@@ -623,7 +623,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
   of_helper.SetDefaultPyramidFactors(1);
 
   // Read the data
-  api.ReadImages(gp, of_helper);
+  api.ReadImages(gp, of_helper, true);
 
   // Generate the initial deformation field
   typename GreedyAPI::ImageBaseType *refspace = of_helper.GetReferenceSpace(0);
@@ -812,7 +812,7 @@ int RunAffineGradientTest(CommandLineHelper &cl)
   of_helper.SetJitterSigma(gp.affine_jitter);
 
   // Read the data
-  api.ReadImages(gp, of_helper);
+  api.ReadImages(gp, of_helper, false);
 
   // Create a cost function
   typedef AbstractAffineCostFunction<VDim, double> AbstractAffineCostFunction;

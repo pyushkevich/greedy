@@ -185,7 +185,8 @@ public:
    * Read images specified in parameters into a helper data structure and initialize
    * the multi-resolution pyramid
    */
-  void ReadImages(GreedyParameters &param, OFHelperType &ofhelper);
+  void ReadImages(GreedyParameters &param, OFHelperType &ofhelper,
+                  bool force_resample_to_fixed_space);
 
   /**
    * Compute one of the metrics (specified in the parameters). This code is called by
