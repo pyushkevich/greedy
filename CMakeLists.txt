@@ -3,6 +3,9 @@ PROJECT(GREEDY)
 # Required CMake version
 CMAKE_MINIMUM_REQUIRED(VERSION 3.10.2)
 
+# C++11 required
+set (CMAKE_CXX_STANDARD 11)
+
 #--------------------------------------------------------------------------------
 # VERSION
 #--------------------------------------------------------------------------------
