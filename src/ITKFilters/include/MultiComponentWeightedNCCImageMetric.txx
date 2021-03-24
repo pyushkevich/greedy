@@ -229,6 +229,12 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
   for(unsigned int k = 0; k < ImageDimension; k++)
     one_over_patch_size /= (1 + 2.0 * this->m_Radius[k]);
 
+  // This array holds the components accumulated on the second pass. This is only needed
+  // for WNCC with multiple components
+  bool need_accum_scratch_space = m_Weighted && m_InputComponents > 1;
+  InputComponentType *out_accum_line =
+      need_accum_scratch_space ? new InputComponentType[m_SecondPassAccumComponents] : nullptr;
+
   // Set up an iterator for the working image (which contains accumulation results)
   InputIteratorType it(m_WorkingImage, outputRegionForThread);
 
@@ -280,7 +286,7 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
         {
         // Iterate over the components
         InputComponentType *p_accum = p_work + 1;
-        InputComponentType *p_accum_out = p_work + 1;
+        InputComponentType *p_accum_out = need_accum_scratch_space ? out_accum_line : p_accum;
         for(unsigned int k = 0; k < m_InputComponents; k++)
           {
           // We are reusing the working image, replacing elements 3-5 with new items that
@@ -357,12 +363,25 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
               }
             }
           } // Loop over components
+
+        // Copy the out_accum_line into the working image
+        if(need_accum_scratch_space)
+          {
+          InputComponentType *p_src = out_accum_line, *p_trg = p_work+1, *p_trg_end = p_trg+m_SecondPassAccumComponents;
+          while(p_trg < p_trg_end)
+              *p_trg++ = *p_src++;
+          }
+
         }
 
       p_work += m_TotalWorkingImageComponents;
       p_metric++;
       } // Iterate over pixels in line
     } // Iterate over lines
+
+  // Delete scratch space
+  if(need_accum_scratch_space)
+    delete[] out_accum_line;
 
   // Typecast the per-component metrics
   for(unsigned int a = 0; a < m_InputComponents; a++)
