@@ -185,6 +185,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->moving_mask = cl.read_existing_filename();
     }
+  else if(cmd == "-ncc-mask-dilate")
+    {
+    this->flag_ncc_mask_dilate = true;
+    }
   else if(cmd == "-o")
     {
     this->output = cl.read_output_filename();
@@ -432,6 +436,39 @@ std::string GreedyParameters::GenerateCommandLine()
   // Go through options
   oss << "-d " << this->dim;
 
+  // Print the mode command
+  switch(this->mode)
+    {
+    case GreedyParameters::GREEDY:
+      break;
+    case GreedyParameters::AFFINE:
+      oss << " -a";
+      break;
+    case GreedyParameters::BRUTE:
+      oss << " -brute";
+      break;
+    case GreedyParameters::RESLICE:
+      break;
+    case GreedyParameters::INVERT_WARP:
+      oss << " -iw " << this->invwarp_param.in_warp
+          << " " << this->invwarp_param.out_warp;
+      break;
+    case GreedyParameters::ROOT_WARP:
+      oss << " -root " << this->warproot_param.in_warp
+          << " " << this->warproot_param.out_warp;
+      break;
+    case GreedyParameters::JACOBIAN_WARP:
+      oss << " -jac " << this->jacobian_param.in_warp
+          << " " << this->jacobian_param.out_det_jac;
+      break;
+    case GreedyParameters::MOMENTS:
+      oss << " -moments " << this->moments_order;
+      break;
+    case GreedyParameters::METRIC:
+      oss << " -metric";
+      break;
+    }
+
   if(this->flag_float_math)
     oss << " -float ";
 
@@ -479,7 +516,7 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->sigma_pre != def.sigma_pre || this->sigma_post != def.sigma_post)
     {
-    oss << " -s " << this->sigma_pre << this->sigma_post;
+    oss << " -s " << this->sigma_pre << " " << this->sigma_post;
     }
 
   for(const ImagePairSpec &ip : this->inputs)
@@ -512,7 +549,7 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->rigid_search.iterations > 0)
     {
-    oss << " -search ";
+    oss << " -search " << this->rigid_search.iterations << " ";
     if(this->rigid_search.mode == ANY_ROTATION)
       oss << "ANY ";
     else if(this->rigid_search.mode == ANY_ROTATION_AND_FLIP)
@@ -551,6 +588,9 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->moving_mask.size())
     oss << " -mm " << this->moving_mask;
+
+  if(this->flag_ncc_mask_dilate)
+    oss << " -ncc-mask-dilate";
 
   if(this->output.size())
     oss << " -o " << this->output;

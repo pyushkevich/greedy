@@ -94,6 +94,10 @@ int usage()
   printf("                           registration with the NCC metric when the background of your images\n");
   printf("                           is non-zero. The radius should match that of the NCC metric.\n");
   printf("  -mm mask.nii           : moving image mask (pixels outside are excluded from metric computation)\n");
+  printf("  -ncc-mask-dilate       : flag, specifies that fixed and moving masks should be dilated by the radius\n");
+  printf("                           of the NCC/WNCC metric during registration. This is for when your mask goes\n");
+  printf("                           up to the edge of the tissue and you want the tissue/background edge to count\n");
+  printf("                           towards the metric.\n");
   printf("Defining a reference space for registration (primarily in deformable mode): \n");
   printf("  -ref <image>           : Use supplied image, rather than fixed image to define the reference space\n");
   printf("  -ref-pad <radius>      : Define the reference space by padding the fixed image by radius. Useful when\n");

@@ -352,6 +352,9 @@ struct GreedyParameters
   // Trim for the gradient mask
   std::vector<int> fixed_mask_trim_radius;
 
+  // Whether the mask is dilated udint NCC
+  bool flag_ncc_mask_dilate = false;
+
   // Mask for the moving image
   std::string moving_mask;
 

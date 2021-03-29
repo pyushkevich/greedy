@@ -1773,6 +1773,12 @@ public:
               {
               api_reg.AddCachedInputObject("mask", resliced_mask);
               my_param.fixed_mask = "mask";
+              if(m_GlobalParam.debug)
+                {
+                char buffer[256];
+                sprintf(buffer, "/tmp/sg_%s_fixed_mask.nii.gz", m_Slices[k].unique_id.c_str());
+                LDDMMType::img_write(resliced_mask, buffer);
+                }
               }
 
             // Set up the output transform
