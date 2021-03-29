@@ -120,39 +120,73 @@ Greedy Usage
     Environment variables:
       GREEDY_DATA_ROOT       : if set, filenames can be specified relative to this path
 
+
+Greedy modes
+------------
+Greedy offers a number of **modes**. Each mode, except the default deformable registration mode, is entered by specifying the corresponding switch somewhere on the command line. 
+
+The most commonly used modes are
+* Deformable registration (default)
+* Affine/rigid registration (``-a``)
+* Reslicing and transform composition mode (``-r``)
+* Metric computation mode (``-metric``)
+* Matching by moments mode (``-moments``)
+
+Some additional, less frequently used modes are
+* Warp inversion mode (``-iw`, deprecated in favor of ``-sv`` and ``-oinv`` commands)
+* Warp root approximation mode (``-root``, deprecated in favor of ``-sv`` and ``-oroot`` commands)
+* Warp jacobian approximation mode (``-root``, deprecated in favor of ``-sv`` and ``-rj`` commands)
+* Brute force deformation search mode (``-brute``, abandoned feature)
+
+The five more common modes are described in greter detail below.
+
+Deformable registration mode
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
 General Options
 ---------------
 
 Image dimensionality (``-d``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Format: ``-d <2|3>``
+* Format: ``-d <2|3>``
+* Required 
+* Available in all modes
 
-This option is required to run greedy. It specifies whether registration
-or other operations should be performed in 2D or 3D.
+Specifies whether registration or other operations should be performed in two or three dimensions.
 
 Number of parallel threads (``-threads``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Format: ``-threads <number>``
+* Format: ``-threads <number>``
+* Available in all modes
 
-By default, greedy will run in multithreaded mode, using all of your available CPU cores. You can restrict the number of cores used to any given number. On many clusters, the ``NSLOTS`` environment variable is defined and can be used to set the number of threads correctly::
+By default, greedy will run in multithreaded mode, using all of your available CPU cores. You can restrict the number of cores used to any given number, or set to zero to use the default behavior. On many clusters, the ``NSLOTS`` environment variable is defined and can be used to set the number of threads correctly::
 
-    > if [[ $NSLOTS -gt 1 ]]; then \
-        greedy -d 3 -threads $NSLOTS ... ; \
-      fi
+    greedy -d 3 -threads ${NSLOTS-0} ... 
 
 Floating point precision (``-float``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Format: ``-float``
+* Format: ``-float``
+* Available in all modes
 
 By default, greedy uses double precision floating point to represent images and transformations in memory. This option uses single-precision instead. This is faster and uses less memory, but at some small loss of precision (especially during NCC metric computation). *We recommend not using this option, as double precision floating point has been tested far more extensively*.
+
+Verbosity (``-V``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* Format: ``-V <0|1|2>``
+* Available in all modes
+* Default: ``1``
+  
+Sets the verbosity of the program's output (0: quiet, 1: default, 2: extra verbose). 
 
 Command-line help (``-h``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Format: ``-h``
+* Format: ``-h``
 
 Use this command to list all the commands and options for greedy. Some commands are esoteric or developer-oriented and are not discussed here.
 
@@ -162,6 +196,11 @@ Greedy has several operating modes. The most common modes are deformable registr
 
 Deformable Registration Mode
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The deformable registration mode is the default mode in greedy. If you don't specify and mode setting parameters, this mode will be used.
+
+Affine Registration Mode (``-a``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Used to perform affine and rigid registration. In this mode, the 
 
 Common Commands in Deformable Registration Mode
 -----------------------------------------------

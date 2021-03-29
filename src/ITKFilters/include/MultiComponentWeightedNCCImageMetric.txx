@@ -261,6 +261,9 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
     // Loop over the pixels in the line
     for(int i = 0; i < outputRegionForThread.GetSize()[0]; ++i)
       {
+      if(i == 51 && it.GetIndex()[1] == 32)
+        std::cout << "here we are " << std::endl;
+
       // Clear the metric output
       *p_metric = itk::NumericTraits<MetricPixelType>::ZeroValue();
 
@@ -284,6 +287,14 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
         }
       else
         {
+        // How we calculate variance and covariance depends on weighting
+        double N = patch_size, w_scale = 1.0;
+        if(m_Weighted)
+          {
+          N = sum_w;
+          w_scale = std::pow(sum_w * one_over_patch_size, m_WeightScalingExponent);
+          }
+
         // Iterate over the components
         InputComponentType *p_accum = p_work + 1;
         InputComponentType *p_accum_out = need_accum_scratch_space ? out_accum_line : p_accum;
@@ -296,14 +307,6 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
           double sum_ff = *p_accum++;
           double sum_mm = *p_accum++;
           double sum_fm = *p_accum++;
-
-          // How we calculate variance and covariance depends on weighting
-          double N = patch_size, w_scale = 1.0;
-          if(m_Weighted)
-            {
-            N = sum_w;
-            w_scale = std::pow(sum_w * one_over_patch_size, m_WeightScalingExponent);
-            }
 
           // Compute the weighted normalized correlation, it has a nice symmetrical formula;
           // However, to avoid division by zero issues, we should add epsilon to the components
