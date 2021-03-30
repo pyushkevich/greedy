@@ -261,9 +261,6 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
     // Loop over the pixels in the line
     for(int i = 0; i < outputRegionForThread.GetSize()[0]; ++i)
       {
-      if(i == 51 && it.GetIndex()[1] == 32)
-        std::cout << "here we are " << std::endl;
-
       // Clear the metric output
       *p_metric = itk::NumericTraits<MetricPixelType>::ZeroValue();
 

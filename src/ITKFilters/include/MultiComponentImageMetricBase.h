@@ -200,6 +200,9 @@ public:
   /** Get the gradient of the affine transform */
   itkGetMacro(AffineTransformGradient, TransformType *)
 
+  /** Get the gradient of the affine transform */
+  itkGetMacro(AffineTransformMaskGradient, TransformType *)
+
   /**
    * Get the gradient scaling factor. To get the actual gradient of the metric, multiply the
    * gradient output of this filter by the scaling factor. Explanation: for efficiency, the
@@ -278,7 +281,10 @@ protected:
   double m_MetricValue, m_MaskValue;
 
   // Affine transform
-  typename TransformType::Pointer m_AffineTransform, m_AffineTransformGradient;
+  typename TransformType::Pointer m_AffineTransform;
+
+  // Gradient of the metric and mask with respect to affine parameters
+  typename TransformType::Pointer m_AffineTransformGradient, m_AffineTransformMaskGradient;
 
 private:
   MultiComponentImageMetricBase(const Self&); //purposely not implemented

@@ -252,6 +252,27 @@ std::ostream& operator << (std::ostream &oss, const PerLevelSpec<TAtomic> &val)
   return oss;
 }
 
+/**
+ * An input set is a set of fixed/moving images with optional fixed/moving mask
+ * and initial moving transform. More than one input set can be used when you want
+ * to apply different masks to different inputs, for example when registering a
+ * slice to neighbor slices in stack_greedy
+ */
+struct GreedyInputSet
+{
+  // Pairs of input images
+  std::vector<ImagePairSpec> inputs;
+
+  // Mask for the moving image
+  std::string moving_mask;
+
+  // Mask for the moving image
+  std::string fixed_mask;
+
+  // List of transforms to apply to the moving image before registration
+  std::vector<TransformSpec> moving_pre_transforms;
+};
+
 struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, WNCC, MI, NMI, MAHALANOBIS };
@@ -260,8 +281,8 @@ struct GreedyParameters
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
   enum Verbosity { VERB_NONE=0, VERB_DEFAULT, VERB_VERBOSE, VERB_INVALID };
 
-  // Pairs of input images
-  std::vector<ImagePairSpec> inputs;
+  // One or more input sets
+  std::vector<GreedyInputSet> input_sets;
 
   // Output affine or warp
   std::string output;
@@ -325,9 +346,6 @@ struct GreedyParameters
 
   std::vector<int> brute_search_radius;
 
-  // List of transforms to apply to the moving image before registration
-  std::vector<TransformSpec> moving_pre_transforms;
-
   // An image used to specify the reference space
   std::string reference_space;
 
@@ -354,12 +372,6 @@ struct GreedyParameters
 
   // Whether the mask is dilated udint NCC
   bool flag_ncc_mask_dilate = false;
-
-  // Mask for the moving image
-  std::string moving_mask;
-
-  // Mask for the moving image
-  std::string fixed_mask;
 
   // Inverse warp and root warp, for writing in deformable mode
   std::string inverse_warp, root_warp;
@@ -404,9 +416,6 @@ struct GreedyParameters
 
   // Interpolation applied to new reslice image pairs
   InterpSpec current_interp;
-
-  // Read parameters from the
-  bool ParseCommandLine(const std::string &cmd, CommandLineHelper &cl);
   
   // Verbosity flag
   Verbosity verbosity = VERB_DEFAULT;
@@ -422,6 +431,12 @@ struct GreedyParameters
 
   // Data root (used when testing to provide relative paths)
   std::string dump_prefix;
+
+  // Constructor
+  GreedyParameters();
+
+  // Read parameters from the
+  bool ParseCommandLine(const std::string &cmd, CommandLineHelper &cl);
 
   // Get an existing filename
   std::string GetExistingFilename(CommandLineHelper &cl);

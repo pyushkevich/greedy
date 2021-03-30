@@ -168,11 +168,11 @@ public:
   static void WriteAffineTransform(const std::string &filename, LinearTransformType *tran);
 
   static vnl_matrix<double> MapAffineToPhysicalRASSpace(
-      OFHelperType &of_helper, int level,
+      OFHelperType &of_helper, unsigned int group, unsigned int level,
       LinearTransformType *tran);
 
   static void MapPhysicalRASSpaceToAffine(
-      OFHelperType &of_helper, int level,
+      OFHelperType &of_helper, unsigned int group, unsigned int level,
       vnl_matrix<double> &Qp,
       LinearTransformType *tran);
 
@@ -275,7 +275,7 @@ protected:
                           VectorImagePointer &out_warp);
 
   // Compute the moments of a composite image (mean and covariance matrix of coordinate weighted by intensity)
-  void ComputeImageMoments(CompositeImageType *image, const std::vector<double> &weights, VecFx &m1, MatFx &m2);
+  void ComputeImageMoments(CompositeImageType *image, const vnl_vector<float> &weights, VecFx &m1, MatFx &m2);
 
   // Resample an image to reference space if the spaces do not match or if an explicit warp is provided
   CompositeImagePointer ResampleImageToReferenceSpaceIfNeeded(

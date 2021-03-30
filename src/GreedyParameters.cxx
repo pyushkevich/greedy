@@ -27,6 +27,10 @@
 #include "GreedyParameters.h"
 #include "CommandLineHelper.h"
 
+GreedyParameters::GreedyParameters()
+{
+  input_sets.push_back(GreedyInputSet());
+}
 
 bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelper &cl)
 {
@@ -93,13 +97,17 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     this->sigma_pre.sigma = cl.read_scalar_with_units(this->sigma_pre.physical_units);
     this->sigma_post.sigma = cl.read_scalar_with_units(this->sigma_post.physical_units);
     }
+  else if(cmd == "-P")
+    {
+    this->input_sets.push_back(GreedyInputSet());
+    }
   else if(cmd == "-i")
     {
     ImagePairSpec ip;
     ip.weight = this->current_weight;
     ip.fixed = cl.read_existing_filename();
     ip.moving = cl.read_existing_filename();
-    this->inputs.push_back(ip);
+    this->input_sets.back().inputs.push_back(ip);
     }
   else if(cmd == "-id")
     {
@@ -159,7 +167,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     int nFiles = cl.command_arg_count();
     for(int i = 0; i < nFiles; i++)
-      this->moving_pre_transforms.push_back(cl.read_transform_spec());
+      this->input_sets.back().moving_pre_transforms.push_back(cl.read_transform_spec());
     }
   else if(cmd == "-ref")
     {
@@ -175,7 +183,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     }
   else if(cmd == "-gm")
     {
-    this->fixed_mask = cl.read_existing_filename();
+    this->input_sets.back().fixed_mask = cl.read_existing_filename();
     }
   else if(cmd == "-gm-trim")
     {
@@ -183,7 +191,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     }
   else if(cmd == "-mm")
     {
-    this->moving_mask = cl.read_existing_filename();
+    this->input_sets.back().moving_mask = cl.read_existing_filename();
     }
   else if(cmd == "-ncc-mask-dilate")
     {
@@ -519,10 +527,36 @@ std::string GreedyParameters::GenerateCommandLine()
     oss << " -s " << this->sigma_pre << " " << this->sigma_post;
     }
 
-  for(const ImagePairSpec &ip : this->inputs)
+  for(unsigned int k = 0; k < this->input_sets.size(); k++)
     {
-    oss << " -w " << ip.weight;
-    oss << " -i " << ip.fixed << " " << ip.moving;
+    const GreedyInputSet &is = this->input_sets[k];
+
+    // Write the partitioning element
+    if(k > 0)
+      oss << " -P";
+
+    // Write the input set
+    for(const ImagePairSpec &ip : is.inputs)
+      {
+      oss << " -w " << ip.weight;
+      oss << " -i " << ip.fixed << " " << ip.moving;
+      }
+    if(is.moving_pre_transforms.size())
+      {
+      oss << " -it";
+      for(const TransformSpec &ts : is.moving_pre_transforms)
+        {
+        oss << " " << ts.filename;
+        if(ts.exponent != 1.0)
+          oss << "," << ts.exponent;
+        }
+      }
+
+    if(is.fixed_mask.size())
+      oss << " -gm " << is.fixed_mask;
+
+    if(is.moving_mask.size())
+      oss << " -mm " << is.moving_mask;
     }
 
   if(this->initial_warp.size())
@@ -560,17 +594,6 @@ std::string GreedyParameters::GenerateCommandLine()
     oss << this->rigid_search.sigma_xyz;
     }
 
-  if(this->moving_pre_transforms.size())
-    {
-    oss << " -it";
-    for(TransformSpec &ts : this->moving_pre_transforms)
-      {
-      oss << " " << ts.filename;
-      if(ts.exponent != 1.0)
-        oss << "," << ts.exponent;
-      }
-    }
-
   if(this->reference_space.size())
     oss << " -ref " << this->reference_space;
 
@@ -580,14 +603,8 @@ std::string GreedyParameters::GenerateCommandLine()
   if(this->background != def.background)
     oss << " -bg " << this->background;
 
-  if(this->fixed_mask.size())
-    oss << " -gm " << this->fixed_mask;
-
   if(this->fixed_mask_trim_radius != def.fixed_mask_trim_radius)
     oss << " -gm-trim " << this->fixed_mask_trim_radius;
-
-  if(this->moving_mask.size())
-    oss << " -mm " << this->moving_mask;
 
   if(this->flag_ncc_mask_dilate)
     oss << " -ncc-mask-dilate";

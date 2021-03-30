@@ -133,9 +133,6 @@ MultiComponentImageMetricBase<TMetricTraits>
   // Compute the affine gradient
   if(m_ComputeAffine)
     {
-    m_AffineTransformGradient = TransformType::New();
-
-
     vnl_vector<double> grad_metric(m_AccumulatedData.gradient.size());
     for (unsigned j = 0; j < m_AccumulatedData.gradient.size(); j++)
       {
@@ -145,8 +142,15 @@ MultiComponentImageMetricBase<TMetricTraits>
           / m_AccumulatedData.mask;
       }
 
-    // Pack into the output
-    unflatten_affine_transform(grad_metric.data_block(), m_AffineTransformGradient.GetPointer());
+    // Pack gradient into transform object
+    m_AffineTransformGradient = TransformType::New();
+    unflatten_affine_transform(grad_metric.data_block(),
+                               m_AffineTransformGradient.GetPointer());
+
+    // Pack mask gradient into transform object
+    m_AffineTransformMaskGradient = TransformType::New();
+    unflatten_affine_transform(m_AccumulatedData.grad_mask.data_block(),
+                               m_AffineTransformMaskGradient.GetPointer());
     }
 }
 
