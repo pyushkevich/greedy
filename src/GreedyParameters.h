@@ -258,7 +258,7 @@ std::ostream& operator << (std::ostream &oss, const PerLevelSpec<TAtomic> &val)
  * to apply different masks to different inputs, for example when registering a
  * slice to neighbor slices in stack_greedy
  */
-struct GreedyInputSet
+struct GreedyInputGroup
 {
   // Pairs of input images
   std::vector<ImagePairSpec> inputs;
@@ -281,8 +281,9 @@ struct GreedyParameters
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
   enum Verbosity { VERB_NONE=0, VERB_DEFAULT, VERB_VERBOSE, VERB_INVALID };
 
-  // One or more input sets
-  std::vector<GreedyInputSet> input_sets;
+  // One or more input groups - each group consists of fixed and moving images, fixed and moving masks,
+  // and a set of moving pre-transforms. Within each group, the moving images should be in the same space
+  std::vector<GreedyInputGroup> input_groups;
 
   // Output affine or warp
   std::string output;

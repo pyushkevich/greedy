@@ -29,7 +29,7 @@
 
 GreedyParameters::GreedyParameters()
 {
-  input_sets.push_back(GreedyInputSet());
+  input_groups.push_back(GreedyInputGroup());
 }
 
 bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelper &cl)
@@ -99,7 +99,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     }
   else if(cmd == "-P")
     {
-    this->input_sets.push_back(GreedyInputSet());
+    this->input_groups.push_back(GreedyInputGroup());
     }
   else if(cmd == "-i")
     {
@@ -107,7 +107,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     ip.weight = this->current_weight;
     ip.fixed = cl.read_existing_filename();
     ip.moving = cl.read_existing_filename();
-    this->input_sets.back().inputs.push_back(ip);
+    this->input_groups.back().inputs.push_back(ip);
     }
   else if(cmd == "-id")
     {
@@ -167,7 +167,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     int nFiles = cl.command_arg_count();
     for(int i = 0; i < nFiles; i++)
-      this->input_sets.back().moving_pre_transforms.push_back(cl.read_transform_spec());
+      this->input_groups.back().moving_pre_transforms.push_back(cl.read_transform_spec());
     }
   else if(cmd == "-ref")
     {
@@ -183,7 +183,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     }
   else if(cmd == "-gm")
     {
-    this->input_sets.back().fixed_mask = cl.read_existing_filename();
+    this->input_groups.back().fixed_mask = cl.read_existing_filename();
     }
   else if(cmd == "-gm-trim")
     {
@@ -191,7 +191,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     }
   else if(cmd == "-mm")
     {
-    this->input_sets.back().moving_mask = cl.read_existing_filename();
+    this->input_groups.back().moving_mask = cl.read_existing_filename();
     }
   else if(cmd == "-ncc-mask-dilate")
     {
@@ -527,9 +527,9 @@ std::string GreedyParameters::GenerateCommandLine()
     oss << " -s " << this->sigma_pre << " " << this->sigma_post;
     }
 
-  for(unsigned int k = 0; k < this->input_sets.size(); k++)
+  for(unsigned int k = 0; k < this->input_groups.size(); k++)
     {
-    const GreedyInputSet &is = this->input_sets[k];
+    const GreedyInputGroup &is = this->input_groups[k];
 
     // Write the partitioning element
     if(k > 0)

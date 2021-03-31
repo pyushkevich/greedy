@@ -563,7 +563,7 @@ void GreedyApproach<VDim, TReal>
     }
 
   // Repeat for each input set
-  for(const GreedyInputSet &is : param.input_sets)
+  for(const GreedyInputGroup &is : param.input_groups)
     {
     // Read the input images and stick them into an image array
     if(is.inputs.size() == 0)

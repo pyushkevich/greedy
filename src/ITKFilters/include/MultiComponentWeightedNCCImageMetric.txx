@@ -261,9 +261,6 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
     // Loop over the pixels in the line
     for(int i = 0; i < outputRegionForThread.GetSize()[0]; ++i)
       {
-      // Clear the metric output
-      *p_metric = itk::NumericTraits<MetricPixelType>::ZeroValue();
-
       // Fixed mask must be 1.0 indicating that NCC is being measured at this point
       double f_mask = fixed_mask_line? *fixed_mask_line++ : 1.0;
 
@@ -433,10 +430,6 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
     // Loop over the pixels in the line
     for(int i = 0; i < outputRegionForThread.GetSize()[0]; ++i)
       {
-      // Clear the metric output
-      if(p_grad_metric)
-        *p_grad_metric = itk::NumericTraits<GradientPixelType>::ZeroValue();
-
       // Fixed mask must be 1.0 indicating that NCC is being measured at this point
       double f_mask = fixed_mask_line? *fixed_mask_line++ : 1.0;
 

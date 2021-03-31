@@ -571,13 +571,13 @@ public:
           ImagePairSpec img_pair(m_Slices[it.second].raw_filename, m_Slices[it_n.second].raw_filename);
           greedy_api.AddCachedInputObject(m_Slices[it.second].raw_filename, i_ref.GetPointer());
           greedy_api.AddCachedInputObject(m_Slices[it_n.second].raw_filename, i_mov.GetPointer());
-          my_param.input_sets.back().inputs.push_back(img_pair);
+          my_param.input_groups.back().inputs.push_back(img_pair);
 
           // Add mask if using them
           if(m_UseMasks)
             {
             greedy_api.AddCachedInputObject(m_Slices[it.second].mask_filename, i_mask.GetPointer());
-            my_param.input_sets.back().fixed_mask = m_Slices[it.second].mask_filename;
+            my_param.input_groups.back().fixed_mask = m_Slices[it.second].mask_filename;
             }
 
           // Set other parameters
@@ -858,7 +858,7 @@ public:
 
           ImagePairSpec img_pair("vol_slice", fn_accum_reslice, 1.0);
           greedy_api.AddCachedInputObject("vol_slice", vol_slice_2d.GetPointer());
-          my_param.input_sets.back().inputs.push_back(img_pair);
+          my_param.input_groups.back().inputs.push_back(img_pair);
 
           // Handle the mask
           if(fn_vol_mask_slide.length())
@@ -866,7 +866,7 @@ public:
             // TODO: we are not caching because of different image types
             SlideImagePointer mask_slice_2d = ExtractSliceFromVolume(mask, m_Slices[i].z_pos);
             LDDMMType::cimg_write(mask_slice_2d, fn_vol_mask_slide.c_str());
-            my_param.input_sets.back().fixed_mask = fn_vol_mask_slide;
+            my_param.input_groups.back().fixed_mask = fn_vol_mask_slide;
             }
 
           // Set other parameters
@@ -913,11 +913,11 @@ public:
         ImagePairSpec img_pair("vol_slice", "acc_slice", 1.0);
         greedy_api.AddCachedInputObject("vol_slice", vol_slice.GetPointer());
         greedy_api.AddCachedInputObject("acc_slice", acc_slice.GetPointer());
-        my_param.input_sets.back().inputs.push_back(img_pair);
+        my_param.input_groups.back().inputs.push_back(img_pair);
 
         // TODO: this is really bad, can't cache mask images
         if(fn_mask.length())
-          my_param.input_sets.back().fixed_mask = GetFilenameForSlice(m_Slices[i], VOL_MASK_SLIDE);
+          my_param.input_groups.back().fixed_mask = GetFilenameForSlice(m_Slices[i], VOL_MASK_SLIDE);
 
         // Set other parameters
         my_param.affine_init_mode = RAS_FILENAME;
@@ -1006,13 +1006,13 @@ public:
     // Set up the moving/fixed pair
     api_reg.AddCachedInputObject("fixed", fixed);
     api_reg.AddCachedInputObject("moving", moving);
-    my_param.input_sets.back().inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
+    my_param.input_groups.back().inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
 
     // Set up the mask
     if(mask)
       {
       api_reg.AddCachedInputObject("mask", mask);
-      my_param.input_sets.back().fixed_mask = "mask";
+      my_param.input_groups.back().fixed_mask = "mask";
       }
 
     // Set up the output transform
@@ -1043,13 +1043,13 @@ public:
     // Set up the moving/fixed pair
     api_reg.AddCachedInputObject("fixed", fixed);
     api_reg.AddCachedInputObject("moving", moving);
-    my_param.input_sets.back().inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
+    my_param.input_groups.back().inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
 
     // Set up the mask
     if(mask)
       {
       api_reg.AddCachedInputObject("mask", mask);
-      my_param.input_sets.back().fixed_mask = "mask";
+      my_param.input_groups.back().fixed_mask = "mask";
       }
 
     // Set up the output transform
@@ -1610,12 +1610,28 @@ public:
             GreedyParameters my_param = param_reg;
             GreedyAPI api_reg;
 
-            // Set up the moving/fixed pairs
+            // Store the fixed image in cache
+            api_reg.AddCachedInputObject("fixed", resliced_slide);
+
+            // Set up the mask, which will be reused
+            if(resliced_mask)
+              api_reg.AddCachedInputObject("mask", resliced_mask);
+
+            // Set up the moving/fixed pairs. Each pair is added as a separate input group because
+            // the moving masks are different for different adjacent slices and the volume and we
+            // don't these masks to leave regions out from registration to the volume
             for(unsigned int i = 0; i < targets.size(); i++)
               {
-              api_reg.AddCachedInputObject("fixed", resliced_slide);
               api_reg.AddCachedInputObject(targets[i].desc, targets[i].image);
-              my_param.input_sets.back().inputs.push_back(ImagePairSpec("fixed", targets[i].desc, targets[i].weight));
+
+              // Add input group if needed
+              if(i > 0)
+                my_param.input_groups.push_back(GreedyInputGroup());
+
+              // Configure this input group
+              my_param.input_groups.back().inputs.push_back(ImagePairSpec("fixed", targets[i].desc, targets[i].weight));
+              if(resliced_mask)
+                my_param.input_groups.back().fixed_mask = "mask";
 
               if(m_GlobalParam.debug)
                 {
@@ -1632,13 +1648,6 @@ public:
                   LDDMMType::img_write(resliced_mask, buffer);
                   }
                 }
-              }
-
-            // Set up the mask
-            if(resliced_mask)
-              {
-              api_reg.AddCachedInputObject("mask", resliced_mask);
-              my_param.input_sets.back().fixed_mask = "mask";
               }
 
             // Set up the output transform
@@ -1749,12 +1758,23 @@ public:
             GreedyParameters my_param = param_reg;
             GreedyAPI api_reg;
 
+            // Add fixed image and mask to cache
+            api_reg.AddCachedInputObject("fixed", resliced_slide);
+            if(resliced_mask)
+              api_reg.AddCachedInputObject("mask", resliced_mask);
+
             // Set up the moving/fixed pairs
             for(unsigned int i = 0; i < targets.size(); i++)
               {
-              api_reg.AddCachedInputObject("fixed", resliced_slide);
+              // Add input group if needed
+              if(i > 0)
+                my_param.input_groups.push_back(GreedyInputGroup());
+
+              // Configure this input group
               api_reg.AddCachedInputObject(targets[i].desc, targets[i].image);
-              my_param.input_sets.back().inputs.push_back(ImagePairSpec("fixed", targets[i].desc, targets[i].weight));
+              my_param.input_groups.back().inputs.push_back(ImagePairSpec("fixed", targets[i].desc, targets[i].weight));
+              if(resliced_mask)
+                my_param.input_groups.back().fixed_mask = "mask";
 
               if(m_GlobalParam.debug)
                 {
@@ -1764,19 +1784,12 @@ public:
 
                 sprintf(buffer, "/tmp/sg_%s_moving_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
                 LDDMMType::cimg_write(targets[i].image, buffer);
-                }
-              }
 
-            // Set up the mask
-            if(resliced_mask)
-              {
-              api_reg.AddCachedInputObject("mask", resliced_mask);
-              my_param.input_sets.back().fixed_mask = "mask";
-              if(m_GlobalParam.debug)
-                {
-                char buffer[256];
-                sprintf(buffer, "/tmp/sg_%s_fixed_mask.nii.gz", m_Slices[k].unique_id.c_str());
-                LDDMMType::img_write(resliced_mask, buffer);
+                if(resliced_mask)
+                  {
+                  sprintf(buffer, "/tmp/sg_%s_fixed_mask_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                  LDDMMType::img_write(resliced_mask, buffer);
+                  }
                 }
               }
 
@@ -1843,14 +1856,14 @@ public:
           GreedyAPI api_metric;
           api_metric.AddCachedInputObject("fixed", resliced_slide);
           api_metric.AddCachedInputObject("moving", targets[i].image);
-          m_param.input_sets.back().inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
+          m_param.input_groups.back().inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
           m_param.affine_init_mode = VOX_IDENTITY;
           
           // Set up the mask
           if(m_UseMasks && !ignore_masks)
             {
             api_metric.AddCachedInputObject("mask", resliced_mask);
-            m_param.input_sets.back().fixed_mask = "mask";
+            m_param.input_groups.back().fixed_mask = "mask";
             }
 
           std::cout << "greedy " << m_param.GenerateCommandLine() << std::endl;

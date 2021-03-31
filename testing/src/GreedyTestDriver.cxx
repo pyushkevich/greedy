@@ -244,9 +244,9 @@ int RunPhantomTest(CommandLineHelper &cl)
   std::string fn_mov = GetFileName("phantom%02d_moving.nii.gz", phantom_moving_idx);
   std::string fn_mask = GetFileName("phantom01_mask.nii.gz");
 
-  gp.input_sets.back().inputs.push_back(ImagePairSpec(fn_fix, fn_mov));
+  gp.input_groups.back().inputs.push_back(ImagePairSpec(fn_fix, fn_mov));
   if(use_mask)
-    gp.input_sets.back().fixed_mask = fn_mask;
+    gp.input_groups.back().fixed_mask = fn_mask;
 
   gp.affine_dof = dof == 6 ? GreedyParameters::DOF_RIGID : (
                                dof == 7 ? GreedyParameters::DOF_SIMILARITY :
