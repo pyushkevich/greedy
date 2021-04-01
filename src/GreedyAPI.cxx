@@ -1940,8 +1940,10 @@ int GreedyApproach<VDim, TReal>
     // Compute the inverse (this is probably unnecessary for small warps)
     if(param.inverse_warp.size())
       {
-      of_helper.ComputeDeformationFieldInverse(uLevel, uLevelWork, 0);
-      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevelWork, param.inverse_warp.c_str(), param.warp_precision);
+      // Exponentiate the negative velocity field
+      LDDMMType::vimg_exp(uLevel, uLevelExp, uLevelWork, param.warp_exponent, -1.0);
+      // of_helper.ComputeDeformationFieldInverse(uLevel, uLevelWork, 0);
+      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevelExp, param.inverse_warp.c_str(), param.warp_precision);
       }
     }
   else
@@ -2181,11 +2183,11 @@ void GreedyApproach<VDim, TReal>
     // Determine if it's an affine transform
     if(CheckCache<VectorImageType>(tran) || itk::ImageIOFactory::CreateImageIO(tran.c_str(), itk::IOFileModeEnum::ReadMode))
       {
-      // Create a temporary warp
-      VectorImagePointer warp_tmp = LDDMMType::new_vimg(ref_space);
-
       // Read the next warp
       VectorImagePointer warp_i = ReadImageViaCache<VectorImageType>(tran);
+
+      // Create a temporary warp
+      VectorImagePointer warp_tmp = LDDMMType::new_vimg(ref_space);
 
       // If there is an exponent on the transform spec, handle it
       if(tran_chain[i].exponent != 1)
@@ -2200,10 +2202,11 @@ void GreedyApproach<VDim, TReal>
 
         // Bring the transform into voxel space
         VectorImagePointer warp_exp = LDDMMType::new_vimg(warp_i);
+        VectorImagePointer warp_exp_tmp = LDDMMType::new_vimg(warp_i);
         OFHelperType::PhysicalWarpToVoxelWarp(warp_i, warp_i, warp_i);
 
         // Square the transform N times (in its own space)
-        LDDMMType::vimg_exp(warp_i, warp_exp, warp_tmp, n, tran_chain[i].exponent / absexp);
+        LDDMMType::vimg_exp(warp_i, warp_exp, warp_exp_tmp, n, tran_chain[i].exponent / absexp);
 
         // Bring the transform back into physical space
         OFHelperType::VoxelWarpToPhysicalWarp(warp_exp, warp_i, warp_i);
