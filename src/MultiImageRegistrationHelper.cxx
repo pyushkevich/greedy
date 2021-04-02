@@ -251,8 +251,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         }
       else
         {
-        nans_fixed = isnan(LDDMMType::img_voxel_sum(fltExtractFixed->GetOutput()));
-        nans_moving = isnan(LDDMMType::img_voxel_sum(fltExtractMoving->GetOutput()));
+        nans_fixed = std::isnan(LDDMMType::img_voxel_sum(fltExtractFixed->GetOutput()));
+        nans_moving = std::isnan(LDDMMType::img_voxel_sum(fltExtractMoving->GetOutput()));
         }
 
       // Report number of NaNs in fixed and moving images
