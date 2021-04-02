@@ -40,9 +40,9 @@ CompositeImageNanMaskingFilter<TCompositeImage, TMaskImage>
 }
 
 template <class TCompositeImage, class TMaskImage>
-typename itk::DataObject::Pointer
+typename CompositeImageNanMaskingFilter<TCompositeImage, TMaskImage>::DataObjectPointer
 CompositeImageNanMaskingFilter<TCompositeImage, TMaskImage>
-::MakeOutput(const typename Superclass::DataObjectIdentifierType &key)
+::MakeOutput(const DataObjectIdentifierType &key)
 {
   if(key == "Primary")
     return (InputImageType::New()).GetPointer();
