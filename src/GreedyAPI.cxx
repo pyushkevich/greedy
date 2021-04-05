@@ -553,13 +553,6 @@ void GreedyApproach<VDim, TReal>
 ::ReadImages(GreedyParameters &param, OFHelperType &ofhelper,
              bool force_resample_to_fixed_space)
 {
-  // If the parameters include a sequence of transforms, apply it first
-  VectorImagePointer moving_pre_warp;
-
-  // Read the input images and stick them into an image array
-  if(param.inputs.size() == 0)
-    throw GreedyException("No image inputs have been specified");
-
   // Read the optional reference space
   typename OFHelperType::ImageBaseType::Pointer ref_space;
   bool use_ref_space_for_moving = force_resample_to_fixed_space;
@@ -569,92 +562,105 @@ void GreedyApproach<VDim, TReal>
     use_ref_space_for_moving = true;
     }
 
-  for(unsigned int i = 0; i < param.inputs.size(); i++)
+  // Repeat for each input set
+  for(const GreedyInputGroup &is : param.input_groups)
     {
-    // Read fixed and moving images
-    CompositeImagePointer imgFix = ReadImageViaCache<CompositeImageType>(param.inputs[i].fixed);
-    CompositeImagePointer imgMov = ReadImageViaCache<CompositeImageType>(param.inputs[i].moving);
+    // Read the input images and stick them into an image array
+    if(is.inputs.size() == 0)
+      throw GreedyException("No image inputs have been specified");
 
-    // Check if the reference space has already been defined
-    if(!ref_space)
+    // Start an input group
+    ofhelper.NewInputGroup();
+
+    // If the parameters include a sequence of transforms, apply it first
+    VectorImagePointer moving_pre_warp;
+
+    for(unsigned int i = 0; i < is.inputs.size(); i++)
       {
-      // Reference space may involve padding the first input image
-      if(param.reference_space_padding.size())
-        {
-        // Check the padding size
-        itk::Size<VDim> pad_size;
-        if(param.reference_space_padding.size() != VDim)
-          throw GreedyException("Incorrect parameter to -mm-pad, should have %d elements", VDim);
-        for(unsigned int d = 0; d < VDim; d++)
-          pad_size[d] = param.reference_space_padding[d];
+      // Read fixed and moving images
+      CompositeImagePointer imgFix = ReadImageViaCache<CompositeImageType>(is.inputs[i].fixed);
+      CompositeImagePointer imgMov = ReadImageViaCache<CompositeImageType>(is.inputs[i].moving);
 
-        // Apply the padding to the fixed image
-        ImagePointer imgRef = LDDMMType::new_img(imgFix);
-        typedef itk::ConstantPadImageFilter<ImageType, ImageType> PadFilter;
-        typename PadFilter::Pointer pad = PadFilter::New();
-        pad->SetInput(imgRef);
-        pad->SetPadBound(pad_size);
-        pad->Update();
-        ref_space = pad->GetOutput();
-        use_ref_space_for_moving = true;
-        }
-      else
+      // Check if the reference space has already been defined
+      if(!ref_space)
         {
-        ref_space = imgFix;
+        // Reference space may involve padding the first input image
+        if(param.reference_space_padding.size())
+          {
+          // Check the padding size
+          itk::Size<VDim> pad_size;
+          if(param.reference_space_padding.size() != VDim)
+            throw GreedyException("Incorrect parameter to -mm-pad, should have %d elements", VDim);
+          for(unsigned int d = 0; d < VDim; d++)
+            pad_size[d] = param.reference_space_padding[d];
+
+          // Apply the padding to the fixed image
+          ImagePointer imgRef = LDDMMType::new_img(imgFix);
+          typedef itk::ConstantPadImageFilter<ImageType, ImageType> PadFilter;
+          typename PadFilter::Pointer pad = PadFilter::New();
+          pad->SetInput(imgRef);
+          pad->SetPadBound(pad_size);
+          pad->Update();
+          ref_space = pad->GetOutput();
+          use_ref_space_for_moving = true;
+          }
+        else
+          {
+          ref_space = imgFix;
+          }
         }
+
+      // Once we know the reference space, we can read the moving image pre-transforms
+      if(is.moving_pre_transforms.size())
+        {
+        ReadTransformChain(is.moving_pre_transforms, ref_space, moving_pre_warp);
+        }
+
+      // Use NaN as the outside value if we want to create a moving mask
+      TReal fill_value = param.background;
+
+      // If the reference space does not match the fixed image space, reslice the fixed image
+      // to the reference space
+      imgFix = ResampleImageToReferenceSpaceIfNeeded(imgFix, ref_space, nullptr, fill_value);
+
+      // The moving image gets resampled to reference space if the reference space is specified or
+      // if a moving pre-warp is specified.
+      if(moving_pre_warp || use_ref_space_for_moving)
+        imgMov = ResampleImageToReferenceSpaceIfNeeded(imgMov, ref_space, moving_pre_warp, fill_value);
+
+      // Add to the helper object
+      ofhelper.AddImagePair(imgFix, imgMov, is.inputs[i].weight);
       }
 
-    // Once we know the reference space, we can read the moving image pre-transforms
-    if(param.moving_pre_transforms.size())
+    if(param.fixed_mask_trim_radius.size() == VDim)
       {
-      ReadTransformChain(param.moving_pre_transforms, ref_space, moving_pre_warp);
+      if(is.fixed_mask.size())
+        throw GreedyException("Cannot specify both gradient mask and gradient mask trim radius");
+
+      ofhelper.SetGradientMaskTrimRadius(param.fixed_mask_trim_radius);
       }
 
-    // Use NaN as the outside value if we want to create a moving mask
-    TReal fill_value = param.background;
+    // Read the moving-space mask
+    if(is.moving_mask.size())
+      {
+      ImagePointer imgMovMask = ReadImageViaCache<ImageType>(is.moving_mask);
+      if(moving_pre_warp || use_ref_space_for_moving)
+        imgMovMask = ResampleMaskToReferenceSpaceIfNeeded(imgMovMask, ref_space, moving_pre_warp);
+      ofhelper.SetMovingMask(imgMovMask);
+      }
 
-    // If the reference space does not match the fixed image space, reslice the fixed image
-    // to the reference space
-    imgFix = ResampleImageToReferenceSpaceIfNeeded(imgFix, ref_space, nullptr, fill_value);
-
-    // The moving image gets resampled to reference space if the reference space is specified or
-    // if a moving pre-warp is specified.
-    if(moving_pre_warp || use_ref_space_for_moving)
-      imgMov = ResampleImageToReferenceSpaceIfNeeded(imgMov, ref_space, moving_pre_warp, fill_value);
-
-    // Add to the helper object
-    ofhelper.AddImagePair(imgFix, imgMov, param.inputs[i].weight);
-    }
-
-  if(param.fixed_mask_trim_radius.size() == VDim)
-    {
-    if(param.fixed_mask.size())
-      throw GreedyException("Cannot specify both gradient mask and gradient mask trim radius");
-
-    ofhelper.SetGradientMaskTrimRadius(param.fixed_mask_trim_radius);
-    }
-
-  // Read the moving-space mask
-  if(param.moving_mask.size())
-    {
-    ImagePointer imgMovMask = ReadImageViaCache<ImageType>(param.moving_mask);
-    if(moving_pre_warp || use_ref_space_for_moving)
-      imgMovMask = ResampleMaskToReferenceSpaceIfNeeded(imgMovMask, ref_space, moving_pre_warp);
-    ofhelper.SetMovingMask(imgMovMask);
-    }
-
-  // Set the fixed mask (distinct from gradient mask)
-  if(param.fixed_mask.size())
-    {
-    ImagePointer imgFixMask = ReadImageViaCache<ImageType>(param.fixed_mask);
-    imgFixMask = ResampleMaskToReferenceSpaceIfNeeded(imgFixMask, ref_space, nullptr);
-    ofhelper.SetFixedMask(imgFixMask);
+    // Set the fixed mask (distinct from gradient mask)
+    if(is.fixed_mask.size())
+      {
+      ImagePointer imgFixMask = ReadImageViaCache<ImageType>(is.fixed_mask);
+      imgFixMask = ResampleMaskToReferenceSpaceIfNeeded(imgFixMask, ref_space, nullptr);
+      ofhelper.SetFixedMask(imgFixMask);
+      }
     }
 
   // Generate the optimized composite images. For the NCC metric, we add random noise to
   // the composite images, specified in units of the interquartile intensity range.
-  bool ncc_metric = param.metric == GreedyParameters::NCC
-                    || param.metric == GreedyParameters::WNCC;
+  bool ncc_metric = param.metric == GreedyParameters::NCC || param.metric == GreedyParameters::WNCC;
 
   // Additive noise - needed for ncc metric over constant regions, although not sure how much
   double noise = ncc_metric ? param.ncc_noise_factor : 0.0;
@@ -673,14 +679,21 @@ void GreedyApproach<VDim, TReal>
   // Save the image pyramid
   if(param.flag_dump_pyramid)
     {
-    for(unsigned int i = 0; i < ofhelper.GetNumberOfLevels(); i++)
+    for(unsigned int g = 0; g < ofhelper.GetNumberOfInputGroups(); g++)
       {
-      WriteImageViaCache(ofhelper.GetFixedComposite(i), GetDumpFile(param, "dump_pyramid_fixed_%02d.nii.gz", i));
-      WriteImageViaCache(ofhelper.GetMovingComposite(i), GetDumpFile(param, "dump_pyramid_moving_%02d.nii.gz", i));
-      if(ofhelper.GetFixedMask(i))
-        WriteImageViaCache(ofhelper.GetFixedMask(i), GetDumpFile(param, "dump_pyramid_fixed_mask_%02d.nii.gz", i));
-      if(ofhelper.GetMovingMask(i))
-        WriteImageViaCache(ofhelper.GetMovingMask(i), GetDumpFile(param, "dump_pyramid_moving_mask_%02d.nii.gz", i));
+      for(unsigned int i = 0; i < ofhelper.GetNumberOfLevels(); i++)
+        {
+        WriteImageViaCache(ofhelper.GetFixedComposite(g, i),
+                           GetDumpFile(param, "dump_pyramid_group_%02d_fixed_%02d.nii.gz", g, i));
+        WriteImageViaCache(ofhelper.GetMovingComposite(g, i),
+                           GetDumpFile(param, "dump_pyramid_group_%02d_moving_%02d.nii.gz", g, i));
+        if(ofhelper.GetFixedMask(g, i))
+          WriteImageViaCache(ofhelper.GetFixedMask(g, i),
+                             GetDumpFile(param, "dump_pyramid_group_%02d_fixed_mask_%02d.nii.gz", g, i));
+        if(ofhelper.GetMovingMask(g, i))
+          WriteImageViaCache(ofhelper.GetMovingMask(g, i),
+                             GetDumpFile(param, "dump_pyramid_group_%02d_moving_mask_%02d.nii.gz", g, i));
+        }
       }
     }
 }
@@ -690,7 +703,7 @@ template <unsigned int VDim, typename TReal>
 vnl_matrix<double>
 GreedyApproach<VDim, TReal>
 ::MapAffineToPhysicalRASSpace(
-    OFHelperType &of_helper, int level,
+    OFHelperType &of_helper, unsigned int group, unsigned int level,
     LinearTransformType *tran)
 {
   // Map the transform to NIFTI units
@@ -698,7 +711,7 @@ GreedyApproach<VDim, TReal>
   vnl_vector<double> s_fix, s_mov, p, b;
 
   GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetReferenceSpace(level), T_fix, s_fix);
-  GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetMovingReferenceSpace(level), T_mov, s_mov);
+  GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetMovingReferenceSpace(group, level), T_mov, s_mov);
 
   itk_matrix_to_vnl_matrix(tran->GetMatrix(), A);
   itk_vector_to_vnl_vector(tran->GetOffset(), b);
@@ -722,7 +735,7 @@ template <unsigned int VDim, typename TReal>
 void
 GreedyApproach<VDim, TReal>
 ::MapPhysicalRASSpaceToAffine(
-    OFHelperType &of_helper, int level,
+    OFHelperType &of_helper, unsigned int group, unsigned int level,
     vnl_matrix<double> &Qp,
     LinearTransformType *tran)
 {
@@ -731,7 +744,7 @@ GreedyApproach<VDim, TReal>
   vnl_vector<double> s_fix, s_mov, p(VDim), b;
 
   GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetReferenceSpace(level), T_fix, s_fix);
-  GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetMovingReferenceSpace(level), T_mov, s_mov);
+  GetVoxelSpaceToNiftiSpaceTransform(of_helper.GetMovingReferenceSpace(group, level), T_mov, s_mov);
 
   for(unsigned int i = 0; i < VDim; i++)
     {
@@ -841,25 +854,38 @@ GreedyApproach<VDim, TReal>
   typedef RigidCostFunction<VDim, TReal> RigidCostFunction;
   typedef ScalingCostFunction<VDim, TReal> ScalingCostFunction;
   typedef PhysicalSpaceAffineCostFunction<VDim, TReal> PhysicalSpaceAffineCostFunction;
+  typedef MaskWeightedSumAffineConstFunction<VDim, TReal> CompositeCostFunction;
 
-  // Define the affine cost function
-  if(param.affine_dof == GreedyParameters::DOF_RIGID)
+  // Create a list of individual cost functions, on for each input group
+  std::vector<AbstractAffineCostFunction *> components;
+  for(unsigned int g = 0; g < of_helper.GetNumberOfInputGroups(); g++)
     {
-    RigidCostFunction *rigid_acf = new RigidCostFunction(&param, this, level, &of_helper);
-    return new ScalingCostFunction(
-            rigid_acf,
-            rigid_acf->GetOptimalParameterScaling(
-              of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()));
+    // Define the affine cost function
+    if(param.affine_dof == GreedyParameters::DOF_RIGID)
+      {
+      RigidCostFunction *rigid_acf =
+          new RigidCostFunction(&param, this, g, level, &of_helper);
+      components.push_back(
+            new ScalingCostFunction(
+              rigid_acf,
+              rigid_acf->GetOptimalParameterScaling(
+                of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize())));
+      }
+    else
+      {
+      //  PureAffineCostFunction *affine_acf = new PureAffineCostFunction(&param, level, &of_helper);
+      PhysicalSpaceAffineCostFunction *affine_acf =
+          new PhysicalSpaceAffineCostFunction(&param, this, g, level, &of_helper);
+      components.push_back(
+            new ScalingCostFunction(
+              affine_acf,
+              affine_acf->GetOptimalParameterScaling(
+                of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize())));
+      }
     }
-  else
-    {
-    //  PureAffineCostFunction *affine_acf = new PureAffineCostFunction(&param, level, &of_helper);
-    PhysicalSpaceAffineCostFunction *affine_acf = new PhysicalSpaceAffineCostFunction(&param, this, level, &of_helper);
-    return new ScalingCostFunction(
-            affine_acf,
-            affine_acf->GetOptimalParameterScaling(
-              of_helper.GetReferenceSpace(level)->GetBufferedRegion().GetSize()));
-    }
+
+  // Create a function that incorporates them all
+  return new CompositeCostFunction(components);
 }
 
 template <unsigned int VDim, typename TReal>
@@ -873,6 +899,7 @@ GreedyApproach<VDim, TReal>
   typedef RigidCostFunction<VDim, TReal> RigidCostFunction;
   typedef ScalingCostFunction<VDim, TReal> ScalingCostFunction;
   typedef PhysicalSpaceAffineCostFunction<VDim, TReal> PhysicalSpaceAffineCostFunction;
+  typedef MaskWeightedSumAffineConstFunction<VDim, TReal> GroupAffineCostFunction;
 
   // Get the coefficients corresponding to the identity transform in voxel space
   tLevel->SetIdentity();
@@ -885,7 +912,8 @@ GreedyApproach<VDim, TReal>
     vnl_matrix<double> Qp = this->ReadAffineMatrixViaCache(param.affine_init_transform);
 
     // Map this to voxel space
-    MapPhysicalRASSpaceToAffine(of_helper, 0, Qp, tLevel);
+    // TODO: this does not make any sense, really... Should change all affine ops to work in physical space
+    MapPhysicalRASSpaceToAffine(of_helper, 0, 0, Qp, tLevel);
     }
   else if(param.affine_init_mode == RAS_IDENTITY)
     {
@@ -893,7 +921,8 @@ GreedyApproach<VDim, TReal>
     vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
 
     // Map this to voxel space
-    MapPhysicalRASSpaceToAffine(of_helper, 0, Qp, tLevel);
+    // TODO: this does not make any sense, really... Should change all affine ops to work in physical space
+    MapPhysicalRASSpaceToAffine(of_helper, 0, 0, Qp, tLevel);
     }
   else if(param.affine_init_mode == IMG_CENTERS)
     {
@@ -901,7 +930,7 @@ GreedyApproach<VDim, TReal>
     // voxel of the moving image
     vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
     vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(0));
-    vnl_vector<double> cmov = GetImageCenterinNiftiSpace(of_helper.GetMovingReferenceSpace(0));
+    vnl_vector<double> cmov = GetImageCenterinNiftiSpace(of_helper.GetMovingReferenceSpace(0, 0));
 
     // TODO: I think that setting the matrix above to affine will break the registration
     // if fixed and moving are in different orientations? Or am I crazy?
@@ -911,7 +940,8 @@ GreedyApproach<VDim, TReal>
       Qp(d, VDim) = cmov[d] - cfix[d];
 
     // Map this to voxel space
-    MapPhysicalRASSpaceToAffine(of_helper, 0, Qp, tLevel);
+    // TODO: this does not make any sense, really... Should change all affine ops to work in physical space
+    MapPhysicalRASSpaceToAffine(of_helper, 0, 0, Qp, tLevel);
     }
 
   // Get the new coefficients
@@ -938,13 +968,19 @@ GreedyApproach<VDim, TReal>
     // For rigid search, we must search in physical space, rather than in voxel space.
     // This is the affine transformation in physical space that corresponds to whatever
     // the current initialization is.
-    vnl_matrix<double> Qp = MapAffineToPhysicalRASSpace(of_helper, 0, tLevel);
+    // TODO: this does not make any sense, really... Should change all affine ops to work in physical space
+    vnl_matrix<double> Qp = MapAffineToPhysicalRASSpace(of_helper, 0, 0, tLevel);
 
     // Get the center of the fixed image in physical coordinates
     vnl_vector<double> cfix = GetImageCenterinNiftiSpace(of_helper.GetReferenceSpace(0));
 
-    // Create a pure rigid acf
-    RigidCostFunction search_fun(&param, this, 0, &of_helper);
+    // Create a pure rigid acf for each group
+    std::vector<AbstractAffineCostFunction *> group_search_fn_list;
+    for(unsigned int g = 0; g < of_helper.GetNumberOfInputGroups(); g++)
+      group_search_fn_list.push_back(new RigidCostFunction(&param, this, g, 0, &of_helper));
+
+    // Create a group acf that integrates over all groups
+    GroupAffineCostFunction search_fun(group_search_fn_list);
 
     // Report the initial best
     double fBest = 0.0;
@@ -1001,7 +1037,9 @@ GreedyApproach<VDim, TReal>
 
       // Convert this physical space transformation into a voxel-space transform
       typename LinearTransformType::Pointer tSearchTry = LinearTransformType::New();
-      MapPhysicalRASSpaceToAffine(of_helper, 0, Qp_search, tSearchTry);
+
+      // TODO: this conversion to voxel space is all wrong
+      MapPhysicalRASSpaceToAffine(of_helper, 0, 0, Qp_search, tSearchTry);
 
       // Evaluate the metric for this point
       vnl_vector<double> xTry = search_fun.GetCoefficients(tSearchTry);
@@ -1035,7 +1073,8 @@ int GreedyApproach<VDim, TReal>
   acf->compute(xLevel, &f0, &xGrad);
 
   // Propagate the jitter to the transform
-  vnl_matrix<double> Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
+  // TODO: this conversion to voxel space is all wrong
+  vnl_matrix<double> Q_physical = MapAffineToPhysicalRASSpace(of_helper, 0, level, tLevel);
   std::cout << "Initial RAS Transform: " << std::endl << Q_physical  << std::endl;
 
   printf("*** Affine Derivative Check ***\n");
@@ -1193,7 +1232,8 @@ int GreedyApproach<VDim, TReal>
     else
       {
       // Update the transform from the last level
-      MapPhysicalRASSpaceToAffine(of_helper, level, Q_physical, tLevel);
+      // TODO: this does not make any sense, really... Should change all affine ops to work in physical space
+      MapPhysicalRASSpaceToAffine(of_helper, 0, level, Q_physical, tLevel);
       }
 
     // Test derivatives
@@ -1284,12 +1324,15 @@ int GreedyApproach<VDim, TReal>
         // Get the final transform
         typename LinearTransformType::Pointer tFinal = LinearTransformType::New();
         acf->GetTransform(xLevel, tFinal.GetPointer());
-        Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tFinal);
+
+        // TODO: this does not make any sense, really... Should change all affine ops to work in physical space
+        Q_physical = MapAffineToPhysicalRASSpace(of_helper, 0, level, tFinal);
         }
       else
         {
         // Use the pre-initialization transform parameters
-        Q_physical = MapAffineToPhysicalRASSpace(of_helper, level, tLevel);
+        // TODO: this does not make any sense, really... Should change all affine ops to work in physical space
+        Q_physical = MapAffineToPhysicalRASSpace(of_helper, 0, level, tLevel);
         }
 
       // End of level report
@@ -1419,44 +1462,67 @@ void GreedyApproach<VDim, TReal>
     VectorImageType *out_metric_gradient,
     double eps)
 {
-  // Switch based on the metric
-  if(param.metric == GreedyParameters::SSD)
+  // Initialize the metric and gradient to zeros
+  out_metric_image->FillBuffer(0.0);
+  out_metric_gradient->FillBuffer(typename VectorImageType::PixelType(0.0));
+
+  // Reset the metric report
+  metric_report = MultiComponentMetricReport();
+
+  // Compute the individual metrics, adding to the metric image
+  for(unsigned int g = 0; g < of_helper.GetNumberOfInputGroups(); g++)
     {
-    of_helper.ComputeOpticalFlowField(level, phi, out_metric_image, metric_report, out_metric_gradient, eps);
-    metric_report.Scale(1.0 / eps);
-    }
+    // Keep track of the metric report for this group
+    MultiComponentMetricReport group_report;
 
-  else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
-    {
-    of_helper.ComputeMIFlowField(level, param.metric == GreedyParameters::NMI, phi, out_metric_image, metric_report, out_metric_gradient, eps);
+    // Switch based on the metric
+    if(param.metric == GreedyParameters::SSD)
+      {
+      of_helper.ComputeSSDMetricAndGradient(g, level, phi, out_metric_image,
+                                            group_report, out_metric_gradient, eps);
+      group_report.Scale(1.0 / eps);
+      }
 
-    // If there is a mask, multiply the gradient by the mask
-    if(param.fixed_mask.size())
-      LDDMMType::vimg_multiply_in_place(out_metric_gradient, of_helper.GetFixedMask(level));
-    }
+    else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
+      {
+      of_helper.ComputeNMIMetricAndGradient(g, level, param.metric == GreedyParameters::NMI,
+                                            phi, out_metric_image, group_report,
+                                            out_metric_gradient, eps);
 
-  else if(param.metric == GreedyParameters::NCC)
-    {
-    itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
+      // If there is a mask, multiply the gradient by the mask
+      if(of_helper.GetFixedMask(g, level))
+        LDDMMType::vimg_multiply_in_place(out_metric_gradient, of_helper.GetFixedMask(g, level));
+      }
 
-    // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
-    of_helper.ComputeNCCMetricImage(level, phi, radius, false, out_metric_image, metric_report, out_metric_gradient, eps);
-    metric_report.Scale(1.0 / eps);
-    }
+    else if(param.metric == GreedyParameters::NCC)
+      {
+      itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
 
-  else if(param.metric == GreedyParameters::WNCC)
-    {
-    itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
+      // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
+      of_helper.ComputeNCCMetricAndGradient(g, level, phi, radius, false,
+                                            out_metric_image, group_report, out_metric_gradient, eps);
+      group_report.Scale(1.0 / eps);
+      }
 
-    // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
-    // TODO: configure weighting
-    of_helper.ComputeNCCMetricImage(level, phi, radius, true, out_metric_image, metric_report, out_metric_gradient, eps);
-    metric_report.Scale(1.0 / eps);
-    }
+    else if(param.metric == GreedyParameters::WNCC)
+      {
+      itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
 
-  else if(param.metric == GreedyParameters::MAHALANOBIS)
-    {
-    of_helper.ComputeMahalanobisMetricImage(level, phi, out_metric_image, metric_report, out_metric_gradient);
+      // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
+      // TODO: configure weighting
+      of_helper.ComputeNCCMetricAndGradient(g, level, phi, radius, true,
+                                            out_metric_image, group_report, out_metric_gradient, eps);
+      group_report.Scale(1.0 / eps);
+      }
+
+    else if(param.metric == GreedyParameters::MAHALANOBIS)
+      {
+      of_helper.ComputeMahalanobisMetricImage(g, level, phi, out_metric_image,
+                                              metric_report, out_metric_gradient);
+      }
+
+    // Append the metric report
+    metric_report.Append(group_report);
     }
 }
 
@@ -1492,7 +1558,8 @@ void GreedyApproach<VDim, TReal>
       vnl_matrix<double> Qp = ReadAffineMatrixViaCache(param.affine_init_transform);
 
       // Map this to voxel space
-      MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tran);
+      // TODO: this does not make any sense, really... Should change all affine ops to work in physical space
+      MapPhysicalRASSpaceToAffine(of_helper, 0, level, Qp, tran);
       }
     else if(param.affine_init_mode == RAS_IDENTITY)
       {
@@ -1500,7 +1567,8 @@ void GreedyApproach<VDim, TReal>
       vnl_matrix<double> Qp(VDim+1, VDim+1); Qp.set_identity();
 
       // Map this to voxel space
-      MapPhysicalRASSpaceToAffine(of_helper, level, Qp, tran);
+      // TODO: this does not make any sense, really... Should change all affine ops to work in physical space
+      MapPhysicalRASSpaceToAffine(of_helper, 0, level, Qp, tran);
       }
 
     // Create an initial warp
@@ -1611,11 +1679,12 @@ int GreedyApproach<VDim, TReal>
 
       if(param.flag_stationary_velocity_mode && param.flag_incompressibility_mode)
         {
-        if(param.fixed_mask.size())
+        if(of_helper.GetFixedMask(0, level))
           {
+          // TODO: not sure that just using the fixed mask is right for this
           std::cout << "Setting up incompressibility mask" << std::endl;
-          incompressibility_mask = LDDMMType::new_img(of_helper.GetFixedMask(level));
-          LDDMMType::img_copy(of_helper.GetFixedMask(level), incompressibility_mask);
+          incompressibility_mask = LDDMMType::new_img(of_helper.GetFixedMask(0, level));
+          LDDMMType::img_copy(of_helper.GetFixedMask(0, level), incompressibility_mask);
           LDDMMType::img_threshold_in_place(incompressibility_mask, 0.9, 1.0, 1.0, 0.0);
           }
 
@@ -1847,7 +1916,7 @@ int GreedyApproach<VDim, TReal>
 
   // The transformation field is in voxel units. To work with ANTS, it must be mapped
   // into physical offset units - just scaled by the spacing?
-  ImageBaseType *warp_ref_space = of_helper.GetMovingReferenceSpace(nlevels - 1);
+  ImageBaseType *warp_ref_space = of_helper.GetReferenceSpace(nlevels - 1);
 
   if(param.flag_stationary_velocity_mode)
     {
@@ -1871,8 +1940,10 @@ int GreedyApproach<VDim, TReal>
     // Compute the inverse (this is probably unnecessary for small warps)
     if(param.inverse_warp.size())
       {
-      of_helper.ComputeDeformationFieldInverse(uLevel, uLevelWork, 0);
-      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevelWork, param.inverse_warp.c_str(), param.warp_precision);
+      // Exponentiate the negative velocity field
+      LDDMMType::vimg_exp(uLevel, uLevelExp, uLevelWork, param.warp_exponent, -1.0);
+      // of_helper.ComputeDeformationFieldInverse(uLevel, uLevelWork, 0);
+      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevelExp, param.inverse_warp.c_str(), param.warp_precision);
       }
     }
   else
@@ -2055,7 +2126,9 @@ int GreedyApproach<VDim, TReal>
 
     // Perform interpolation and metric computation
     MultiComponentMetricReport metric_report;
-    of_helper.ComputeNCCMetricImage(0, u_curr, metric_rad, false, m_curr, metric_report);
+    m_curr->FillBuffer(0.0);
+    for(unsigned int g = 0; g < of_helper.GetNumberOfInputGroups(); g++)
+      of_helper.ComputeNCCMetricAndGradient(g, 0, u_curr, metric_rad, false, m_curr, metric_report);
 
     // Temp: keep track of number of updates
     unsigned long n_updates = 0;
@@ -2110,11 +2183,11 @@ void GreedyApproach<VDim, TReal>
     // Determine if it's an affine transform
     if(CheckCache<VectorImageType>(tran) || itk::ImageIOFactory::CreateImageIO(tran.c_str(), itk::IOFileModeEnum::ReadMode))
       {
-      // Create a temporary warp
-      VectorImagePointer warp_tmp = LDDMMType::new_vimg(ref_space);
-
       // Read the next warp
       VectorImagePointer warp_i = ReadImageViaCache<VectorImageType>(tran);
+
+      // Create a temporary warp
+      VectorImagePointer warp_tmp = LDDMMType::new_vimg(ref_space);
 
       // If there is an exponent on the transform spec, handle it
       if(tran_chain[i].exponent != 1)
@@ -2129,10 +2202,11 @@ void GreedyApproach<VDim, TReal>
 
         // Bring the transform into voxel space
         VectorImagePointer warp_exp = LDDMMType::new_vimg(warp_i);
+        VectorImagePointer warp_exp_tmp = LDDMMType::new_vimg(warp_i);
         OFHelperType::PhysicalWarpToVoxelWarp(warp_i, warp_i, warp_i);
 
         // Square the transform N times (in its own space)
-        LDDMMType::vimg_exp(warp_i, warp_exp, warp_tmp, n, tran_chain[i].exponent / absexp);
+        LDDMMType::vimg_exp(warp_i, warp_exp, warp_exp_tmp, n, tran_chain[i].exponent / absexp);
 
         // Bring the transform back into physical space
         OFHelperType::VoxelWarpToPhysicalWarp(warp_exp, warp_i, warp_i);
@@ -2680,7 +2754,7 @@ int GreedyApproach<VDim, TReal>
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
 ::ComputeImageMoments(CompositeImageType *image,
-                      const std::vector<double> &weights,
+                      const vnl_vector<float> &weights,
                       VecFx &m1, MatFx &m2)
 {
   int n = image->GetNumberOfComponentsPerPixel();
@@ -2729,6 +2803,10 @@ int GreedyApproach<VDim, TReal>
   // Read the image pairs to register
   ReadImages(param, of_helper, false);
 
+  // We do not support multiple groups for now
+  if(of_helper.GetNumberOfInputGroups() != 1)
+    throw GreedyException("Multiple input groups not supported in matching by moments");
+
   // Compute the moments of intertia for the fixed and moving images. For now
   // this is done in an iterator loop, out of laziness. Should be converted to
   // a filter if this whole moments business proves useful
@@ -2738,12 +2816,12 @@ int GreedyApproach<VDim, TReal>
 
   std::cout << "--- MATCHING BY MOMENTS OF ORDER " << param.moments_order << " ---" << std::endl;
 
-  ComputeImageMoments(of_helper.GetFixedComposite(0), of_helper.GetWeights(), m1f, m2f);
+  ComputeImageMoments(of_helper.GetFixedComposite(0,0), of_helper.GetWeights(0), m1f, m2f);
 
   std::cout << "Fixed Mean        : " << m1f << std::endl;
   std::cout << "Fixed Covariance  : " << std::endl << m2f << std::endl;
 
-  ComputeImageMoments(of_helper.GetMovingComposite(0), of_helper.GetWeights(), m1m, m2m);
+  ComputeImageMoments(of_helper.GetMovingComposite(0,0), of_helper.GetWeights(0), m1m, m2m);
 
   std::cout << "Moving Mean       : " << m1m << std::endl;
   std::cout << "Moving Covariance : " << std::endl << m2m << std::endl;
@@ -2762,7 +2840,7 @@ int GreedyApproach<VDim, TReal>
   vnl_symmetric_eigensystem_compute<TReal>(m2m.as_matrix(), Vm, Dm);
 
   // Create a rigid registration problem
-  PhysicalSpaceAffineCostFunction cost_fn(&param, this, 0, &of_helper);
+  PhysicalSpaceAffineCostFunction cost_fn(&param, this, 0, 0, &of_helper);
 
   // The best set of coefficients and the associated match value
   vnl_vector<double> xBest;
@@ -2820,7 +2898,7 @@ int GreedyApproach<VDim, TReal>
   // Save the best transform
   typename LinearTransformType::Pointer tran = LinearTransformType::New();
   cost_fn.GetTransform(xBest, tran);
-  vnl_matrix<double> Q_physical = MapAffineToPhysicalRASSpace(of_helper, 0, tran);
+  vnl_matrix<double> Q_physical = MapAffineToPhysicalRASSpace(of_helper, 0, 0, tran);
   this->WriteAffineMatrixViaCache(param.output, Q_physical);
 
   return 0;

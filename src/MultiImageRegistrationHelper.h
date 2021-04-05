@@ -75,14 +75,21 @@ public:
    */
   void SetScaleFixedImageWithVoxelSize(bool onoff) { m_ScaleFixedImageWithVoxelSize = onoff; }
 
+  /**
+   * Start a new image group - an group is a set of fixed/moving multicomponent images that
+   * share the same fixed and moving masks. Normally all input images will be placed in just
+   * one group, but there are times where you want to group components based on different masks
+   */
+  void NewInputGroup();
+
   /** Add a pair of multi-component images to the class - same weight for each component */
   void AddImagePair(MultiComponentImageType *fixed, MultiComponentImageType *moving, double weight);
 
   /** Set the fixed image mask. It will just be used to set NaNs in the fixed image. */
-  void SetFixedMask(FloatImageType *maskImage) { m_FixedMaskImage = maskImage; }
+  void SetFixedMask(FloatImageType *maskImage);
 
   /** Set the moving image mask */
-  void SetMovingMask(FloatImageType *maskImage) { m_MovingMaskImage = maskImage; }
+  void SetMovingMask(FloatImageType *maskImage);
 
   /** Set jitter sigma - for jittering image samples in affine mode */
   void SetJitterSigma(double sigma);
@@ -111,84 +118,94 @@ public:
   /** Get number of pyramid levels */
   unsigned int GetNumberOfLevels() const { return m_PyramidFactors.size(); }
 
-  /** Get the reference image for level k */
-  ImageBaseType *GetReferenceSpace(int level);
+  /** Get number of input groups */
+  unsigned int GetNumberOfInputGroups() const { return m_InputGroups.size(); }
 
   /** Get the reference image for level k */
-  ImageBaseType *GetMovingReferenceSpace(int level);
+  ImageBaseType *GetReferenceSpace(unsigned int level);
 
-  /** Get the moving mask at a pyramid level */
-  FloatImageType *GetFixedMask(int level) { return m_FixedPyramid.mask_pyramid[level]; }
+  /** Get the reference image for level k */
+  ImageBaseType *GetMovingReferenceSpace(unsigned int group, unsigned int level);
 
-  /** Get the moving mask at a pyramid level */
-  FloatImageType *GetMovingMask(int level) { return m_MovingPyramid.mask_pyramid[level]; }
+  /** Get the fixed mask in given group at given pyramid level */
+  FloatImageType *GetFixedMask(unsigned int group, unsigned int level)
+    { return m_InputGroups[group].m_FixedPyramid.mask_pyramid[level]; }
 
-  /** Get the fixed image at a pyramid level */
-  MultiComponentImageType *GetFixedComposite(int level) { return m_FixedPyramid.image_pyramid[level]; }
+  /** Get the moving mask in given group at given pyramid level */
+  FloatImageType *GetMovingMask(unsigned int group, unsigned int level)
+    { return m_InputGroups[group].m_MovingPyramid.mask_pyramid[level]; }
 
-  /** Get the moving image at a pyramid level */
-  MultiComponentImageType *GetMovingComposite(int level) { return m_MovingPyramid.image_pyramid[level]; }
+  /** Get the fixed image in given group at given pyramid level */
+  MultiComponentImageType *GetFixedComposite(unsigned int group, unsigned int level)
+    { return m_InputGroups[group].m_FixedPyramid.image_pyramid[level]; }
+
+  /** Get the moving image in given group at given pyramid level */
+  MultiComponentImageType *GetMovingComposite(unsigned int group, unsigned int level)
+    { return m_InputGroups[group].m_MovingPyramid.image_pyramid[level]; }
 
   /** Get the smoothing factor for given level based on parameters */
   Vec GetSmoothingSigmasInPhysicalUnits(int level, double sigma, bool in_physical_units);
 
-  /** Get the component weights in the composite */
-  const std::vector<double> &GetWeights() const { return m_Weights; }
+  /** Get the component weights in a group */
+  vnl_vector<float> GetWeights(unsigned int group, double scaling = 1.0);
 
   /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
-  void ComputeOpticalFlowField(
-      int level, VectorImageType *def, FloatImageType *out_metric_image,
+  void ComputeSSDMetricAndGradient(
+      unsigned int group, unsigned int level,
+      VectorImageType *def, FloatImageType *out_metric_image,
       MultiComponentMetricReport &out_metric_report,
       VectorImageType *out_gradient, double result_scaling = 1.0);
 
   /** Perform interpolation - compute mutual information metric */
-  void ComputeMIFlowField(
-      int level, bool normalized_mutual_information,
+  void ComputeNMIMetricAndGradient(
+      unsigned int group, unsigned int level,
+      bool normalized_mutual_information,
       VectorImageType *def, FloatImageType *out_metric_image,
       MultiComponentMetricReport &out_metric_report,
       VectorImageType *out_gradient, double result_scaling = 1.0);
 
   /** Compute the NCC metric without gradient */
-  void ComputeNCCMetricImage(int level, VectorImageType *def, const SizeType &radius, bool weighted,
-                             FloatImageType *out_metric_image, MultiComponentMetricReport &out_metric_report,
-                             VectorImageType *out_gradient = NULL, double result_scaling = 1.0);
+  void ComputeNCCMetricAndGradient(
+      unsigned int group, unsigned int level,
+      VectorImageType *def, const SizeType &radius, bool weighted,
+      FloatImageType *out_metric_image,
+      MultiComponentMetricReport &out_metric_report,
+      VectorImageType *out_gradient = NULL, double result_scaling = 1.0);
 
   /** Compute the Mahalanobis metric with gradient */
-  void ComputeMahalanobisMetricImage(int level, VectorImageType *def,
-                                     FloatImageType *out_metric_image, MultiComponentMetricReport &out_metric_report,
-                                     VectorImageType *out_gradient = NULL);
+  void ComputeMahalanobisMetricImage(
+      unsigned int group, unsigned int level,
+      VectorImageType *def,
+      FloatImageType *out_metric_image, MultiComponentMetricReport &out_metric_report,
+      VectorImageType *out_gradient = NULL);
 
   /** Compute affine similarity and gradient */
-  void ComputeAffineMSDMatchAndGradient(int level, LinearTransformType *tran,
-                                        FloatImageType *wrkMetric,
-                                        FloatImageType *wrkMask,
-                                        VectorImageType *wrkGradMetric,
-                                        VectorImageType *wrkGradMask,
-                                        VectorImageType *wrkPhi,
-                                        MultiComponentMetricReport &metrics,
-                                        LinearTransformType *grad = NULL);
+  void ComputeAffineSSDMetricAndGradient(
+      unsigned int group, unsigned int level,
+      LinearTransformType *tran,
+      FloatImageType *wrkMetric,
+      MultiComponentMetricReport &metrics,
+      LinearTransformType *grad_metric = NULL,
+      LinearTransformType *grad_mask = NULL);
 
+  void ComputeAffineNMIMetricAndGradient(
+      unsigned int group, unsigned int level,
+      bool normalized_mutual_info,
+      LinearTransformType *tran,
+      FloatImageType *wrkMetric,
+      MultiComponentMetricReport &metrics,
+      LinearTransformType *grad_metric = NULL,
+      LinearTransformType *grad_mask = NULL);
 
-  void ComputeAffineMIMatchAndGradient(int level, bool normalized_mutual_info,
-                                       LinearTransformType *tran,
-                                       FloatImageType *wrkMetric,
-                                       FloatImageType *wrkMask,
-                                       VectorImageType *wrkGradMetric,
-                                       VectorImageType *wrkGradMask,
-                                       VectorImageType *wrkPhi,
-                                       MultiComponentMetricReport &metrics,
-                                       LinearTransformType *grad = NULL);
-
-  void ComputeAffineNCCMatchAndGradient(int level, LinearTransformType *tran,
-                                        const SizeType &radius,
-                                        bool weighted,
-                                        FloatImageType *wrkMetric,
-                                        FloatImageType *wrkMask,
-                                        VectorImageType *wrkGradMetric,
-                                        VectorImageType *wrkGradMask,
-                                        VectorImageType *wrkPhi,
-                                        MultiComponentMetricReport &metrics,
-                                        LinearTransformType *grad = NULL);
+  void ComputeAffineNCCMetricAndGradient(
+      unsigned int group, unsigned int level,
+      LinearTransformType *tran,
+      const SizeType &radius,
+      bool weighted,
+      FloatImageType *wrkMetric,
+      MultiComponentMetricReport &metrics,
+      LinearTransformType *grad_metric = NULL,
+      LinearTransformType *grad_mask = NULL);
 
   static void AffineToField(LinearTransformType *tran, VectorImageType *def);
 
@@ -202,11 +219,11 @@ public:
    * Write a warp to a file. The warp must be in voxel space, not physical space 
    * this is the static version of this method
    */
-  static void WriteCompressedWarpInPhysicalSpace(
-    VectorImageType *warp, ImageBaseType *moving_ref_space, const char *filename, double precision);
+  // static void WriteCompressedWarpInPhysicalSpace(
+  //  VectorImageType *warp, ImageBaseType *moving_ref_space, const char *filename, double precision);
 
   /** Write a warp to a file. The warp must be in voxel space, not physical space */
-  void WriteCompressedWarpInPhysicalSpace(int level, VectorImageType *warp, const char *filename, double precision);
+  // void WriteCompressedWarpInPhysicalSpace(int level, VectorImageType *warp, const char *filename, double precision);
 
   /**
    * Invert a deformation field by first dividing it into small transformations using the
@@ -247,9 +264,6 @@ protected:
   // Pyramid factors
   PyramidFactorsType m_PyramidFactors;
 
-  // Weights
-  std::vector<double> m_Weights;
-
   // Vector of images
   typedef std::vector<typename MultiComponentImageType::Pointer> MultiCompImageSet;
   typedef std::vector<typename FloatImageType::Pointer> FloatImageSet;
@@ -276,20 +290,37 @@ protected:
     bool have_nans = false;
   };
 
-  // Fixed and moving images
-  MultiCompImageSet m_Fixed, m_Moving;
+  // Fixed and moving images intensity mapped into histogram binned
+  typedef itk::VectorImage<unsigned char, VDim> BinnedImageType;
 
-  // Composite image at each resolution level
-  ImagePyramid m_FixedPyramid, m_MovingPyramid;
+  // A structure representing a set of multicomponent fixed/moving images that
+  // share the same fixed and moving masks. Typically there will only be one of
+  // these image sets at a time, but sometimes you need to perform registration
+  // with different inputs having different masks. In this case, you would split
+  // the input into these groups.
+  struct InputGroup
+  {
+    // Fixed and moving images (deallocated when pyramid is formed)
+    MultiCompImageSet m_Fixed, m_Moving;
 
-  // Working memory image for NCC computation
-  typename MultiComponentImageType::Pointer m_NCCWorkingImage;
+    // Fixed and moving masks (deallocated when pyramid is formed)
+    typename FloatImageType::Pointer m_FixedMaskImage, m_MovingMaskImage;
 
-  // Moving mask image - used to reduce region where metric is computed
-  typename FloatImageType::Pointer m_MovingMaskImage;
+    // Pyramid of images/masks at different resolution levels
+    ImagePyramid m_FixedPyramid, m_MovingPyramid;
 
-  // Fixed mask image - used to reduce region where metric is computed
-  typename FloatImageType::Pointer m_FixedMaskImage;
+    // Weights for the components
+    std::vector<double> m_Weights;
+
+    // Working memory image for NCC computation
+    typename MultiComponentImageType::Pointer m_NCCWorkingImage;
+
+    // Binned images for mutual information
+    typename BinnedImageType::Pointer m_FixedBinnedImage, m_MovingBinnedImage;
+  };
+
+  // Array of image assemblies
+  std::vector<InputGroup> m_InputGroups;
 
   // Amount of jitter - for affine only
   double m_JitterSigma;
@@ -313,11 +344,7 @@ protected:
   SizeType AdjustNCCRadius(int level, const SizeType &radius, bool report_on_adjust);
 
   // Precompute histograms for MI/NMI
-  void ComputeHistogramsIfNeeded(int level);
-
-  // Fixed and moving images intensity mapped into histogram binned
-  typedef itk::VectorImage<unsigned char, VDim> BinnedImageType;
-  typename BinnedImageType::Pointer m_FixedBinnedImage, m_MovingBinnedImage;
+  void ComputeHistogramsIfNeeded(unsigned int group, unsigned int level);
 
   // Whether the fixed images should be scaled down by the pyramid factors
   // when subsampling. This is needed for the Mahalanobis distance metric, but not for

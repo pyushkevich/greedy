@@ -56,6 +56,8 @@ public:
   using Superclass   = itk::InPlaceImageFilter<TCompositeImage, TCompositeImage>;
   using Pointer      = itk::SmartPointer<Self>;
   using ConstPointer = itk::SmartPointer<const Self>;
+  using DataObjectPointer = typename itk::ProcessObject::DataObjectPointer;
+  using DataObjectIdentifierType = typename itk::ProcessObject::DataObjectIdentifierType;
 
   /** Run-time type information (and related methods) */
   itkTypeMacro( CompositeImageNanMaskingFilter, InPlaceImageFilter )
@@ -79,7 +81,7 @@ public:
   itkNamedOutputMacro(OutputMaskImage, MaskImageType, "mask")
 
   /** Since this filter has multiple outputs, it must reimplement MakeOutput() */
-  typename itk::DataObject::Pointer MakeOutput(const typename Superclass::DataObjectIdentifierType &) override;
+  DataObjectPointer MakeOutput(const DataObjectIdentifierType &) override;
 
   /** Graft outputs onto inputs */
   void AllocateOutputs() override;

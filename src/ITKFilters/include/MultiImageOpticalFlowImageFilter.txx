@@ -177,9 +177,9 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
         } // check fixed mask
 
       // Last thing - update the output voxels
-      *iter.GetOutputLine() = metric;
+      *iter.GetOutputLine() += metric;
       if(grad_line)
-        grad_line[iter.GetLinePos()] = grad_metric;
+        grad_line[iter.GetLinePos()] += grad_metric;
       }
     }
 

@@ -40,9 +40,9 @@ CompositeImageNanMaskingFilter<TCompositeImage, TMaskImage>
 }
 
 template <class TCompositeImage, class TMaskImage>
-typename itk::DataObject::Pointer
+typename CompositeImageNanMaskingFilter<TCompositeImage, TMaskImage>::DataObjectPointer
 CompositeImageNanMaskingFilter<TCompositeImage, TMaskImage>
-::MakeOutput(const typename Superclass::DataObjectIdentifierType &key)
+::MakeOutput(const DataObjectIdentifierType &key)
 {
   if(key == "Primary")
     return (InputImageType::New()).GetPointer();
@@ -74,39 +74,39 @@ CompositeImageNanMaskingFilter<TCompositeImage, TMaskImage>
   // Create an iterator that runs over lines in the input image
   typedef itk::ImageLinearIteratorWithIndex<InputImageType> IterBase;
   typedef IteratorExtender<IterBase> Iter;
-  int nc = image->GetNumberOfComponentsPerPixel();
-  int line_len = outputRegionForThread.GetSize()[0];
+  unsigned int nc = image->GetNumberOfComponentsPerPixel();
+  unsigned int line_len = outputRegionForThread.GetSize()[0];
   for(Iter it(image, outputRegionForThread); !it.IsAtEnd(); it.NextLine())
     {
     // Get the pointer to the beginning of the pixel line
-    typename InputImageType::InternalPixelType *p =
-        const_cast<typename InputImageType::InternalPixelType *>(it.GetPosition());
+    typename InputImageType::InternalPixelType *p = it.GetPixelPointer(image);
     typename InputImageType::InternalPixelType *p_end = p + nc * line_len;
     typename InputImageType::InternalPixelType *p_mask = it.GetPixelPointer(mask);
 
     // Go over pixels in this line
     for(; p < p_end; p+=nc, p_mask++)
       {
-      // Check the current pixel for nans, but only if mask is non-zero
-      if(*p_mask > 0)
+      // If mask is already zero, just zero out the intensities
+      bool clear_intensities = false;
+      if(*p_mask == 0.0)
         {
-        bool pixel_has_nan = false;
+        clear_intensities = true;
+        }
+      else
+        {
         for(unsigned int j = 0; j < nc; j++)
           {
           if(std::isnan(p[j]))
             {
-            pixel_has_nan = true;
+            clear_intensities = true;
+            *p_mask = 0.0;
             break;
             }
           }
-
-        // Update the mask value
-        if(pixel_has_nan)
-          *p_mask = 0;
         }
 
-      // If mask is zero, set the components to zero as well
-      if(*p_mask == 0)
+      // Clear intensities if needed
+      if(clear_intensities)
         for(unsigned int j = 0; j < nc; j++)
           p[j] = 0;
       }

@@ -62,8 +62,15 @@ public:
   AbstractAffineCostFunction(int n_unknowns) : vnl_cost_function(n_unknowns) {}
   virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran) = 0;
   virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) = 0;
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) = 0;  
+  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
   virtual ImageType *GetMetricImage() = 0;
+
+  // This is the full compute method, which returns both the average metric over the
+  // masked region and the mask size, allowing multiple registrations to be combined
+  // in a way that is weighted by the mask
+  virtual void ComputeWithMask(vnl_vector<double> const& x,
+                               double *f_metric, vnl_vector<double>* g_metric,
+                               double *f_mask, vnl_vector<double>* g_mask) = 0;
 };
 
 class LineSearchMemory
@@ -99,7 +106,9 @@ public:
   typedef typename Superclass::VectorImagePointer VectorImagePointer;
 
   // Construct the function
-  PureAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
+  PureAffineCostFunction(GreedyParameters *param, ParentType *parent,
+                         unsigned int group, unsigned int level,
+                         OFHelperType *helper);
 
   // Get the parameters for the specified initial transform
   vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
@@ -110,8 +119,10 @@ public:
   // Get the preferred scaling for this function given image dimensions
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
 
-  // Cost function computation
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) override;
+  // Compute cost function and gradient, along with the mask volume and gradient
+  virtual void ComputeWithMask(vnl_vector<double> const& x,
+                               double *f_metric, vnl_vector<double>* g_metric,
+                               double *f_mask, vnl_vector<double>* g_mask) override;
 
   // Get the metric image
   virtual ImageType *GetMetricImage() override { return m_Metric; }
@@ -123,11 +134,10 @@ protected:
   OFHelperType *m_OFHelper;
   GreedyApproach<VDim, TReal> *m_Parent;
   bool m_Allocated;
-  int m_Level;
+  unsigned int m_Group, m_Level;
 
   // Storage for the gradient of the similarity map
-  VectorImagePointer m_Phi, m_GradMetric, m_GradMask;
-  ImagePointer m_Metric, m_Mask;
+  ImagePointer m_Metric;
 
   // Last set of coefficients evaluated
   vnl_vector<double> last_coeff;
@@ -154,11 +164,17 @@ public:
   typedef typename Superclass::VectorImageType VectorImageType;
   typedef typename Superclass::VectorImagePointer VectorImagePointer;
 
-  PhysicalSpaceAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
+  PhysicalSpaceAffineCostFunction(GreedyParameters *param, ParentType *parent,
+                                  unsigned int group, unsigned int level,
+                                  OFHelperType *helper);
   virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
   virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) override;
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
+
+  // Compute cost function and gradient, along with the mask volume and gradient
+  virtual void ComputeWithMask(vnl_vector<double> const& x,
+                               double *f_metric, vnl_vector<double>* g_metric,
+                               double *f_mask, vnl_vector<double>* g_mask) override;
 
   void map_phys_to_vox(const vnl_vector<double> &x_phys, vnl_vector<double> &x_vox);
 
@@ -212,7 +228,9 @@ public:
   void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
 
   // Cost function computation
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) override;
+  virtual void ComputeWithMask(vnl_vector<double> const& x,
+                               double *f_metric, vnl_vector<double>* g_metric,
+                               double *f_mask, vnl_vector<double>* g_mask) override;
 
   const vnl_vector<double> &GetScaling() { return m_Scaling; }
 
@@ -225,6 +243,47 @@ protected:
   // the need for the caller to clean up the pure function
   Superclass *m_PureFunction;
   vnl_vector<double> m_Scaling;
+};
+
+/** A function that integrates affine metric across multiple image groups */
+template <unsigned int VDim, typename TReal = double>
+class MaskWeightedSumAffineConstFunction : public AbstractAffineCostFunction<VDim, TReal>
+{
+public:
+  typedef AbstractAffineCostFunction<VDim, TReal> Superclass;
+  typedef typename Superclass::ParentType ParentType;
+  typedef typename Superclass::OFHelperType OFHelperType;
+  typedef typename Superclass::LinearTransformType LinearTransformType;
+
+  typedef typename Superclass::ImageType ImageType;
+  typedef typename Superclass::ImagePointer ImagePointer;
+  typedef typename Superclass::VectorImageType VectorImageType;
+  typedef typename Superclass::VectorImagePointer VectorImagePointer;
+
+  /** Create a function, giving it ownership of an array of component functions */
+  MaskWeightedSumAffineConstFunction(std::vector<Superclass *> components)
+    : Superclass(components.front()->get_number_of_unknowns()),
+      m_Components(components) {}
+
+  ~MaskWeightedSumAffineConstFunction();
+
+  virtual void ComputeWithMask(vnl_vector<double> const& x,
+                               double *f_metric, vnl_vector<double>* g_metric,
+                               double *f_mask, vnl_vector<double>* g_mask) override;
+
+  virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran) override
+    { return m_Components.front()->GetCoefficients(tran); }
+
+  virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override
+    { return m_Components.front()->GetTransform(coeff, tran); }
+
+  // TODO: this is incorrect, but why do we need MetricImage?
+  virtual ImageType *GetMetricImage() override
+    { return m_Components.front()->GetMetricImage(); }
+
+private:
+  // Component functions
+  std::vector<Superclass *> m_Components;
 };
 
 /** Cost function for rigid registration */
@@ -246,10 +305,13 @@ public:
   typedef vnl_vector_fixed<double, VDim> Vec;
   typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
 
-  RigidCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
+  RigidCostFunction(GreedyParameters *param, ParentType *parent,
+                    unsigned int group, unsigned int level, OFHelperType *helper);
   vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
   void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) override;
+  virtual void ComputeWithMask(vnl_vector<double> const& x,
+                               double *f_metric, vnl_vector<double>* g_metric,
+                               double *f_mask, vnl_vector<double>* g_mask) override;
 
   // Get the preferred scaling for this function given image dimensions
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
@@ -296,10 +358,13 @@ public:
   typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
 
 
-  RigidCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper);
+  RigidCostFunction(GreedyParameters *param, ParentType *parent,
+                    unsigned int group, unsigned int level, OFHelperType *helper);
   vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
   void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
-  virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g) override;
+  virtual void ComputeWithMask(vnl_vector<double> const& x,
+                               double *f_metric, vnl_vector<double>* g_metric,
+                               double *f_mask, vnl_vector<double>* g_mask) override;
 
   // Get the preferred scaling for this function given image dimensions
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);

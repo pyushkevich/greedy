@@ -244,9 +244,9 @@ int RunPhantomTest(CommandLineHelper &cl)
   std::string fn_mov = GetFileName("phantom%02d_moving.nii.gz", phantom_moving_idx);
   std::string fn_mask = GetFileName("phantom01_mask.nii.gz");
 
-  gp.inputs.push_back(ImagePairSpec(fn_fix, fn_mov));
+  gp.input_groups.back().inputs.push_back(ImagePairSpec(fn_fix, fn_mov));
   if(use_mask)
-    gp.fixed_mask = fn_mask;
+    gp.input_groups.back().fixed_mask = fn_mask;
 
   gp.affine_dof = dof == 6 ? GreedyParameters::DOF_RIGID : (
                                dof == 7 ? GreedyParameters::DOF_SIMILARITY :
@@ -484,7 +484,7 @@ int BasicWeightedNCCGradientTest(bool weighted)
   ref->SetRegions(region);
 
   // Set metric radius
-  itk::Size<2> radius({{2,0}});
+  itk::Size<2> radius = {{2,0}};
 
   // Load test data
   LDDMMType::CompositeImagePointer fix = LDDMMType::new_cimg(ref.GetPointer(), 1);
@@ -561,7 +561,7 @@ int BasicWeightedNCCGradientTest(bool weighted)
   double *expected_Gradient = weighted ? expected_Gradient_wgt : expected_Gradient_unw;
   for(unsigned int i = 0; i < 50; i++)
     {
-    itk::Index<2> pos({{i,0}});
+    itk::Index<2> pos = {{i,0}};
     if(fabs(nccmap->GetPixel(pos) - expected_NCC[i]) > test_eps)
       {
       std::cerr << "NCC mismatch: expected " <<
@@ -645,7 +645,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
       typename LDDMMType::CompositeImageType, double, VDim,
       typename LDDMMType::ImageType> InterpType;
 
-  InterpType interp(of_helper.GetMovingComposite(0));
+  InterpType interp(of_helper.GetMovingComposite(0, 0));
 
   // Choose a set of locations to evaluate the metric
   unsigned int n_samples = 20;
@@ -681,7 +681,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
         s.pos[k] = rnd.lrand32(0, refspace->GetBufferedRegion().GetSize(k)-1);
 
       // Check the fixed mask
-      s.fixed_mask_value = of_helper.GetFixedMask(0) ? of_helper.GetFixedMask(0)->GetPixel(s.pos) : 1.0;
+      s.fixed_mask_value = of_helper.GetFixedMask(0, 0) ? of_helper.GetFixedMask(0, 0)->GetPixel(s.pos) : 1.0;
 
       // Look up phi at this location
       typename GreedyAPI::VectorImageType::PixelType s_phi = phi->GetPixel(s.pos);
@@ -689,7 +689,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
       for(unsigned int k = 0; k < VDim; k++)
         cix[k] = s.pos[k] + s_phi[k];
 
-      s.fixed_value = of_helper.GetFixedComposite(0)->GetPixel(s.pos)[0];
+      s.fixed_value = of_helper.GetFixedComposite(0, 0)->GetPixel(s.pos)[0];
 
       double *p_grad_wm = s.grad_WM.data_block();
       s.status = interp.InterpolateWithGradient(cix.data_block(), &s.moving_value, &p_grad_wm);

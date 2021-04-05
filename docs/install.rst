@@ -10,8 +10,8 @@ Building from source code is the best way to obtain the latest version of Greedy
 Prerequisites
 =============
 
-1. `ITK`_ 4.12.2 or later 
-2. `CMake`_ 3.9 or later (and basic familiarity with this tool)
+1. `ITK`_ 5.1.2 or later
+2. `CMake`_ 3.16 or later (and basic familiarity with this tool)
 3. `Git`_ (and basic familiarity with this tool)
 
 Building Greedy
@@ -52,7 +52,9 @@ You should now find the executable ``greedy`` created in the ``build`` directory
 Using Pre-compiled Binaries
 ***************************
 
-As of late 2018, greedy is part of `ITK-SNAP`_ software. Simply download ITK-SNAP 3.8 or later for your platform and run ``Help->Install Command-Line Tools`` from the ITK-SNAP main menu.
+* Nightly builds of greedy are regularly updated at https://sourceforge.net/projects/greedy-reg/files/
+
+* As of late 2018, greedy is part of `ITK-SNAP`_ software. Simply download ITK-SNAP 3.8 or later for your platform and run ``Help->Install Command-Line Tools`` from the ITK-SNAP main menu.
 
 
 .. _ITK: http://itk.org/

@@ -12,7 +12,7 @@ struct MultiComponentMetricReport
   /**
    * Average per-pixel metric added across all components
    */
-  double TotalPerPixelMetric;
+  double TotalPerPixelMetric = 0.0;
 
   /**
    * Average per-pixel metric for all components
@@ -22,12 +22,26 @@ struct MultiComponentMetricReport
   /**
    * Size of mask over which the metric is integrated and normalized
    */
-  double MaskVolume;
+  double MaskVolume = 0.0;
 
   void Scale(double scale_factor)
   {
     TotalPerPixelMetric *= scale_factor;
     ComponentPerPixelMetrics *= scale_factor;
+  }
+
+  void Append(MultiComponentMetricReport &other)
+  {
+    // Add the scalars
+    TotalPerPixelMetric += other.TotalPerPixelMetric;
+    MaskVolume += other.MaskVolume;
+
+    // Merge the component vectors
+    vnl_vector<double> merged(ComponentPerPixelMetrics.size() +
+                              other.ComponentPerPixelMetrics.size());
+    merged.update(ComponentPerPixelMetrics, 0);
+    merged.update(other.ComponentPerPixelMetrics, ComponentPerPixelMetrics.size());
+    ComponentPerPixelMetrics = merged;
   }
 };
 

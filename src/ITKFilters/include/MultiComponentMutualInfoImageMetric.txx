@@ -360,15 +360,16 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
         GradientPixelType *grad_line = iter_g.GetOffsetInPixels() + grad_buffer;
 
         // Iterate over the pixels in the line
+        GradientPixelType grad_x;
         for(; !iter_g.IsAtEndOfLine(); ++iter_g, grad_line++)
           {
           if(iter_g.CheckFixedMask())
             {
-            // Reference to the gradient pointer
-            GradientPixelType &grad_x = *grad_line;
-
             // Get the current histogram corners
             iter_g.PartialVolumeHistogramGradientSample(m_GradWeights, grad_x.GetDataPointer());
+
+            // Accumulate in the gradient output
+            *grad_line += grad_x;
             }
           }
         }
@@ -377,8 +378,6 @@ MultiComponentMutualInfoImageMetric<TMetricTraits>
     else if(this->m_ComputeGradient && this->m_ComputeAffine)
       {
       GradientPixelType grad_x;
-
-      int nvox = this->GetInput()->GetBufferedRegion().GetNumberOfPixels();
 
       // Keep track of our thread's gradient contribution
       vnl_vector<double> grad_local(Superclass::ThreadAccumulatedData::GradientSize, 0.);

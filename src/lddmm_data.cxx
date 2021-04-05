@@ -1633,7 +1633,7 @@ LDDMMData<TFloat, VDim>
 template<class TFloat, uint VDim>
 unsigned int
 LDDMMData<TFloat, VDim>
-::cimg_nancount(const LDDMMData::CompositeImageType *img)
+::cimg_nancount(const CompositeImageType *img)
 {
   // Create a fake region to partition the entire data chunk
   unsigned int npix = img->GetPixelContainer()->Size();
