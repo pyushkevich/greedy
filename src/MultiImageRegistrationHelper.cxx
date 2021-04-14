@@ -45,6 +45,7 @@
 #include "GreedyException.h"
 #include "WarpFunctors.h"
 #include "CompositeImageNanMaskingFilter.h"
+#include "MultiComponentQuantileBasedNormalizationFilter.h"
 
 
 template <class TFloat, unsigned int VDim>
@@ -225,11 +226,13 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   if(noise_sigma_rel > 0)
     {
     // Use the quantile filter
-    typedef MutualInformationPreprocessingFilter<MultiComponentImageType, MultiComponentImageType> QuantileFilter;
+    typedef MultiComponentQuantileBasedNormalizationFilter<
+        MultiComponentImageType, MultiComponentImageType> QuantileFilter;
     typename QuantileFilter::Pointer fltQuantile = QuantileFilter::New();
     fltQuantile->SetLowerQuantile(0.01);
     fltQuantile->SetUpperQuantile(0.99);
     fltQuantile->SetInput(pyramid.image_full);
+    fltQuantile->SetNoRemapping(true);
     fltQuantile->Update();
 
     // Get the noise sigmas and nan count
@@ -448,7 +451,8 @@ void
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeHistogramsIfNeeded(unsigned int group, unsigned int level)
 {
-  typedef MutualInformationPreprocessingFilter<MultiComponentImageType, BinnedImageType> BinnerType;
+  typedef MultiComponentQuantileBasedNormalizationFilter<
+      MultiComponentImageType, BinnedImageType> BinnerType;
   InputGroup &grp = m_InputGroups[group];
 
   if(grp.m_FixedBinnedImage.IsNull()
@@ -457,20 +461,22 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     {
     typename BinnerType::Pointer fixed_binner = BinnerType::New();
     fixed_binner->SetInput(grp.m_FixedPyramid.image_pyramid[level]);
-    fixed_binner->SetBins(128);
     fixed_binner->SetLowerQuantile(0.01);
     fixed_binner->SetUpperQuantile(0.99);
-    fixed_binner->SetStartAtBinOne(true);
+    fixed_binner->SetLowerQuantileOutputValue(1);
+    fixed_binner->SetUpperQuantileOutputValue(127);
+    fixed_binner->SetLowerOutOfRangeOutputValue(0);
     fixed_binner->Update();
     grp.m_FixedBinnedImage = fixed_binner->GetOutput();
 
     typename BinnerType::Pointer moving_binner = BinnerType::New();
     moving_binner = BinnerType::New();
     moving_binner->SetInput(grp.m_MovingPyramid.image_pyramid[level]);
-    moving_binner->SetBins(128);
     moving_binner->SetLowerQuantile(0.01);
     moving_binner->SetUpperQuantile(0.99);
-    moving_binner->SetStartAtBinOne(true);
+    fixed_binner->SetLowerQuantileOutputValue(1);
+    fixed_binner->SetUpperQuantileOutputValue(127);
+    fixed_binner->SetLowerOutOfRangeOutputValue(0);
     moving_binner->Update();
     grp.m_MovingBinnedImage = moving_binner->GetOutput();
     }

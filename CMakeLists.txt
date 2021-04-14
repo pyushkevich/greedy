@@ -57,6 +57,12 @@ OPTION(GREEDY_USE_SPARSE_SOLVERS "Build registration tools that use sparse solve
 FIND_PACKAGE(ITK 5.1.2 REQUIRED)
 INCLUDE(${ITK_USE_FILE})
 
+# VTK - required for quality mesh transformations
+FIND_PACKAGE(VTK 6.3.0 REQUIRED)
+INCLUDE(${VTK_USE_FILE})
+SET(GREEDY_VTK_LIBRARIES
+  vtkCommonCore vtkIOCore vtkIOGeometry vtkIOLegacy vtkIOPLY)
+
 # Deal with FFTW - only used by experimental LDDMM code
 IF(GREEDY_USE_FFTW)
   SET(ITK_USE_FFTWF ON)
@@ -152,6 +158,7 @@ SET(HEADERS
   src/AffineCostFunctions.h
   src/AffineTransformUtilities.h
   src/GreedyAPI.h
+  src/GreedyMeshIO.h
   src/GreedyException.h
   src/GreedyParameters.h
   src/MultiImageRegistrationHelper.h
@@ -163,6 +170,7 @@ SET(GREEDY_LIB_SRC
   src/lddmm_data.cxx
   src/lddmm_sparse.cxx
   src/GreedyAPI.cxx
+  src/GreedyMeshIO.cxx
   src/GreedyParameters.cxx
   src/MultiImageRegistrationHelper.cxx
   src/AffineCostFunctions.cxx
@@ -180,46 +188,55 @@ SET(STACK_GREEDY_SRC
   src/dijkstra/ShortestPath.cxx
   src/greedy_stack_reg.cxx)
 
+SET(TEMPLATE_AVG_SRC
+  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
+  src/template_make_average.cxx)
+
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
 TARGET_INCLUDE_DIRECTORIES(greedyapi PUBLIC ${GREEDY_INCLUDE_DIRS})
 
+# Variable referencing greedyapi and libs it depends on
+SET(GREEDY_API_LIBS greedyapi
+  ${ITK_LIBRARIES} ${GREEDY_VTK_LIBRARIES}
+  ${FFTWF_LIB} ${FFTWF_THREADS_LIB}
+  ${SPARSE_LIBRARY})
+
 # List of installable targets
-SET(GREEDY_INSTALL_TARGETS greedy)
+SET(GREEDY_INSTALL_TARGETS greedy greedy_template_average)
 
 # The executables are only compiled when the software is built as its own project
 IF(BUILD_CLI)
   IF(GREEDY_BUILD_LDDMM)
     ADD_EXECUTABLE(lddmm ${LDDMM_SRC})
     SET(GREEDY_INSTALL_TARGETS ${GREEDY_INSTALL_TARGETS} lddmm)
-    TARGET_LINK_LIBRARIES(lddmm greedyapi
-      ${ITK_LIBRARIES} ${FFTWF_LIB} ${SPARSE_LIBRARY}
-      ${FFTWF_THREADS_LIB})
+    TARGET_LINK_LIBRARIES(lddmm ${GREEDY_API_LIBS})
   ENDIF()
 
   IF(GREEDY_BUILD_MACF)
     ADD_EXECUTABLE(macf ${MACF_SRC})
     SET(GREEDY_INSTALL_TARGETS ${GREEDY_INSTALL_TARGETS} macf)
-    TARGET_LINK_LIBRARIES(macf greedyapi ${ITK_LIBRARIES})
+    TARGET_LINK_LIBRARIES(macf ${GREEDY_API_LIBS})
   ENDIF()
 
   IF(GREEDY_BUILD_STACK_REG)
     ADD_EXECUTABLE(stack_greedy ${STACK_GREEDY_SRC})
     SET(GREEDY_INSTALL_TARGETS ${GREEDY_INSTALL_TARGETS} stack_greedy)
     INCLUDE_DIRECTORIES(${GREEDY_SOURCE_DIR}/src/dijkstra)
-    TARGET_LINK_LIBRARIES(stack_greedy greedyapi 
-      ${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB} ${SPARSE_LIBRARY})
+    TARGET_LINK_LIBRARIES(stack_greedy ${GREEDY_API_LIBS})
     ADD_DEPENDENCIES(stack_greedy docs_to_hex)
   ENDIF()
 
   ADD_EXECUTABLE(greedy ${GREEDY_SRC})
-  TARGET_LINK_LIBRARIES(greedy greedyapi 
-    ${ITK_LIBRARIES} ${FFTWF_LIB} ${FFTWF_THREADS_LIB} ${SPARSE_LIBRARY})
+  TARGET_LINK_LIBRARIES(greedy ${GREEDY_API_LIBS} ${FFTWF_LIB} ${FFTWF_THREADS_LIB} ${SPARSE_LIBRARY})
+
+  ADD_EXECUTABLE(greedy_template_average ${TEMPLATE_AVG_SRC})
+  TARGET_LINK_LIBRARIES(greedy_template_average ${GREEDY_API_LIBS})
 
   ADD_EXECUTABLE(test_accum testing/src/TestOneDimensionalInPlaceAccumulateFilter.cxx)
   TARGET_LINK_LIBRARIES(test_accum ${ITK_LIBRARIES})
 
   ADD_EXECUTABLE(test_greedy testing/src/GreedyTestDriver.cxx)
-  TARGET_LINK_LIBRARIES(test_greedy greedyapi ${ITK_LIBRARIES})
+  TARGET_LINK_LIBRARIES(test_greedy ${GREEDY_API_LIBS})
 ENDIF(BUILD_CLI)
 
 # Install command-line executables

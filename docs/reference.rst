@@ -142,6 +142,14 @@ The five more common modes are described in greter detail below.
 
 Deformable registration mode
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The deformable registration mode is the default mode in greedy. If you don't specify any mode setting switches, this mode will be used. Here are some general notes on deformable registration:
+
+* In deformable registration mode, the fixed and moving images, specified with the ``-i`` command, are matched by computing a spatial transformation (warp) that deforms the moving image into the fixed image. This warp is defined in the space of the fixed image. Specifically, the warp describes the displacement at each position in the fixed image at which the corresponding position in the moving image is found. The warp is saved as a multi-component image with the ``-o`` command, and you can also save the inverse warp (``-owarp``). 
+
+* In deformable registration mode, the fixed and moving images are assumped to occupy the same space. In fact, the moving image is automatically resampled to the fixed image space. You can specify a spatial transformation between the fixed image space and the moving image space with the ``-it`` command. Sometimes it is useful to perform registration is a space that is different from the fixed image space (e.g., a larger space). This can be done by supplying the reference space ``-ref`` or defining the reference space by padding the fixed image ``-ref-pad``. 
+
+* 
+
 
 
 General Options

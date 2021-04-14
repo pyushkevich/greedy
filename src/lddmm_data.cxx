@@ -1967,6 +1967,61 @@ LDDMMData<TFloat, VDim>
 }
 
 template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_add_in_place(CompositeImageType *trg, CompositeImageType *a)
+{
+  // The regions of the two images must be the same
+  struct AddFunctor {
+    static TFloat apply (TFloat a, TFloat b) { return a+b; }
+  };
+
+  cimg_apply_binary_functor_in_place<AddFunctor>(trg, a);
+}
+
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_scale_in_place(CompositeImageType *trg, TFloat scale)
+{
+  // Create a fake region to partition the entire data chunk
+  unsigned int npix = trg->GetPixelContainer()->Size();
+  itk::ImageRegion<1> full_region({{0}}, {{npix}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [trg, scale](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *pt = trg->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *pt_end = pt + thread_region.GetSize(0);
+    for(; pt < pt_end; ++pt)
+      *pt *= scale;
+    }, nullptr);
+}
+
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_threshold_in_place(CompositeImageType *trg, double lt, double up, double fore, double back)
+{
+  // Create a fake region to partition the entire data chunk
+  unsigned int npix = trg->GetPixelContainer()->Size();
+  itk::ImageRegion<1> full_region({{0}}, {{npix}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [trg, lt, up, fore, back](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *pt = trg->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *pt_end = pt + thread_region.GetSize(0);
+    for(; pt < pt_end; ++pt)
+      *pt = (*pt >= lt && *pt <= up) ? fore : back;
+    }, nullptr);
+}
+
+template<class TFloat, uint VDim>
 void LDDMMData<TFloat, VDim>
 ::cimg_add_gaussian_noise_in_place(
     CompositeImageType *img, const std::vector<double> &sigma, unsigned long stride)
@@ -2363,7 +2418,6 @@ LDDMMData<TFloat, VDim>
   return img;
 }
 
-
 template<class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::CompositeImagePointer
 LDDMMData<TFloat, VDim>
@@ -2376,6 +2430,94 @@ LDDMMData<TFloat, VDim>
   img->SetPixelContainer(src->GetPixelContainer());
   return img;
 }
+
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_extract_component(CompositeImageType *src, ImageType *trg, unsigned int c)
+{
+  itkAssertOrThrowMacro(
+        trg->GetBufferedRegion() == src->GetBufferedRegion(),
+        "Source and target image regions are different in cimg_extract_component");
+
+  // Create a fake region to partition the entire data chunk
+  unsigned int nc = src->GetNumberOfComponentsPerPixel();
+  unsigned int np = src->GetBufferedRegion().GetNumberOfPixels();
+  itk::ImageRegion<1> full_region({{0}}, {{np}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [src,trg, nc, c](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *p = src->GetBufferPointer() + nc * thread_region.GetIndex(0) + c;
+    TFloat *m = trg->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *m_end = m + thread_region.GetSize(0);
+    for(; m < m_end; ++m, p+=nc)
+      *m = *p;
+    }, nullptr);
+
+  trg->Modified();
+}
+
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_update_component(CompositeImageType *cimg, ImageType *comp, unsigned int c)
+{
+  itkAssertOrThrowMacro(
+        cimg->GetBufferedRegion() == comp->GetBufferedRegion(),
+        "Source and target image regions are different in cimg_extract_component");
+
+  // Create a fake region to partition the entire data chunk
+  unsigned int nc = cimg->GetNumberOfComponentsPerPixel();
+  unsigned int np = cimg->GetBufferedRegion().GetNumberOfPixels();
+  itk::ImageRegion<1> full_region({{0}}, {{np}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [cimg,comp, nc, c](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *p = cimg->GetBufferPointer() + nc * thread_region.GetIndex(0) + c;
+    TFloat *m = comp->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *m_end = m + thread_region.GetSize(0);
+    for(; m < m_end; ++m, p+=nc)
+      *p = *m;
+    }, nullptr);
+
+  cimg->Modified();
+}
+
+
+
+template<class TFloat, uint VDim>
+template<class TFunctor>
+void
+LDDMMData<TFloat, VDim>
+::cimg_apply_binary_functor_in_place(CompositeImageType *trg, CompositeImageType *a)
+{
+  // Regions must match
+  itkAssertOrThrowMacro(trg->GetBufferedRegion() == a->GetBufferedRegion(),
+                        "Image region mismatch in binary composite image operation");
+
+  // Create a fake region to partition the entire data chunk
+  unsigned int npix = trg->GetPixelContainer()->Size();
+  itk::ImageRegion<1> full_region({{0}}, {{npix}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [trg, a](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *pt = trg->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *pa = a->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *pt_end = pt + thread_region.GetSize(0);
+    for(; pt < pt_end; ++pt, ++pa)
+      *pt = TFunctor::apply(*pt, *pa);
+    }, nullptr);
+}
+
 
 
 template class LDDMMData<float, 2>;
@@ -2394,4 +2536,5 @@ template class LDDMMFFTInterface<double, 4>;
 
 template class LDDMMImageMatchingObjective<myreal, 2>;
 template class LDDMMImageMatchingObjective<myreal, 3>;
+
 

@@ -35,6 +35,7 @@
 #include <vnl/vnl_random.h>
 #include <map>
 #include "itkCommand.h"
+#include "vtkSmartPointer.h"
 
 template <typename T, unsigned int V> class MultiImageOpticalFlowHelper;
 
@@ -42,6 +43,8 @@ namespace itk {
   template <typename T, unsigned int D1, unsigned int D2> class MatrixOffsetTransformBase;
 
 }
+
+class vtkPolyData;
 
 /**
  * This is the top level class for the greedy software. It contains methods
@@ -77,6 +80,10 @@ public:
     VectorImagePointer grad_moving;
     double weight;
   };
+
+  // Mesh data structures
+  typedef vtkSmartPointer<vtkPolyData> MeshPointer;
+  typedef std::vector<MeshPointer> MeshArray;
 
   static void ConfigThreads(const GreedyParameters &param);
 
@@ -176,6 +183,9 @@ public:
       vnl_matrix<double> &Qp,
       LinearTransformType *tran);
 
+  static void MapRASAffineToPhysicalWarp(const vnl_matrix<double> &mat,
+                                         VectorImagePointer &out_warp);
+
   void RecordMetricValue(const MultiComponentMetricReport &metric);
 
   // Helper method to print iteration reports
@@ -227,6 +237,12 @@ public:
                              AbstractAffineCostFunction<VDim, TReal> *acf,
                              LinearTransformType *tLevel, int level, double tol);
 
+  /** Apply affine transformation to a mesh */
+  static void TransformMeshAffine(vtkPolyData *mesh, vnl_matrix<double> mat);
+
+  /** Apply warp to a mesh */
+  static void TransformMeshWarp(vtkPolyData *mesh, VectorImageType *warp);
+
 protected:
 
   struct CacheEntry {
@@ -272,7 +288,8 @@ protected:
 
   void ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
                           ImageBaseType *ref_space,
-                          VectorImagePointer &out_warp);
+                          VectorImagePointer &out_warp,
+                          MeshArray *meshes = nullptr);
 
   // Compute the moments of a composite image (mean and covariance matrix of coordinate weighted by intensity)
   void ComputeImageMoments(CompositeImageType *image, const vnl_vector<float> &weights, VecFx &m1, MatFx &m2);
