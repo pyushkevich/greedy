@@ -484,7 +484,7 @@ int BasicWeightedNCCGradientTest(bool weighted)
   ref->SetRegions(region);
 
   // Set metric radius
-  itk::Size<2> radius({{2,0}});
+  itk::Size<2> radius = {{2,0}};
 
   // Load test data
   LDDMMType::CompositeImagePointer fix = LDDMMType::new_cimg(ref.GetPointer(), 1);
@@ -561,7 +561,7 @@ int BasicWeightedNCCGradientTest(bool weighted)
   double *expected_Gradient = weighted ? expected_Gradient_wgt : expected_Gradient_unw;
   for(unsigned int i = 0; i < 50; i++)
     {
-    itk::Index<2> pos({{i,0}});
+    itk::Index<2> pos = {{i,0}};
     if(fabs(nccmap->GetPixel(pos) - expected_NCC[i]) > test_eps)
       {
       std::cerr << "NCC mismatch: expected " <<

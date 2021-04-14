@@ -90,7 +90,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::SetFixedMask(MultiImageOpticalFlowHelper::FloatImageType *maskImage)
+::SetFixedMask(FloatImageType *maskImage)
 {
   m_InputGroups.back().m_FixedMaskImage = maskImage;
 }
@@ -98,7 +98,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::SetMovingMask(MultiImageOpticalFlowHelper::FloatImageType *maskImage)
+::SetMovingMask(FloatImageType *maskImage)
 {
   m_InputGroups.back().m_MovingMaskImage = maskImage;
 }
