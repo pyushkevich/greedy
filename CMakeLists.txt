@@ -58,7 +58,7 @@ FIND_PACKAGE(ITK 5.1.2 REQUIRED)
 INCLUDE(${ITK_USE_FILE})
 
 # VTK - required for quality mesh transformations
-FIND_PACKAGE(VTK 6.3.0 REQUIRED)
+FIND_PACKAGE(VTK 8.2.0 REQUIRED)
 INCLUDE(${VTK_USE_FILE})
 SET(GREEDY_VTK_LIBRARIES
   vtkCommonCore vtkIOCore vtkIOGeometry vtkIOLegacy vtkIOPLY)
