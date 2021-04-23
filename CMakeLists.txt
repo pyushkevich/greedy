@@ -280,6 +280,10 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
   ADD_TEST(NAME "grad_metric_aff_NCC_bimask"  COMMAND test_greedy grad_metric_aff 2 0.0000001 0.01 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -gm t1longi_2d_bl_mask.nii.gz -mm t1longi_2d_fu_mask.nii.gz -m NCC 2x2 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "grad_metric_aff_SSD_bimask"  COMMAND test_greedy grad_metric_aff 2 0.0000001 0.01 -i t1longi_2d_bl.nii.gz t1longi_2d_fu.nii.gz -ia t1longi_2d_rigid_halfway.mat -gm t1longi_2d_bl_mask.nii.gz -mm t1longi_2d_fu_mask.nii.gz -m SSD WORKING_DIRECTORY ${TESTING_DATADIR})
 
+  # Tests for non-zero background images
+  ADD_TEST(NAME "grad_metric_nzbkg_aff_SSD_nomask"  COMMAND test_greedy grad_metric_aff 2 0.0000001 0.01 -i circle_nzbkg_fixed.nii.gz circle_nzbkg_moving.nii.gz -ia circle_nzbkg_init.mat -bg 4 -m SSD WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "grad_metric_nzbkg_phi_SSD_nomask"  COMMAND test_greedy grad_metric_phi 2 0.0000001 0.01 -i circle_nzbkg_fixed.nii.gz circle_nzbkg_moving.nii.gz -ia circle_nzbkg_init.mat -bg 4 -m SSD WORKING_DIRECTORY ${TESTING_DATADIR})
+
   # Add the phantom series of tests
   ADD_TEST(NAME "Phantom_NMI_Affine_NoMask" COMMAND test_greedy phantom 1 2 NMI 12 0 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "Phantom_NCC_Affine_Mask"   COMMAND test_greedy phantom 1 3 NCC 12 1 WORKING_DIRECTORY ${TESTING_DATADIR})

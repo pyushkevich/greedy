@@ -1509,7 +1509,10 @@ void GreedyApproach<VDim, TReal>
     // Switch based on the metric
     if(param.metric == GreedyParameters::SSD)
       {
-      of_helper.ComputeSSDMetricAndGradient(g, level, phi, out_metric_image,
+      of_helper.ComputeSSDMetricAndGradient(g, level, phi,
+                                            std::isnan(param.background),
+                                            param.background,
+                                            out_metric_image,
                                             group_report, out_metric_gradient, eps);
       group_report.Scale(1.0 / eps);
       }

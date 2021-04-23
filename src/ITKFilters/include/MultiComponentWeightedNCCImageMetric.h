@@ -85,12 +85,6 @@ public:
   /** Get the radius of the cross-correlation */
   itkGetMacro(Radius, SizeType)
 
-  /** Set whether the NCC should be weighted by the fixed and moving masks */
-  itkSetMacro(Weighted, bool)
-
-  /** Get the radius of the cross-correlation */
-  itkGetMacro(Weighted, bool)
-
   /**
    * Set the working memory image for this filter. This function should be used to prevent
    * repeated allocation of memory when the metric is created/destructed in a loop. The
@@ -131,7 +125,7 @@ public:
 
 protected:
   MultiComponentWeightedNCCImageMetric()
-    : m_ReuseWorkingImageFixedComponents(false), m_Weighted(false), m_WeightScalingExponent(2)
+    : m_ReuseWorkingImageFixedComponents(false), m_WeightScalingExponent(2)
     { m_Radius.Fill(1); }
 
   ~MultiComponentWeightedNCCImageMetric() {}
@@ -165,9 +159,6 @@ private:
 
   // Are we computing gradient
   bool m_NeedGradient;
-
-  // Is the NCC weighted by the moving mask?
-  bool m_Weighted;
 
   // Common values across the functions called internally
   unsigned int m_InputComponents;

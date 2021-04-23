@@ -411,11 +411,12 @@ template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeSSDMetricAndGradient(unsigned int group, unsigned int level,
-                          VectorImageType *def,
-                          FloatImageType *out_metric_image,
-                          MultiComponentMetricReport &out_metric_report,
-                          VectorImageType *out_gradient,
-                          double result_scaling)
+                              VectorImageType *def,
+                              bool weighted, double background_value,
+                              FloatImageType *out_metric_image,
+                              MultiComponentMetricReport &out_metric_report,
+                              VectorImageType *out_gradient,
+                              double result_scaling)
 {
   typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
   typedef MultiImageOpticalFlowImageFilter<TraitsType> FilterType;
@@ -438,6 +439,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetComputeGradient(true);
   filter->GetMetricOutput()->Graft(out_metric_image);
   filter->GetDeformationGradientOutput()->Graft(out_gradient);
+  filter->SetWeighted(weighted);
+  filter->SetBackgroundValue(background_value);
   filter->Update();
 
   // Process the results
@@ -474,9 +477,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     moving_binner->SetInput(grp.m_MovingPyramid.image_pyramid[level]);
     moving_binner->SetLowerQuantile(0.01);
     moving_binner->SetUpperQuantile(0.99);
-    fixed_binner->SetLowerQuantileOutputValue(1);
-    fixed_binner->SetUpperQuantileOutputValue(127);
-    fixed_binner->SetLowerOutOfRangeOutputValue(0);
+    moving_binner->SetLowerQuantileOutputValue(1);
+    moving_binner->SetUpperQuantileOutputValue(127);
+    moving_binner->SetLowerOutOfRangeOutputValue(0);
     moving_binner->Update();
     grp.m_MovingBinnedImage = moving_binner->GetOutput();
     }
@@ -648,6 +651,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 ::ComputeAffineSSDMetricAndGradient(
     unsigned int group, unsigned int level,
     LinearTransformType *tran,
+    bool weighted, double background_value,
     FloatImageType *wrkMetric,
     MultiComponentMetricReport &out_metric,
     LinearTransformType *grad_metric,
@@ -671,6 +675,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   metric->GetMetricOutput()->Graft(wrkMetric);
   metric->SetComputeGradient(grad_metric != NULL);
   metric->SetJitterImage(m_JitterComposite[level]);
+
+  metric->SetWeighted(weighted);
+  metric->SetBackgroundValue(background_value);
+
   metric->Update();
 
   // Process the results
