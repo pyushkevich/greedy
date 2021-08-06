@@ -3053,7 +3053,7 @@ int GreedyApproach<VDim, TReal>
   OFHelperType::ComputeDeformationFieldInverse(warp, uInverse, param.warp_exponent, true);
 
   // Write the warp using compressed format
-  WriteCompressedWarpInPhysicalSpaceViaCache(uInverse, warp, param.invwarp_param.out_warp.c_str(), param.warp_precision);
+  WriteCompressedWarpInPhysicalSpaceViaCache(warp, uInverse, param.invwarp_param.out_warp.c_str(), param.warp_precision);
 
   return 0;
 }
@@ -3082,7 +3082,7 @@ int GreedyApproach<VDim, TReal>
   OFHelperType::ComputeWarpRoot(warp, warp_root, param.warp_exponent, 1e-6);
 
   // Write the warp using compressed format
-  WriteCompressedWarpInPhysicalSpaceViaCache(warp_root, warp, param.warproot_param.out_warp.c_str(), param.warp_precision);
+  WriteCompressedWarpInPhysicalSpaceViaCache(warp, warp_root, param.warproot_param.out_warp.c_str(), param.warp_precision);
 
   return 0;
 }
