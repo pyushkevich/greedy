@@ -2,6 +2,10 @@ PROJECT(GREEDY)
 
 # Required CMake version
 CMAKE_MINIMUM_REQUIRED(VERSION 3.10.2)
+if(COMMAND cmake_policy)
+  CMAKE_POLICY(SET CMP0003 NEW)
+  CMAKE_POLICY(SET CMP0077 NEW)
+endif(COMMAND cmake_policy)
 
 # C++11 required
 set (CMAKE_CXX_STANDARD 11)
