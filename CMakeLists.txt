@@ -62,7 +62,14 @@ FIND_PACKAGE(ITK 5.1.2 REQUIRED)
 INCLUDE(${ITK_USE_FILE})
 
 # VTK - required for quality mesh transformations
-FIND_PACKAGE(VTK 8.2.0 REQUIRED)
+IF(GREEDY_BUILD_AS_SUBPROJECT)
+  # Temporarily resolving build issue
+  # Will be removed when itksnap start working with vtk8
+  FIND_PACKAGE(VTK 6.3.0 REQUIRED)
+ELSE()
+  FIND_PACKAGE(VTK 8.2.0 REQUIRED)
+ENDIF()
+
 INCLUDE(${VTK_USE_FILE})
 SET(GREEDY_VTK_LIBRARIES
   vtkCommonCore vtkIOCore vtkIOGeometry vtkIOLegacy vtkIOPLY)
