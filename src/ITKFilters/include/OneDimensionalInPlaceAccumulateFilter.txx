@@ -216,7 +216,9 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
 
 // ### PY, 05/18/2016: checked again, this SSE code is not causing any differences in float/double
 //                     processing, safe to keep as is!
+#ifndef __aarch64__
 #define _NCC_SSE_
+#endif
 #ifdef _NCC_SSE_
 
 #include <xmmintrin.h>

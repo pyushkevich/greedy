@@ -35,7 +35,7 @@
 #include <vnl/vnl_random.h>
 #include <map>
 #include "itkCommand.h"
-#include "vtkSmartPointer.h"
+#include <vtkSmartPointer.h>
 
 template <typename T, unsigned int V> class MultiImageOpticalFlowHelper;
 

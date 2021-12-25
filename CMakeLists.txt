@@ -62,17 +62,8 @@ FIND_PACKAGE(ITK 5.1.2 REQUIRED)
 INCLUDE(${ITK_USE_FILE})
 
 # VTK - required for quality mesh transformations
-IF(GREEDY_BUILD_AS_SUBPROJECT)
-  # Temporarily resolving build issue
-  # Will be removed when itksnap start working with vtk8
-  FIND_PACKAGE(VTK 6.3.0 REQUIRED)
-ELSE()
-  FIND_PACKAGE(VTK 8.2.0 REQUIRED)
-ENDIF()
-
-INCLUDE(${VTK_USE_FILE})
-SET(GREEDY_VTK_LIBRARIES
-  vtkCommonCore vtkIOCore vtkIOGeometry vtkIOLegacy vtkIOPLY)
+FIND_PACKAGE(VTK 9.1.0 REQUIRED COMPONENTS CommonCore IOCore IOLegacy IOPLY IOGeometry)
+SET(GREEDY_VTK_LIBRARIES ${VTK_LIBRARIES})
 
 # Deal with FFTW - only used by experimental LDDMM code
 IF(GREEDY_USE_FFTW)
@@ -205,6 +196,15 @@ SET(TEMPLATE_AVG_SRC
 
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
 TARGET_INCLUDE_DIRECTORIES(greedyapi PUBLIC ${GREEDY_INCLUDE_DIRS})
+TARGET_LINK_LIBRARIES(greedyapi ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS greedyapi
+  MODULES ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS greedy
+  MODULES ${VTK_LIBRARIES})
 
 # Variable referencing greedyapi and libs it depends on
 SET(GREEDY_API_LIBS greedyapi
