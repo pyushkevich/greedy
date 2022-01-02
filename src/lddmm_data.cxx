@@ -1903,7 +1903,7 @@ public:
   typedef typename TImage::PixelType PixelType;
   PixelType operator() (const PixelType &x)
   {
-    return isnan(x) ? 1 : 0;
+    return std::isnan(x) ? 1 : 0;
   }
 };
 
@@ -1916,7 +1916,7 @@ public:
   typedef typename TImage::PixelType PixelType;
   PixelType operator() (const PixelType &x)
   {
-    return isnan(x) ? 0 : x;
+    return std::isnan(x) ? 0 : x;
   }
 };
 
