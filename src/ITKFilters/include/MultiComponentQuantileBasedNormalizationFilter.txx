@@ -85,7 +85,7 @@ MultiComponentQuantileBasedNormalizationFilter<TInputImage, TOutputImage>
         for(int p = 0; p < line_length; p++, line+=ncomp)
           {
           InputComponentType v = *line;
-          if(!isnan(v))
+          if(!std::isnan(v))
             {
             heap_lower_push(td_local.heap_lower, heap_size_lower, v);
             heap_upper_push(td_local.heap_upper, heap_size_upper, v);
