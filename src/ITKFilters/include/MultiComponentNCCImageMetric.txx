@@ -89,9 +89,8 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
 template <class TMetricTraits, class TOutputImage>
 void
 MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
-::ThreadedGenerateData(
-  const OutputImageRegionType& outputRegionForThread,
-  itk::ThreadIdType threadId )
+::DynamicThreadedGenerateData(
+  const OutputImageRegionType& outputRegionForThread)
 {
   typedef FastLinearInterpolator<InputImageType, RealType, ImageDimension,
       typename TMetricTraits::MaskImageType> FastInterpolator;
@@ -179,9 +178,9 @@ MultiImageNCCPrecomputeFilter<TMetricTraits,TOutputImage>
             InputComponentType x_fix = iter.GetFixedLine()[k];
 
             // Check for NaN, which indicates that the pixel should not contribute to the metric
-            if(isnan(x_mov) || isnan(x_fix))
+            if(std::isnan(x_mov) || std::isnan(x_fix))
               {
-              if(!need_affine || isnan(x_fix))
+              if(!need_affine || std::isnan(x_fix))
                 {
                 // When not doing affine, or it's the fixed image that's nan, zero out the component
                 for(int j = 0; j < n_out_comp_per_input_comp; j++)
@@ -512,10 +511,10 @@ MultiComponentNCCImageMetric<TMetricTraits>
       AccumulateNeighborhoodSumsInPlace(img_pre, m_Radius, ncomp_ignore, n_overalloc_comp);
 
 #ifdef DUMP_NCC
-  typename itk::ImageFileWriter<InputImageType>::Pointer pwriter = itk::ImageFileWriter<InputImageType>::New();
-  pwriter->SetInput(img_accum);
-  pwriter->SetFileName("nccaccum.nii.gz");
-  pwriter->Update();
+  typename itk::ImageFileWriter<InputImageType>::Pointer pwriter2 = itk::ImageFileWriter<InputImageType>::New();
+  pwriter2->SetInput(img_accum);
+  pwriter2->SetFileName("nccaccum.nii.gz");
+  pwriter2->Update();
 #endif
 
   // At this point, the working image will hold the proper neighborhood sums (I, J, I^2, J^2, IJ, etc).
@@ -527,14 +526,14 @@ MultiComponentNCCImageMetric<TMetricTraits>
 template <class TMetricTraits>
 void
 MultiComponentNCCImageMetric<TMetricTraits>
-::ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread, itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(const OutputImageRegionType &outputRegionForThread)
 {
   int nc_img = this->GetFixedImage()->GetNumberOfComponentsPerPixel();
   int nc = m_WorkingImage->GetNumberOfComponentsPerPixel();
   int line_len = outputRegionForThread.GetSize()[0];
 
-  // Our thread data
-  typename Superclass::ThreadData &td = this->m_ThreadData[threadId];
+  // Data to accumulate in our thread
+  typename Superclass::ThreadAccumulatedData td(nc_img);
 
   // Where to store the accumulated metric (gets copied to td, but should have TPixel type)
   vnl_vector<InputComponentType> comp_metric(nc_img, 0.0);
@@ -668,6 +667,9 @@ MultiComponentNCCImageMetric<TMetricTraits>
   // Typecast the per-component metrics
   for(unsigned int a = 0; a < nc_img; a++)
     td.comp_metric[a] = comp_metric[a];
+
+  // Accumulate this region's data in a thread-safe way
+  this->m_AccumulatedData.Accumulate(td);
 }
 
 

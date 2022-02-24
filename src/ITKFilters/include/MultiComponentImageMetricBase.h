@@ -175,6 +175,19 @@ public:
   /** Whether the transformation is affine */
   itkGetMacro(ComputeAffine, bool)
 
+  /** Background value, i.e., default value of lookups outside of the mask */
+  itkGetMacro(BackgroundValue, InputComponentType);
+  itkSetMacro(BackgroundValue, InputComponentType);
+
+  /**
+   * Whether the metric is weighted by the moving image mask/domain. When a metric is weighted,
+   * pixels that map outside of the moving image (or outside of the moving image mask) do not
+   * count towards the metric. In other words, the outside is treated like missing data. This is
+   * not supporeted by all the metrics
+   */
+  itkGetMacro(Weighted, bool)
+  itkSetMacro(Weighted, bool)
+
   /** Specify whether the filter should compute gradients (whether affine or deformable) */
   void SetComputeGradient(bool flag)
   {
@@ -200,6 +213,9 @@ public:
   /** Get the gradient of the affine transform */
   itkGetMacro(AffineTransformGradient, TransformType *)
 
+  /** Get the gradient of the affine transform */
+  itkGetMacro(AffineTransformMaskGradient, TransformType *)
+
   /**
    * Get the gradient scaling factor. To get the actual gradient of the metric, multiply the
    * gradient output of this filter by the scaling factor. Explanation: for efficiency, the
@@ -217,11 +233,32 @@ public:
   /** Get the metric values per component (each component weighted) */
   vnl_vector<double> GetAllMetricValues() const;
 
+  /**
+   Data accumulated across multiple threads. The mutex should be used when accessing
+   this data.
+  */
+  struct ThreadAccumulatedData {
+
+    static const unsigned int GradientSize = ImageDimension * (ImageDimension+1);
+    double metric, mask;
+    vnl_vector<double> gradient, grad_mask, comp_metric;
+    std::mutex mutex;
+
+    ThreadAccumulatedData() : metric(0.0), mask(0.0),
+      gradient(GradientSize, 0.0),
+      grad_mask(GradientSize, 0.0) {}
+
+    ThreadAccumulatedData(unsigned int ncomp) :
+      ThreadAccumulatedData() { comp_metric.set_size(ncomp); comp_metric.fill(0.0); }
+
+    void Accumulate(const ThreadAccumulatedData &other);
+  };
+
 protected:
   MultiComponentImageMetricBase();
   ~MultiComponentImageMetricBase() {}
 
-  virtual void VerifyInputInformation() ITK_OVERRIDE {}
+  virtual void VerifyInputInformation() const ITK_OVERRIDE {}
 
   /** It is difficult to compute in advance the input image region
    * required to compute the requested output region. Thus the safest
@@ -248,30 +285,23 @@ protected:
   bool m_ComputeGradient;
   bool m_ComputeAffine;
 
-  // Data accumulated for each thread
-  struct ThreadData {
-    double metric, mask;
+  // Whether the metric is weighted
+  bool m_Weighted = false;
 
-    // Component-wise metric values - for reporting
-    vnl_vector<double> comp_metric;
-
-    vnl_vector<double> gradient, grad_mask;
-    ThreadData() : metric(0.0), mask(0.0),
-      gradient(ImageDimension * (ImageDimension+1), 0.0),
-      grad_mask(ImageDimension * (ImageDimension+1), 0.0) {}
-  };
+  // The background value
+  InputComponentType m_BackgroundValue = 0;
 
   // Per-thread data
-  std::vector<ThreadData> m_ThreadData;
-
-  // Total accumulated data
-  ThreadData m_AccumulatedData;
+  ThreadAccumulatedData m_AccumulatedData;
 
   // Accumulated metric value
   double m_MetricValue, m_MaskValue;
 
   // Affine transform
-  typename TransformType::Pointer m_AffineTransform, m_AffineTransformGradient;
+  typename TransformType::Pointer m_AffineTransform;
+
+  // Gradient of the metric and mask with respect to affine parameters
+  typename TransformType::Pointer m_AffineTransformGradient, m_AffineTransformMaskGradient;
 
 private:
   MultiComponentImageMetricBase(const Self&); //purposely not implemented

@@ -27,50 +27,9 @@
 #include "GreedyParameters.h"
 #include "CommandLineHelper.h"
 
-
-void
-GreedyParameters
-::SetToDefaults(GreedyParameters &param)
+GreedyParameters::GreedyParameters()
 {
-  param.dim = 2;
-  param.mode = GreedyParameters::GREEDY;
-  param.flag_dump_moving = false;
-  param.flag_debug_deriv = false;
-  param.flag_debug_aff_obj = false;
-  param.dump_frequency = 1;
-  param.epsilon_per_level = 1.0;
-  param.sigma_pre.sigma = sqrt(3.0);
-  param.sigma_pre.physical_units = false;
-  param.sigma_post.sigma = sqrt(0.5);
-  param.sigma_post.physical_units = false;
-  param.threads = 0;
-  param.metric = GreedyParameters::SSD;
-  param.time_step_mode = GreedyParameters::SCALE;
-  param.deriv_epsilon = 1e-4;
-  param.flag_powell = false;
-  param.warp_exponent = 6;
-  param.warp_precision = 0.1;
-  param.ncc_noise_factor = 0.001;
-  param.affine_init_mode = VOX_IDENTITY;
-  param.affine_dof = GreedyParameters::DOF_AFFINE;
-  param.affine_jitter = 0.5;
-  param.flag_float_math = false;
-  param.flag_stationary_velocity_mode = false;
-  param.flag_incompressibility_mode = false;
-  param.flag_stationary_velocity_mode_use_lie_bracket = false;
-  param.background = 0.0;
-  param.current_weight = 1.0;
-
-  param.iter_per_level.push_back(100);
-  param.iter_per_level.push_back(100);
-
-  // Moments of inertia parameters
-  param.moments_flip_determinant = 0;
-  param.flag_moments_id_covariance = false;
-  param.moments_order = 1;
-  
-  // Verbosity
-  param.verbosity = VERB_DEFAULT;
+  input_groups.push_back(GreedyInputGroup());
 }
 
 bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelper &cl)
@@ -103,6 +62,11 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
       this->metric = GreedyParameters::NCC;
       this->metric_radius = cl.read_int_vector();
       }
+    else if(metric_name == "WNCC" || metric_name == "wncc")
+      {
+      this->metric = GreedyParameters::WNCC;
+      this->metric_radius = cl.read_int_vector();
+      }
     else if(metric_name == "MI" || metric_name == "mi")
       {
       this->metric = GreedyParameters::MI;
@@ -133,13 +97,17 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     this->sigma_pre.sigma = cl.read_scalar_with_units(this->sigma_pre.physical_units);
     this->sigma_post.sigma = cl.read_scalar_with_units(this->sigma_post.physical_units);
     }
+  else if(cmd == "-P")
+    {
+    this->input_groups.push_back(GreedyInputGroup());
+    }
   else if(cmd == "-i")
     {
     ImagePairSpec ip;
     ip.weight = this->current_weight;
     ip.fixed = cl.read_existing_filename();
     ip.moving = cl.read_existing_filename();
-    this->inputs.push_back(ip);
+    this->input_groups.back().inputs.push_back(ip);
     }
   else if(cmd == "-id")
     {
@@ -199,31 +167,51 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     int nFiles = cl.command_arg_count();
     for(int i = 0; i < nFiles; i++)
-      this->moving_pre_transforms.push_back(cl.read_transform_spec());
+      this->input_groups.back().moving_pre_transforms.push_back(cl.read_transform_spec());
+    }
+  else if(cmd == "-ref")
+    {
+    this->reference_space = cl.read_existing_filename();
+    }
+  else if(cmd == "-bg")
+    {
+    this->background = cl.read_double();
+    }
+  else if(cmd == "-ref-pad")
+    {
+    this->reference_space_padding = cl.read_int_vector();
     }
   else if(cmd == "-gm")
     {
-    this->gradient_mask = cl.read_existing_filename();
+    this->input_groups.back().fixed_mask = cl.read_existing_filename();
     }
   else if(cmd == "-gm-trim")
     {
-    this->gradient_mask_trim_radius = cl.read_int_vector();
+    this->fixed_mask_trim_radius = cl.read_int_vector();
     }
   else if(cmd == "-mm")
     {
-    this->moving_mask = cl.read_existing_filename();
+    this->input_groups.back().moving_mask = cl.read_existing_filename();
     }
-  else if(cmd == "-fm")
+  else if(cmd == "-ncc-mask-dilate")
     {
-    this->fixed_mask = cl.read_existing_filename();
+    this->flag_ncc_mask_dilate = true;
     }
   else if(cmd == "-o")
     {
     this->output = cl.read_output_filename();
     }
+  else if(cmd == "-dump-prefix")
+    {
+    this->dump_prefix = cl.read_string();
+    }
   else if(cmd == "-dump-moving")
     {
     this->flag_dump_moving = true;
+    }
+  else if(cmd == "-dump-pyramid")
+    {
+    this->flag_dump_pyramid = true;
     }
   else if(cmd == "-powell")
     {
@@ -391,6 +379,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->flag_moments_id_covariance = true;
     }
+  else if(cmd == "-og")
+    {
+    this->output_metric_gradient = cl.read_output_filename();
+    }
   else if(cmd == "-V")
     {
     int level = cl.read_integer();
@@ -432,21 +424,6 @@ operator << (std::ostream &oss, const std::vector<TAtomic> &v)
   return oss;
 }
 
-std::ostream&
-operator << (std::ostream &oss, const PerLevelSpec<double> &val)
-{
-  if(val.m_UseCommon)
-    oss << val.m_CommonValue;
-  else
-    {
-    for(unsigned int i = 0; i < val.m_ValueArray.size(); i++)
-      {
-      if(i > 0) oss << "x";
-      oss << val.m_ValueArray[i];
-      }
-    }
-  return oss;
-}
 
 std::ostream &
 operator << (std::ostream &oss, const SmoothingParameters &sp)
@@ -467,6 +444,39 @@ std::string GreedyParameters::GenerateCommandLine()
   // Go through options
   oss << "-d " << this->dim;
 
+  // Print the mode command
+  switch(this->mode)
+    {
+    case GreedyParameters::GREEDY:
+      break;
+    case GreedyParameters::AFFINE:
+      oss << " -a";
+      break;
+    case GreedyParameters::BRUTE:
+      oss << " -brute";
+      break;
+    case GreedyParameters::RESLICE:
+      break;
+    case GreedyParameters::INVERT_WARP:
+      oss << " -iw " << this->invwarp_param.in_warp
+          << " " << this->invwarp_param.out_warp;
+      break;
+    case GreedyParameters::ROOT_WARP:
+      oss << " -root " << this->warproot_param.in_warp
+          << " " << this->warproot_param.out_warp;
+      break;
+    case GreedyParameters::JACOBIAN_WARP:
+      oss << " -jac " << this->jacobian_param.in_warp
+          << " " << this->jacobian_param.out_det_jac;
+      break;
+    case GreedyParameters::MOMENTS:
+      oss << " -moments " << this->moments_order;
+      break;
+    case GreedyParameters::METRIC:
+      oss << " -metric";
+      break;
+    }
+
   if(this->flag_float_math)
     oss << " -float ";
 
@@ -481,19 +491,22 @@ std::string GreedyParameters::GenerateCommandLine()
     switch(this->metric)
       {
       case GreedyParameters::SSD:
-        oss << "-m SSD";
+        oss << " -m SSD";
         break;
       case GreedyParameters::NCC:
-        oss << "-m NCC " << this->metric_radius;
+        oss << " -m NCC " << this->metric_radius;
+        break;
+      case GreedyParameters::WNCC:
+        oss << " -m WNCC " << this->metric_radius;
         break;
       case GreedyParameters::MI:
-        oss << "-m MI";
+        oss << " -m MI";
         break;
       case GreedyParameters::NMI:
-        oss << "-m NMI";
+        oss << " -m NMI";
         break;
       case GreedyParameters::MAHALANOBIS:
-        oss << "-m MAHAL";
+        oss << " -m MAHAL";
         break;
       }
     }
@@ -501,9 +514,9 @@ std::string GreedyParameters::GenerateCommandLine()
   if(this->time_step_mode != def.time_step_mode)
     {
     if(this->time_step_mode == GreedyParameters::SCALE)
-      oss << "-tscale SCALE";
+      oss << " -tscale SCALE";
     else if(this->time_step_mode == GreedyParameters::SCALEDOWN)
-      oss << "-tscale SCALEDOWN";
+      oss << " -tscale SCALEDOWN";
     }
 
   if(this->ncc_noise_factor != def.ncc_noise_factor)
@@ -511,13 +524,39 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->sigma_pre != def.sigma_pre || this->sigma_post != def.sigma_post)
     {
-    oss << " -s " << this->sigma_pre << this->sigma_post;
+    oss << " -s " << this->sigma_pre << " " << this->sigma_post;
     }
 
-  for(const ImagePairSpec &ip : this->inputs)
+  for(unsigned int k = 0; k < this->input_groups.size(); k++)
     {
-    oss << " -w " << ip.weight;
-    oss << " -i " << ip.fixed << " " << ip.moving;
+    const GreedyInputGroup &is = this->input_groups[k];
+
+    // Write the partitioning element
+    if(k > 0)
+      oss << " -P";
+
+    // Write the input set
+    for(const ImagePairSpec &ip : is.inputs)
+      {
+      oss << " -w " << ip.weight;
+      oss << " -i " << ip.fixed << " " << ip.moving;
+      }
+    if(is.moving_pre_transforms.size())
+      {
+      oss << " -it";
+      for(const TransformSpec &ts : is.moving_pre_transforms)
+        {
+        oss << " " << ts.filename;
+        if(ts.exponent != 1.0)
+          oss << "," << ts.exponent;
+        }
+      }
+
+    if(is.fixed_mask.size())
+      oss << " -gm " << is.fixed_mask;
+
+    if(is.moving_mask.size())
+      oss << " -mm " << is.moving_mask;
     }
 
   if(this->initial_warp.size())
@@ -544,7 +583,7 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->rigid_search.iterations > 0)
     {
-    oss << " -search ";
+    oss << " -search " << this->rigid_search.iterations << " ";
     if(this->rigid_search.mode == ANY_ROTATION)
       oss << "ANY ";
     else if(this->rigid_search.mode == ANY_ROTATION_AND_FLIP)
@@ -555,31 +594,29 @@ std::string GreedyParameters::GenerateCommandLine()
     oss << this->rigid_search.sigma_xyz;
     }
 
-  if(this->moving_pre_transforms.size())
-    {
-    oss << " -it";
-    for(TransformSpec &ts : this->moving_pre_transforms)
-      {
-      oss << " " << ts.filename;
-      if(ts.exponent != 1.0)
-        oss << "," << ts.exponent;
-      }
-    }
+  if(this->reference_space.size())
+    oss << " -ref " << this->reference_space;
 
-  if(this->gradient_mask.size())
-    oss << " -gm " << this->gradient_mask;
+  if(this->reference_space_padding != def.reference_space_padding)
+    oss << " -ref-pad " << this->reference_space_padding;
 
-  if(this->gradient_mask_trim_radius != def.gradient_mask_trim_radius)
-    oss << " -gm-trim " << this->gradient_mask_trim_radius;
+  if(this->background != def.background)
+    oss << " -bg " << this->background;
 
-  if(this->moving_mask.size())
-    oss << " -mm " << this->moving_mask;
+  if(this->fixed_mask_trim_radius != def.fixed_mask_trim_radius)
+    oss << " -gm-trim " << this->fixed_mask_trim_radius;
 
-  if(this->moving_mask.size())
-    oss << " -fm " << this->fixed_mask;
+  if(this->flag_ncc_mask_dilate)
+    oss << " -ncc-mask-dilate";
 
   if(this->output.size())
     oss << " -o " << this->output;
+
+  if(this->dump_prefix.size())
+    oss << " -dump-prefix" << this->dump_prefix;
+
+  if(this->flag_dump_pyramid)
+    oss << " -dump-pyramid";
 
   if(this->flag_dump_moving)
     oss << " -dump-moving";
@@ -587,7 +624,7 @@ std::string GreedyParameters::GenerateCommandLine()
   if(this->flag_powell)
     oss << " -powell";
 
-  if(this->dump_frequency > 0)
+  if(this->dump_frequency != 1)
     oss << " -dump-frequency " << this->dump_frequency;
 
   if(this->flag_debug_deriv)
@@ -705,6 +742,9 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->warp_precision != def.warp_precision)
     oss << " -wp " << this->warp_precision;
+
+  if(this->output_metric_gradient.size())
+    oss << " -og " << this->output_metric_gradient;
 
   if(this->verbosity != def.verbosity)
     oss << " -V " << this->verbosity;

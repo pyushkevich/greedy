@@ -88,8 +88,7 @@ protected:
   LinearTransformToWarpFilter() {}
   virtual ~LinearTransformToWarpFilter() {}
 
-  void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                            itk::ThreadIdType threadId );
+  void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
 
   typename TransformType::Pointer m_Transform;
 

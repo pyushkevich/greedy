@@ -571,13 +571,13 @@ public:
           ImagePairSpec img_pair(m_Slices[it.second].raw_filename, m_Slices[it_n.second].raw_filename);
           greedy_api.AddCachedInputObject(m_Slices[it.second].raw_filename, i_ref.GetPointer());
           greedy_api.AddCachedInputObject(m_Slices[it_n.second].raw_filename, i_mov.GetPointer());
-          my_param.inputs.push_back(img_pair);
+          my_param.input_groups.back().inputs.push_back(img_pair);
 
           // Add mask if using them
           if(m_UseMasks)
             {
             greedy_api.AddCachedInputObject(m_Slices[it.second].mask_filename, i_mask.GetPointer());
-            my_param.gradient_mask = m_Slices[it.second].mask_filename;
+            my_param.input_groups.back().fixed_mask = m_Slices[it.second].mask_filename;
             }
 
           // Set other parameters
@@ -595,7 +595,7 @@ public:
           greedy_api.RunAffine(my_param);
 
           // Get the metric for the affine registration
-          pair_metric = greedy_api.GetLastMetricReport().TotalMetric;
+          pair_metric = greedy_api.GetLastMetricReport().TotalPerPixelMetric;
           std::cout << "Last metric value: " << pair_metric << std::endl;
 
           // Normalize the metric to give the actual mean NCC
@@ -858,7 +858,7 @@ public:
 
           ImagePairSpec img_pair("vol_slice", fn_accum_reslice, 1.0);
           greedy_api.AddCachedInputObject("vol_slice", vol_slice_2d.GetPointer());
-          my_param.inputs.push_back(img_pair);
+          my_param.input_groups.back().inputs.push_back(img_pair);
 
           // Handle the mask
           if(fn_vol_mask_slide.length())
@@ -866,7 +866,7 @@ public:
             // TODO: we are not caching because of different image types
             SlideImagePointer mask_slice_2d = ExtractSliceFromVolume(mask, m_Slices[i].z_pos);
             LDDMMType::cimg_write(mask_slice_2d, fn_vol_mask_slide.c_str());
-            my_param.gradient_mask = fn_vol_mask_slide;
+            my_param.input_groups.back().fixed_mask = fn_vol_mask_slide;
             }
 
           // Set other parameters
@@ -913,11 +913,11 @@ public:
         ImagePairSpec img_pair("vol_slice", "acc_slice", 1.0);
         greedy_api.AddCachedInputObject("vol_slice", vol_slice.GetPointer());
         greedy_api.AddCachedInputObject("acc_slice", acc_slice.GetPointer());
-        my_param.inputs.push_back(img_pair);
+        my_param.input_groups.back().inputs.push_back(img_pair);
 
         // TODO: this is really bad, can't cache mask images
         if(fn_mask.length())
-          my_param.gradient_mask = GetFilenameForSlice(m_Slices[i], VOL_MASK_SLIDE);
+          my_param.input_groups.back().fixed_mask = GetFilenameForSlice(m_Slices[i], VOL_MASK_SLIDE);
 
         // Set other parameters
         my_param.affine_init_mode = RAS_FILENAME;
@@ -927,8 +927,8 @@ public:
         MultiComponentMetricReport metric_report;
         std::cout << "greedy " << my_param.GenerateCommandLine() << std::endl;
         greedy_api.ComputeMetric(my_param, metric_report);
-        printf("Slide %03d matrix %03d metric %8.4f\n", i, k, metric_report.TotalMetric);
-        accum_metric[k] += metric_report.TotalMetric;
+        printf("Slide %03d matrix %03d metric %8.4f\n", i, k, metric_report.TotalPerPixelMetric);
+        accum_metric[k] += metric_report.TotalPerPixelMetric;
         }
       }
 
@@ -1006,14 +1006,13 @@ public:
     // Set up the moving/fixed pair
     api_reg.AddCachedInputObject("fixed", fixed);
     api_reg.AddCachedInputObject("moving", moving);
-    my_param.inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
+    my_param.input_groups.back().inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
 
     // Set up the mask
     if(mask)
       {
       api_reg.AddCachedInputObject("mask", mask);
-      my_param.gradient_mask = "mask";
-      std::cout << "MASK!!!!!!!!!!!!!!!!!!!!!!!!!1" << std::endl;
+      my_param.input_groups.back().fixed_mask = "mask";
       }
 
     // Set up the output transform
@@ -1044,13 +1043,13 @@ public:
     // Set up the moving/fixed pair
     api_reg.AddCachedInputObject("fixed", fixed);
     api_reg.AddCachedInputObject("moving", moving);
-    my_param.inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
+    my_param.input_groups.back().inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
 
     // Set up the mask
     if(mask)
       {
       api_reg.AddCachedInputObject("mask", mask);
-      my_param.gradient_mask = "mask";
+      my_param.input_groups.back().fixed_mask = "mask";
       }
 
     // Set up the output transform
@@ -1235,7 +1234,7 @@ public:
     const auto &it = alternates.find(m_Slices[k].unique_id);
     if(it == alternates.end())
       return return_null_if_no_alternate
-          ? NULL
+          ? nullptr
           : slice_cache.GetImage<SlideImageType>(m_Slices[k].raw_filename);
 
     // Otherwise load the main slide (for reference information)
@@ -1489,7 +1488,7 @@ public:
           std::string fn_matrix_j = GetFilenameForSlice(m_Slices[j], VOL_ITER_MATRIX, nbr_iter);
 
           // Load the warp from cache
-          WarpRef prev_warp_j( nbr_iter <= n_affine ? NULL : slice_cache.GetImage<WarpImageType>(
+          WarpRef prev_warp_j( nbr_iter <= n_affine ? nullptr : slice_cache.GetImage<WarpImageType>(
                                                         GetFilenameForSlice(m_Slices[j], VOL_ITER_WARP, nbr_iter)));
 
           // Do the reslicing. Here we do apply the previous warp, since we want the slide to
@@ -1547,7 +1546,7 @@ public:
                 DoAffineRegistration(param_reg, resliced_slide, targets[i].image, resliced_mask.GetPointer(), t_vol);
 
               // Record the metric (apply scaling for affine used internally)
-              targets[i].direct_reg_metric = mrpt.TotalMetric / -10000.0;
+              targets[i].direct_reg_metric = mrpt.TotalPerPixelMetric / -10000.0;
 
               // Add the weighted transforms
               A += t_vol->GetMatrix() * targets[i].weight;
@@ -1611,12 +1610,28 @@ public:
             GreedyParameters my_param = param_reg;
             GreedyAPI api_reg;
 
-            // Set up the moving/fixed pairs
+            // Store the fixed image in cache
+            api_reg.AddCachedInputObject("fixed", resliced_slide);
+
+            // Set up the mask, which will be reused
+            if(resliced_mask)
+              api_reg.AddCachedInputObject("mask", resliced_mask);
+
+            // Set up the moving/fixed pairs. Each pair is added as a separate input group because
+            // the moving masks are different for different adjacent slices and the volume and we
+            // don't these masks to leave regions out from registration to the volume
             for(unsigned int i = 0; i < targets.size(); i++)
               {
-              api_reg.AddCachedInputObject("fixed", resliced_slide);
               api_reg.AddCachedInputObject(targets[i].desc, targets[i].image);
-              my_param.inputs.push_back(ImagePairSpec("fixed", targets[i].desc, targets[i].weight));
+
+              // Add input group if needed
+              if(i > 0)
+                my_param.input_groups.push_back(GreedyInputGroup());
+
+              // Configure this input group
+              my_param.input_groups.back().inputs.push_back(ImagePairSpec("fixed", targets[i].desc, targets[i].weight));
+              if(resliced_mask)
+                my_param.input_groups.back().fixed_mask = "mask";
 
               if(m_GlobalParam.debug)
                 {
@@ -1635,13 +1650,6 @@ public:
                 }
               }
 
-            // Set up the mask
-            if(resliced_mask)
-              {
-              api_reg.AddCachedInputObject("mask", resliced_mask);
-              my_param.gradient_mask = "mask";
-              }
-
             // Set up the output transform
             TransformPointer t_vol = TransformType::New();
             api_reg.AddCachedOutputObject("output", t_vol);
@@ -1654,7 +1662,7 @@ public:
             // Get the metric
             MultiComponentMetricReport mrpt = api_reg.GetLastMetricReport();
             for(unsigned int i = 0; i < targets.size(); i++)
-              targets[i].direct_reg_metric = mrpt.ComponentMetrics[i] / -10000.0;
+              targets[i].direct_reg_metric = mrpt.ComponentPerPixelMetrics[i] / -10000.0;
 
             TransformType::MatrixType A = t_vol->GetMatrix();
             TransformType::OffsetType b = t_vol->GetOffset();
@@ -1724,7 +1732,7 @@ public:
                 DoLogDemonsRegistration(param_reg, resliced_slide, targets[i].image, resliced_mask, work_img);
 
               // Record the metric
-              targets[i].direct_reg_metric = mrpt.TotalMetric;
+              targets[i].direct_reg_metric = mrpt.TotalPerPixelMetric;
 
               // Accumulate this root warp with its weight
               LDDMMType::vimg_add_scaled_in_place(avg_root, work_img, targets[i].weight);
@@ -1750,12 +1758,23 @@ public:
             GreedyParameters my_param = param_reg;
             GreedyAPI api_reg;
 
+            // Add fixed image and mask to cache
+            api_reg.AddCachedInputObject("fixed", resliced_slide);
+            if(resliced_mask)
+              api_reg.AddCachedInputObject("mask", resliced_mask);
+
             // Set up the moving/fixed pairs
             for(unsigned int i = 0; i < targets.size(); i++)
               {
-              api_reg.AddCachedInputObject("fixed", resliced_slide);
+              // Add input group if needed
+              if(i > 0)
+                my_param.input_groups.push_back(GreedyInputGroup());
+
+              // Configure this input group
               api_reg.AddCachedInputObject(targets[i].desc, targets[i].image);
-              my_param.inputs.push_back(ImagePairSpec("fixed", targets[i].desc, targets[i].weight));
+              my_param.input_groups.back().inputs.push_back(ImagePairSpec("fixed", targets[i].desc, targets[i].weight));
+              if(resliced_mask)
+                my_param.input_groups.back().fixed_mask = "mask";
 
               if(m_GlobalParam.debug)
                 {
@@ -1765,14 +1784,13 @@ public:
 
                 sprintf(buffer, "/tmp/sg_%s_moving_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
                 LDDMMType::cimg_write(targets[i].image, buffer);
-                }
-              }
 
-            // Set up the mask
-            if(resliced_mask)
-              {
-              api_reg.AddCachedInputObject("mask", resliced_mask);
-              my_param.gradient_mask = "mask";
+                if(resliced_mask)
+                  {
+                  sprintf(buffer, "/tmp/sg_%s_fixed_mask_%02d.nii.gz", m_Slices[k].unique_id.c_str(), i);
+                  LDDMMType::img_write(resliced_mask, buffer);
+                  }
+                }
               }
 
             // Set up the output transform
@@ -1787,7 +1805,7 @@ public:
             // Get the metric
             MultiComponentMetricReport mrpt = api_reg.GetLastMetricReport();
             for(unsigned int i = 0; i < targets.size(); i++)
-              targets[i].direct_reg_metric = mrpt.ComponentMetrics[i];
+              targets[i].direct_reg_metric = mrpt.ComponentPerPixelMetrics[i];
             }
 
           // Write the average warp
@@ -1838,21 +1856,21 @@ public:
           GreedyAPI api_metric;
           api_metric.AddCachedInputObject("fixed", resliced_slide);
           api_metric.AddCachedInputObject("moving", targets[i].image);
-          m_param.inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
+          m_param.input_groups.back().inputs.push_back(ImagePairSpec("fixed", "moving", 1.0));
           m_param.affine_init_mode = VOX_IDENTITY;
           
           // Set up the mask
           if(m_UseMasks && !ignore_masks)
             {
             api_metric.AddCachedInputObject("mask", resliced_mask);
-            m_param.gradient_mask = "mask";
+            m_param.input_groups.back().fixed_mask = "mask";
             }
 
           std::cout << "greedy " << m_param.GenerateCommandLine() << std::endl;
           api_metric.ComputeMetric(m_param, rpt);
 
           // Get the total metric value
-          double mval = rpt.TotalMetric;
+          double mval = rpt.TotalPerPixelMetric;
           printf("Metric with %40s   DIRECT: %8.4f   COMBINED: %8.4f\n",
                  targets[i].desc.c_str(), targets[i].direct_reg_metric, mval);
           
@@ -2255,7 +2273,7 @@ public:
 
   int FindSlideById(const std::string &id)
   {
-    for (int i = 0; i < m_Slices.size(); i++)
+    for (unsigned int i = 0; i < m_Slices.size(); i++)
       {
       if(m_Slices[i].unique_id == id)
         return i;
@@ -2269,7 +2287,7 @@ public:
     int i_best = -1;
     double dz_best = 1e100;
 
-    for (int i = 0; i < m_Slices.size(); i++)
+    for (unsigned int i = 0; i < m_Slices.size(); i++)
       {
       // Check the filter
       if(alt_source.size() && alt_source.find(m_Slices[i].unique_id) == alt_source.end())
@@ -2638,7 +2656,8 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
 {
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
-    "-m", "-n", "-threads", "-gm-trim", "-s", "-e", "-sv", "-exp", "-V", "-sv-incompr"
+    "-m", "-n", "-threads", "-gm-trim", "-s", "-e", "-sv", "-exp", "-V", "-sv-incompr",
+    "-dump-pyramid", "-dump-moving", "-dump-frequency"
   };
 
   // Greedy parameters for this mode
@@ -2854,7 +2873,6 @@ int main(int argc, char *argv[])
 
   // Parameters for running Greedy in general
   GreedyParameters gparam;
-  GreedyParameters::SetToDefaults(gparam);
   if(argc < 2)
     return usage();
 

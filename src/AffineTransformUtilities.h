@@ -136,7 +136,7 @@ GetVoxelSpaceToNiftiSpaceTransform(itk::ImageBase<VDim> *image,
   vnl_vector<double> v_origin, v_ras_offset;
 
   // Compute the matrix
-  m_dir = image->GetDirection().GetVnlMatrix();
+  m_dir = image->GetDirection().GetVnlMatrix().as_matrix();
   m_scale.set(image->GetSpacing().GetVnlVector());
   m_lps_to_ras.set(vnl_vector<double>(VDim, 1.0));
   m_lps_to_ras[0] = -1;
@@ -206,5 +206,18 @@ void itk_vector_to_vnl_vector(
   for(int r = 0; r < TITKVector::Dimension; r++)
     vvec(r) = static_cast<TVNL>(ivec[r]);
 }
+
+// Little helper functions
+template <unsigned int VDim> class array_caster
+{
+public:
+  template <class T> static itk::Size<VDim> to_itkSize(const T &t)
+  {
+    itk::Size<VDim> sz;
+    for(int i = 0; i < VDim; i++)
+      sz[i] = t[i];
+    return sz;
+  }
+};
 
 #endif // AFFINETRANSFORMUTILITIES_H

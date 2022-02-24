@@ -26,9 +26,7 @@
 =========================================================================*/
 #include "lddmm_data.h"
 #include "itkImageRegionIterator.h"
-#include "SimpleWarpImageFilter.h"
 #include "itkNumericTraitsCovariantVectorPixel.h"
-#include "itkOptVectorLinearInterpolateImageFunction.h"
 #include "itkLinearInterpolateImageFunction.h"
 #include "itkAddImageFilter.h"
 #include "itkSubtractImageFilter.h"
@@ -41,19 +39,16 @@
 #include "itkVectorImage.h"
 #include "itkDisplacementFieldJacobianDeterminantFilter.h"
 #include "itkSmoothingRecursiveGaussianImageFilter.h"
-#include "itkDiscreteGaussianImageFilter.h"
 #include "itkMinimumMaximumImageFilter.h"
 #include "itkShrinkImageFilter.h"
 #include "itkResampleImageFilter.h"
-#include "itkVectorResampleImageFilter.h"
-#include "itkNearestNeighborInterpolateImageFunction.h"
-#include "itkVectorNearestNeighborInterpolateImageFunction.h"
 #include "itkBinaryThresholdImageFilter.h"
 #include "itkVectorIndexSelectionCastImageFilter.h"
 #include "itkComposeImageFilter.h"
 #include "itkMinimumMaximumImageFilter.h"
 #include "itkTernaryFunctorImageFilter.h"
 #include "itkShiftScaleImageFilter.h"
+#include "vnl/vnl_random.h"
 
 #include "FastWarpCompositeImageFilter.h"
 
@@ -334,33 +329,6 @@ LDDMMData<TFloat, VDim>
   wf->SetUsePhysicalSpace(phys_space);
   wf->SetOutsideValue(outside_value);
   wf->Update();
-
-/*
-  // Create a warp filter
-  typedef itk::SimpleWarpImageFilter<
-    ImageType, ImageType, VectorImageType, TFloat> WarpFilterType;
-  typename WarpFilterType::Pointer flt = WarpFilterType::New();
-
-  // Create an interpolation function
-  typedef itk::LinearInterpolateImageFunction<ImageType, TFloat> InterpType;
-  typedef itk::NearestNeighborInterpolateImageFunction<ImageType, TFloat> NNInterpType;
-
-  typename InterpType::Pointer func = InterpType::New();
-  typename NNInterpType::Pointer funcNN = NNInterpType::New();
-
-  // Graft output of the warp filter
-  flt->GraftOutput(out);
-
-  // Set inputs
-  flt->SetInput(data);
-  if(use_nn)
-    flt->SetInterpolator(funcNN);
-  else
-    flt->SetInterpolator(func);
-  flt->SetDeformationField(field);
-  flt->SetDeformationScaling(1.0);
-  flt->Update();
-  */
 }
 
 template <class TFloat, uint VDim>
@@ -554,7 +522,7 @@ LDDMMData<TFloat, VDim>
 
   Functor func(thresh);
   flt->SetFunctor(func);
-  flt->SetInput(trg);
+  flt->SetInput(src);
   flt->GraftOutput(trg);
   flt->Update();
 }
@@ -592,7 +560,7 @@ LDDMMData<TFloat, VDim>
 
   Functor func(thresh);
   flt->SetFunctor(func);
-  flt->SetInput(trg);
+  flt->SetInput(src);
   flt->GraftOutput(trg);
   flt->Update();
 }
@@ -733,10 +701,10 @@ public:
     return dp;
     }
 
-  bool operator== (const VectorDotProduct<TFloat, VDim> &other)
+  bool operator== (const VectorDotProduct<TFloat, VDim> &)
     { return true; }
 
-  bool operator!= (const VectorDotProduct<TFloat, VDim> &other)
+  bool operator!= (const VectorDotProduct<TFloat, VDim> &)
     { return false; }
 };
 
@@ -845,7 +813,7 @@ void
 LDDMMData<TFloat, VDim>
 ::field_jacobian(VectorImageType *vec, MatrixImageType *out)
 {
-  for(int a = 0; a < VDim; a++)
+  for(unsigned int a = 0; a < VDim; a++)
     {
     // Extract the a'th component of the displacement field
     typedef itk::VectorIndexSelectionCastImageFilter<VectorImageType, ImageType> CompFilterType;
@@ -889,7 +857,7 @@ LDDMMData<TFloat, VDim>
   div_v->FillBuffer(0.0);
 
   // Add each component
-  for(int a = 0; a < VDim; a++)
+  for(unsigned int a = 0; a < VDim; a++)
     {
     // Extract the a'th component of the displacement field
     typedef itk::VectorIndexSelectionCastImageFilter<VectorImageType, ImageType> CompFilterType;
@@ -928,7 +896,7 @@ public:
     return Dw;
     }
 
-  bool operator != (const JacobianCompisitionFunctor<TFloat, VDim> &other) {return false; }
+  bool operator != (const JacobianCompisitionFunctor<TFloat, VDim> &) { return false; }
 };
 
 
@@ -1081,12 +1049,6 @@ LDDMMData<TFloat, VDim>
   fltLieBracket->SetFieldV(u);
   fltLieBracket->GraftOutput(alt);
   fltLieBracket->Update();
-
-  itk::Index<VDim> idx_probe; for(int a = 0; a < VDim; a++) idx_probe[a] = out->GetBufferedRegion().GetSize()[a] / 2;
-  Vec test1 = out->GetPixel(idx_probe);
-  Vec test2 = alt->GetPixel(idx_probe);
-  std::cout << "test1 = " << test1 << "   and   test2 = " << test2 << std::endl;
-  return;
 }
 
 
@@ -1122,24 +1084,9 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::img_smooth(ImageType *src, ImageType *trg, double sigma)
+::img_smooth(ImageType *src, ImageType *trg, Vec sigma)
 {
-  // typedef itk::SmoothingRecursiveGaussianImageFilter<ImageType, ImageType> Filter;
-  typedef itk::DiscreteGaussianImageFilter<ImageType, ImageType> Filter;
-  typename Filter::Pointer flt = Filter::New();
-  flt->SetInput(src);
-  // flt->SetSigma(sigma);
-  flt->SetVariance(sigma * sigma);
-  flt->GraftOutput(trg);
-  flt->Update();
-}
-
-template <class TFloat, uint VDim>
-void
-LDDMMData<TFloat, VDim>
-::cimg_smooth(CompositeImageType *src, CompositeImageType *trg, Vec sigma)
-{
-  typedef itk::SmoothingRecursiveGaussianImageFilter<CompositeImageType, CompositeImageType> Filter;
+  typedef itk::SmoothingRecursiveGaussianImageFilter<ImageType, ImageType> Filter;
   typename Filter::Pointer fltSmooth = Filter::New();
   fltSmooth->SetInput(src);
   fltSmooth->SetSigmaArray(sigma);
@@ -1147,7 +1094,41 @@ LDDMMData<TFloat, VDim>
 
   // TODO: this is a work-around for a stupid bug with this recursive filter. When the data
   // type is float, the filter does not allow me to graft an output
-  LDDMMData<TFloat, VDim>::cimg_copy(fltSmooth->GetOutput(), trg);
+  ImageType *result = fltSmooth->GetOutput();
+  trg->SetRegions(result->GetBufferedRegion());
+  trg->CopyInformation(result);
+  trg->SetPixelContainer(result->GetPixelContainer());
+}
+
+template <class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_smooth(CompositeImageType *src, CompositeImageType *trg, Vec sigma)
+{
+  // Handle special case of one component (common, why waste time?)
+  if(src->GetNumberOfComponentsPerPixel() == 1)
+    {
+    ImagePointer src_img = cimg_as_img(src), trg_img = ImageType::New();
+    img_smooth(src_img, trg_img, sigma);
+    trg->SetRegions(trg_img->GetBufferedRegion());
+    trg->CopyInformation(trg_img);
+    trg->SetPixelContainer(trg_img->GetPixelContainer());
+    }
+  else
+    {
+    typedef itk::SmoothingRecursiveGaussianImageFilter<CompositeImageType, CompositeImageType> Filter;
+    typename Filter::Pointer fltSmooth = Filter::New();
+    fltSmooth->SetInput(src);
+    fltSmooth->SetSigmaArray(sigma);
+    fltSmooth->Update();
+
+    // TODO: this is a work-around for a stupid bug with this recursive filter. When the data
+    // type is float, the filter does not allow me to graft an output
+    CompositeImageType *result = fltSmooth->GetOutput();
+    trg->SetRegions(result->GetBufferedRegion());
+    trg->CopyInformation(result);
+    trg->SetPixelContainer(result->GetPixelContainer());
+    }
 }
 
 
@@ -1312,38 +1293,38 @@ struct image_type_cast< itk::VectorImage<TPixel, VDim>, TOutputComponent>
 
 template <class TInputImage>
 void write_cast_to_iocomp(TInputImage *image, const char *filename,
-                          itk::ImageIOBase::IOComponentType comp)
+                          itk::IOComponentEnum comp)
 {
   switch(comp)
     {
-    case itk::ImageIOBase::UCHAR :
+    case itk::IOComponentEnum::UCHAR :
       write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned char>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::CHAR :
+    case itk::IOComponentEnum::CHAR :
       write_cast<TInputImage, typename image_type_cast<TInputImage, char>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::USHORT :
+    case itk::IOComponentEnum::USHORT :
       write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned short>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::SHORT :
+    case itk::IOComponentEnum::SHORT :
       write_cast<TInputImage, typename image_type_cast<TInputImage, short>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::UINT :
+    case itk::IOComponentEnum::UINT :
       write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned int>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::INT :
+    case itk::IOComponentEnum::INT :
       write_cast<TInputImage, typename image_type_cast<TInputImage, int>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::ULONG :
+    case itk::IOComponentEnum::ULONG :
       write_cast<TInputImage, typename image_type_cast<TInputImage, unsigned long>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::LONG :
+    case itk::IOComponentEnum::LONG :
       write_cast<TInputImage, typename image_type_cast<TInputImage, long>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::FLOAT :
+    case itk::IOComponentEnum::FLOAT :
       write_cast<TInputImage, typename image_type_cast<TInputImage, float>::OutputImageType>(image, filename);
       break;
-    case itk::ImageIOBase::DOUBLE :
+    case itk::IOComponentEnum::DOUBLE :
       write_cast<TInputImage, typename image_type_cast<TInputImage, double>::OutputImageType>(image, filename);
       break;
     default:
@@ -1456,8 +1437,6 @@ LDDMMData<TFloat, VDim>
   return p;
 }
 
-
-
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
@@ -1539,6 +1518,7 @@ LDDMMData<TFloat, VDim>
 {
   typedef itk::CastImageFilter<CompositeImageType, CompositeImageType> CastFilter;
   typename CastFilter::Pointer fltCast = CastFilter::New();
+  trg->SetNumberOfComponentsPerPixel(src->GetNumberOfComponentsPerPixel());
   fltCast->SetInput(src);
   fltCast->GraftOutput(trg);
   fltCast->Update();
@@ -1587,6 +1567,138 @@ LDDMMData<TFloat, VDim>
 template<class TFloat, uint VDim>
 bool
 LDDMMData<TFloat, VDim>
+::img_same_space(const ImageBaseType *i1, const ImageBaseType *i2, double tol)
+{
+  double c_tol = std::abs(tol * i1->GetSpacing()[0]), d_tol = tol;
+  return
+      i1->GetBufferedRegion() == i2->GetBufferedRegion() &&
+      i1->GetSpacing().GetVnlVector().is_equal(i2->GetSpacing().GetVnlVector(), c_tol) &&
+      i1->GetOrigin().GetVnlVector().is_equal(i2->GetOrigin().GetVnlVector(), c_tol) &&
+      i1->GetDirection().GetVnlMatrix().as_ref().is_equal(i2->GetDirection().GetVnlMatrix().as_ref(), d_tol);
+}
+
+template<class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::CompositeImagePointer
+LDDMMData<TFloat, VDim>
+::cimg_concat(const std::vector<CompositeImagePointer> &img)
+{
+  // Simple case where there is nothing to pack
+  if(img.size() == 0) return nullptr;
+  else if(img.size() == 1) return img[0];
+
+  // Otherwise figure the number of output components
+  unsigned int ncomp = 0;
+  for(unsigned int j = 0; j < img.size(); j++)
+    ncomp += img[j]->GetNumberOfComponentsPerPixel();
+
+  // Create the output image
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+  CompositeImagePointer pack = LDDMMType::new_cimg(img[0], ncomp);
+
+  // For each input image, copy its data into the output
+  // Use the new parallelism code
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+  mt->ParallelizeImageRegion<VDim>(
+        pack->GetBufferedRegion(),
+        [pack,img,&ncomp](const itk::ImageRegion<VDim> &region)
+  {
+    unsigned int offset = 0;
+    for(auto src : img)
+      {
+      // Components being packed
+      unsigned int nc_j = src->GetNumberOfComponentsPerPixel();
+
+      // Iterator typdef
+      typedef itk::ImageLinearConstIteratorWithIndex<CompositeImageType> IterBase;
+      typedef IteratorExtender<IterBase> Iterator;
+      unsigned int line_length = region.GetSize(0);
+      for(Iterator it(pack, region); !it.IsAtEnd(); it.NextLine())
+        {
+        TFloat *pack_line = it.GetPixelPointer(pack.GetPointer()) + offset;
+        const TFloat *pack_line_end = pack_line + ncomp * line_length;
+        const TFloat *src_line = it.GetPixelPointer(src.GetPointer());
+        for(; pack_line < pack_line_end; pack_line += ncomp)
+          for(unsigned int j = 0; j < nc_j; j++)
+            pack_line[j] = *src_line++;
+        }
+
+      // Update the offset
+      offset += nc_j;
+      }
+    }, nullptr);
+
+  return pack;
+}
+
+template<class TFloat, uint VDim>
+unsigned int
+LDDMMData<TFloat, VDim>
+::cimg_nancount(const CompositeImageType *img)
+{
+  // Create a fake region to partition the entire data chunk
+  unsigned int npix = img->GetPixelContainer()->Size();
+  itk::ImageRegion<1> full_region({{0}}, {{npix}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  std::atomic<unsigned int> nan_count(0);
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [img,&nan_count](const itk::ImageRegion<1> &thread_region)
+    {
+    unsigned int thread_nan_count = 0;
+    const TFloat *p = img->GetBufferPointer() + thread_region.GetIndex(0);
+    const TFloat *p_end = p + thread_region.GetSize(0);
+    for(; p < p_end; ++p)
+      if(std::isnan(*p))
+        thread_nan_count++;
+
+    nan_count += thread_nan_count;
+    }, nullptr);
+
+  return nan_count;
+}
+
+template<class TFloat, uint VDim>
+void LDDMMData<TFloat, VDim>::cimg_mask_smooth_adjust_in_place(
+    CompositeImageType *img, ImageType *mask, TFloat thresh)
+{
+  // Create a fake region to partition the entire data chunk
+  unsigned int nc = img->GetNumberOfComponentsPerPixel();
+  unsigned int np = img->GetBufferedRegion().GetNumberOfPixels();
+  itk::ImageRegion<1> full_region({{0}}, {{np}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [img,mask,thresh,nc](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *p = img->GetBufferPointer() + nc * thread_region.GetIndex(0);
+    TFloat *m = mask->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *m_end = m + thread_region.GetSize(0);
+    for(; m < m_end; ++m)
+      {
+      if(*m < thresh)
+        {
+        for(unsigned int i = 0; i < nc; i++)
+          *p++ = 0.0;
+        *m = 0.0;
+        }
+      else
+        {
+        for(unsigned int i = 0; i < nc; i++)
+          *p++ /= *m;
+        *m = 1.0;
+        }
+      }
+    }, nullptr);
+
+  img->Modified();
+  mask->Modified();
+}
+
+template<class TFloat, uint VDim>
+bool
+LDDMMData<TFloat, VDim>
 ::img_auto_cast(const ImageType *src, ImageBaseType *trg)
 {
   return lddmm_data_io::auto_cast(src, trg);
@@ -1629,76 +1741,108 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-typename LDDMMData<TFloat, VDim>::ImagePointer
+typename LDDMMData<TFloat, VDim>::ImageBasePointer
 LDDMMData<TFloat, VDim>
-::img_downsample(ImageType *src, double factor)
+::create_reference_space_for_downsample(ImageBaseType *src, double factor)
 {
-  ImagePointer p = ImageType::New();
-  img_downsample(src, p, factor);
-  return p;
-}
+  // Compute the size and index of the new image
+  typename ImageBaseType::SizeType sz_pre = src->GetBufferedRegion().GetSize(), sz_post;
+  typename ImageBaseType::IndexType idx_pre = src->GetBufferedRegion().GetIndex(), idx_post;
+  typename ImageBaseType::SpacingType spc_pre = src->GetSpacing(), spc_post;
+  typename ImageBaseType::PointType origin_pre = src->GetOrigin(), origin_post;
 
-template <class TFloat, uint VDim>
-void
-LDDMMData<TFloat, VDim>
-::img_downsample(ImageType *src, ImageType *trg, double factor)
-{
-  // Begin by smoothing the image
-  typedef itk::SmoothingRecursiveGaussianImageFilter<ImageType, ImageType> SmoothType;
-  typename SmoothType::Pointer fltSmooth = SmoothType::New();
-  fltSmooth->SetInput(src);
-  fltSmooth->SetSigmaArray(0.5 * factor * src->GetSpacing());
+  // Compute size, index and spacing
+  for(unsigned int i = 0; i < VDim; i++)
+    {
+    // Size gets rounded up (since it doesn't have to be exact, we adjust based on spacing
+    sz_post[i] = (unsigned long) std::ceil(sz_pre[i] / factor);
 
-  // Now resample the image to occupy the same physical space
-  typedef itk::ResampleImageFilter<ImageType, ImageType, TFloat> ResampleFilter;
-  typedef itk::IdentityTransform<TFloat, VDim> TranType;
-  typedef itk::LinearInterpolateImageFunction<ImageType, TFloat> InterpType;
+    // Index gets rounded to closest int
+    idx_post[i] = (long) std::floor(idx_pre[i] / factor + 0.5);
 
-  typename ResampleFilter::Pointer filter = ResampleFilter::New();
-  typename TranType::Pointer tran = TranType::New();
-  typename InterpType::Pointer func = InterpType::New();
+    // Compute the spacing (to keep the bounding box exactly the same)
+    spc_post[i] = spc_pre[i] * sz_pre[i] * 1.0 / sz_post[i];
+    }
 
-  // Compute the size of the new image
-  typename ImageType::SizeType sz;
-  for(int i = 0; i < VDim; i++)
-    sz[i] = (unsigned long) vcl_ceil(src->GetBufferedRegion().GetSize()[i] / factor);
-
-  // Compute the spacing of the new image
-  typename ImageType::SpacingType spc_pre = src->GetSpacing();
-  typename ImageType::SpacingType spc_post = spc_pre;
-  for(size_t i = 0; i < VDim; i++)
-    spc_post[i] *= src->GetBufferedRegion().GetSize()[i] * 1.0 / sz[i];
-
-  // Get the bounding box of the input image
-  typename ImageType::PointType origin_pre = src->GetOrigin();
+  // Compute the direction * spacing vectors
+  typename ImageBaseType::SpacingType ds_pre = (src->GetDirection() * spc_pre);
+  typename ImageBaseType::SpacingType ds_post = (src->GetDirection() * spc_post);
 
   // Recalculate the origin. The origin describes the center of voxel 0,0,0
   // so that as the voxel size changes, the origin will change as well.
-  typename ImageType::SpacingType off_pre = (src->GetDirection() * spc_pre) * 0.5;
-  typename ImageType::SpacingType off_post = (src->GetDirection() * spc_post) * 0.5;
-  typename ImageType::PointType origin_post = origin_pre - off_pre + off_post;
+  for(unsigned int i = 0; i < VDim; i++)
+    {
+    origin_post[i] = origin_pre[i] + ds_pre[i] * (idx_pre[i] - 0.5) - ds_post[i] * (idx_post[i] - 0.5);
+    }
 
   // Weird - have to allocate the output image?
-  trg->SetRegions(sz);
-  trg->SetOrigin(origin_post);
-  trg->SetSpacing(spc_post);
-  trg->SetDirection(src->GetDirection());
-  trg->Allocate();
-  
-  fltSmooth->Update();
-  auto *smooth = fltSmooth->GetOutput();
+  ImagePointer ref = ImageType::New();
+  ref->SetRegions(typename ImageBaseType::RegionType(idx_post, sz_post));
+  ref->SetOrigin(origin_post);
+  ref->SetSpacing(spc_post);
+  ref->SetDirection(src->GetDirection());
 
-  // Set the image sizes and spacing.
-  filter->SetSize(sz);
-  filter->SetOutputSpacing(spc_post);
-  filter->SetOutputOrigin(origin_post);
-  filter->SetOutputDirection(src->GetDirection());
-  filter->SetInput(fltSmooth->GetOutput());
-  filter->SetTransform(tran);
-  filter->SetInterpolator(func);
+  return ImageBasePointer(ref.GetPointer());
+}
 
-  filter->GraftOutput(trg);
-  filter->Update();
+template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::CompositeImagePointer
+LDDMMData<TFloat, VDim>
+::cimg_downsample(CompositeImageType *img, double factor)
+{
+  // First smooth the image to avoid aliasing
+  Vec sigma;
+  for(unsigned int d = 0; d < VDim; d++)
+    sigma[d] = 0.5 * factor * img->GetSpacing()[d];
+
+  CompositeImagePointer smoothed = CompositeImageType::New();
+  cimg_smooth(img, smoothed, sigma);
+
+  // Create a target space
+  ImageBasePointer ref_space = create_reference_space_for_downsample(img, factor);
+
+  // Use the fast resampler to resample the image to target resolution
+  typedef FastWarpCompositeImageFilter<CompositeImageType, CompositeImageType, VectorImageType> WF;
+  typename WF::Pointer wf = WF::New();
+  wf->SetReferenceSpace(ref_space);
+  wf->SetMovingImage(smoothed);
+  wf->SetUseNearestNeighbor(false);
+  wf->SetUsePhysicalSpace(true);
+  wf->SetOutsideValue(0);
+  wf->Update();
+
+  // Just return the output
+  return wf->GetOutput();
+}
+
+template <class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::ImagePointer
+LDDMMData<TFloat, VDim>
+::img_downsample(ImageType *img, double factor)
+{
+  // First smooth the image to avoid aliasing
+  Vec sigma;
+  for(unsigned int d = 0; d < VDim; d++)
+    sigma[d] = 0.5 * factor * img->GetSpacing()[d];
+
+  ImagePointer smoothed = ImageType::New();
+  img_smooth(img, smoothed, sigma);
+
+  // Create a target space
+  ImageBasePointer ref_space = create_reference_space_for_downsample(img, factor);
+
+  // Use the fast resampler to resample the image to target resolution
+  typedef FastWarpCompositeImageFilter<ImageType, ImageType, VectorImageType> WF;
+  typename WF::Pointer wf = WF::New();
+  wf->SetReferenceSpace(ref_space);
+  wf->SetMovingImage(smoothed);
+  wf->SetUseNearestNeighbor(false);
+  wf->SetUsePhysicalSpace(true);
+  wf->SetOutsideValue(0);
+  wf->Update();
+
+  // Just return the output
+  return wf->GetOutput();
 }
 
 template <class TFloat, uint VDim>
@@ -1706,9 +1850,9 @@ void
 LDDMMData<TFloat, VDim>
 ::vimg_resample_identity(VectorImageType *src, ImageBaseType *ref, VectorImageType *trg)
 {
-  typedef itk::VectorResampleImageFilter<VectorImageType, VectorImageType, TFloat> ResampleFilter;
+  typedef itk::ResampleImageFilter<VectorImageType, VectorImageType, TFloat> ResampleFilter;
   typedef itk::IdentityTransform<TFloat, VDim> TranType;
-  typedef itk::OptVectorLinearInterpolateImageFunction<VectorImageType, TFloat> InterpType;
+  typedef itk::LinearInterpolateImageFunction<VectorImageType, TFloat> InterpType;
 
   typename ResampleFilter::Pointer filter = ResampleFilter::New();
   typename TranType::Pointer tran = TranType::New();
@@ -1721,6 +1865,7 @@ LDDMMData<TFloat, VDim>
   filter->SetOutputSpacing(ref->GetSpacing());
   filter->SetOutputOrigin(ref->GetOrigin());
   filter->SetOutputDirection(ref->GetDirection());
+  filter->SetOutputStartIndex(ref->GetBufferedRegion().GetIndex());
   filter->GraftOutput(trg);
   filter->Update();
 }
@@ -1758,7 +1903,7 @@ public:
   typedef typename TImage::PixelType PixelType;
   PixelType operator() (const PixelType &x)
   {
-    return isnan(x) ? 1 : 0;
+    return std::isnan(x) ? 1 : 0;
   }
 };
 
@@ -1771,7 +1916,7 @@ public:
   typedef typename TImage::PixelType PixelType;
   PixelType operator() (const PixelType &x)
   {
-    return isnan(x) ? 0 : x;
+    return std::isnan(x) ? 0 : x;
   }
 };
 
@@ -1821,6 +1966,128 @@ LDDMMData<TFloat, VDim>
   filter->Update();
 }
 
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_add_in_place(CompositeImageType *trg, CompositeImageType *a)
+{
+  // The regions of the two images must be the same
+  struct AddFunctor {
+    static TFloat apply (TFloat a, TFloat b) { return a+b; }
+  };
+
+  cimg_apply_binary_functor_in_place<AddFunctor>(trg, a);
+}
+
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_scale_in_place(CompositeImageType *trg, TFloat scale)
+{
+  // Create a fake region to partition the entire data chunk
+  unsigned int npix = trg->GetPixelContainer()->Size();
+  itk::ImageRegion<1> full_region({{0}}, {{npix}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [trg, scale](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *pt = trg->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *pt_end = pt + thread_region.GetSize(0);
+    for(; pt < pt_end; ++pt)
+      *pt *= scale;
+    }, nullptr);
+}
+
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_threshold_in_place(CompositeImageType *trg, double lt, double up, double fore, double back)
+{
+  // Create a fake region to partition the entire data chunk
+  unsigned int npix = trg->GetPixelContainer()->Size();
+  itk::ImageRegion<1> full_region({{0}}, {{npix}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [trg, lt, up, fore, back](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *pt = trg->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *pt_end = pt + thread_region.GetSize(0);
+    for(; pt < pt_end; ++pt)
+      *pt = (*pt >= lt && *pt <= up) ? fore : back;
+    }, nullptr);
+}
+
+template<class TFloat, uint VDim>
+void LDDMMData<TFloat, VDim>
+::cimg_add_gaussian_noise_in_place(
+    CompositeImageType *img, const std::vector<double> &sigma, unsigned long stride)
+{
+  // Create a fake region to partition the entire data chunk
+  unsigned int npix = img->GetBufferedRegion().GetNumberOfPixels();
+  itk::ImageRegion<1> full_region({{0}}, {{npix}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [img, stride, &sigma](const itk::ImageRegion<1> &thread_region)
+    {
+    unsigned int nc = img->GetNumberOfComponentsPerPixel();
+    vnl_random randy;
+
+    TFloat *p = img->GetBufferPointer() + thread_region.GetIndex(0) * nc;
+    TFloat *p_end = p + thread_region.GetSize(0) * nc;
+
+    // Does the user want to reuse normal values? Then we create a small array of
+    // random numbers and reuse them.
+    if(stride > 0 && stride < thread_region.GetSize(0))
+      {
+      // Create an array of stride random numbers
+      unsigned int n_len = stride * nc;
+      TFloat *n_start = new TFloat[stride * nc], *n = n_start, *n_end = n_start + stride * nc;
+      for(; n < n_end; n += nc)
+        {
+        for(unsigned int j = 0; j < nc; j++)
+          n[j] = randy.normal() * sigma[j];
+        }
+
+      // Add those as noise to the pixels
+      while(p < p_end)
+        {
+        // How many pixels to go
+        TFloat *n_end_trim = p_end - p >= n_len ? n_end : n_start + (p_end - p);
+        for(n = n_start; n < n_end_trim; n++, p++)
+          *p += *n;
+        }
+      }
+    else
+      {
+      // Just generate random numbers, no reuse
+      for(; p < p_end; p += nc)
+        for(unsigned int j = 0; j < nc; j++)
+          p[j] += randy.normal() * sigma[j];
+      }
+    }, nullptr);
+
+  // Mark image as modified
+  img->Modified();
+}
+
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::vimg_add_gaussian_noise_in_place(
+    VectorImageType *img, double sigma, unsigned long stride)
+{
+  // Use the cimg method by masquerading
+  CompositeImagePointer cimg = vimg_as_cimg(img);
+  std::vector<double> sigma_vec(VDim, sigma);
+  cimg_add_gaussian_noise_in_place(cimg, sigma_vec, stride);
+  img->Modified();
+}
 
 template <class TImage>
 struct VoxelToPhysicalFunctor
@@ -2120,6 +2387,138 @@ LDDMMImageMatchingObjective<TFloat, VDim>
   return e_field + e_image;
 }
 
+template<class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::CompositeImagePointer
+LDDMMData<TFloat, VDim>
+::vimg_as_cimg(VectorImageType *src)
+{
+  CompositeImagePointer cimg = CompositeImageType::New();
+  cimg->CopyInformation(src);
+  cimg->SetNumberOfComponentsPerPixel(VDim);
+  cimg->SetRegions(src->GetBufferedRegion());
+  cimg->GetPixelContainer()->SetImportPointer(
+        reinterpret_cast<TFloat *>(src->GetBufferPointer()),
+        src->GetBufferedRegion().GetNumberOfPixels() * VDim,
+        false);
+  return cimg;
+}
+
+template<class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::ImagePointer
+LDDMMData<TFloat, VDim>
+::cimg_as_img(CompositeImageType *src)
+{
+  itkAssertOrThrowMacro(src->GetNumberOfComponentsPerPixel() == 1,
+                        "Multicomponent image passed to cimg_as_img");
+
+  ImagePointer img = ImageType::New();
+  img->CopyInformation(src);
+  img->SetRegions(src->GetBufferedRegion());
+  img->SetPixelContainer(src->GetPixelContainer());
+  return img;
+}
+
+template<class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::CompositeImagePointer
+LDDMMData<TFloat, VDim>
+::img_as_cimg(ImageType *src)
+{
+  CompositeImagePointer img = CompositeImageType::New();
+  img->CopyInformation(src);
+  img->SetNumberOfComponentsPerPixel(1);
+  img->SetRegions(src->GetBufferedRegion());
+  img->SetPixelContainer(src->GetPixelContainer());
+  return img;
+}
+
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_extract_component(CompositeImageType *src, ImageType *trg, unsigned int c)
+{
+  itkAssertOrThrowMacro(
+        trg->GetBufferedRegion() == src->GetBufferedRegion(),
+        "Source and target image regions are different in cimg_extract_component");
+
+  // Create a fake region to partition the entire data chunk
+  unsigned int nc = src->GetNumberOfComponentsPerPixel();
+  unsigned int np = src->GetBufferedRegion().GetNumberOfPixels();
+  itk::ImageRegion<1> full_region({{0}}, {{np}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [src,trg, nc, c](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *p = src->GetBufferPointer() + nc * thread_region.GetIndex(0) + c;
+    TFloat *m = trg->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *m_end = m + thread_region.GetSize(0);
+    for(; m < m_end; ++m, p+=nc)
+      *m = *p;
+    }, nullptr);
+
+  trg->Modified();
+}
+
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_update_component(CompositeImageType *cimg, ImageType *comp, unsigned int c)
+{
+  itkAssertOrThrowMacro(
+        cimg->GetBufferedRegion() == comp->GetBufferedRegion(),
+        "Source and target image regions are different in cimg_extract_component");
+
+  // Create a fake region to partition the entire data chunk
+  unsigned int nc = cimg->GetNumberOfComponentsPerPixel();
+  unsigned int np = cimg->GetBufferedRegion().GetNumberOfPixels();
+  itk::ImageRegion<1> full_region({{0}}, {{np}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [cimg,comp, nc, c](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *p = cimg->GetBufferPointer() + nc * thread_region.GetIndex(0) + c;
+    TFloat *m = comp->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *m_end = m + thread_region.GetSize(0);
+    for(; m < m_end; ++m, p+=nc)
+      *p = *m;
+    }, nullptr);
+
+  cimg->Modified();
+}
+
+
+
+template<class TFloat, uint VDim>
+template<class TFunctor>
+void
+LDDMMData<TFloat, VDim>
+::cimg_apply_binary_functor_in_place(CompositeImageType *trg, CompositeImageType *a)
+{
+  // Regions must match
+  itkAssertOrThrowMacro(trg->GetBufferedRegion() == a->GetBufferedRegion(),
+                        "Image region mismatch in binary composite image operation");
+
+  // Create a fake region to partition the entire data chunk
+  unsigned int npix = trg->GetPixelContainer()->Size();
+  itk::ImageRegion<1> full_region({{0}}, {{npix}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [trg, a](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *pt = trg->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *pa = a->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *pt_end = pt + thread_region.GetSize(0);
+    for(; pt < pt_end; ++pt, ++pa)
+      *pt = TFunctor::apply(*pt, *pa);
+    }, nullptr);
+}
+
+
 
 template class LDDMMData<float, 2>;
 template class LDDMMData<float, 3>;
@@ -2137,4 +2536,5 @@ template class LDDMMFFTInterface<double, 4>;
 
 template class LDDMMImageMatchingObjective<myreal, 2>;
 template class LDDMMImageMatchingObjective<myreal, 3>;
+
 

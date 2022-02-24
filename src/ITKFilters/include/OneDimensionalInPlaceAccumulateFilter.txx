@@ -38,6 +38,7 @@ OneDimensionalInPlaceAccumulateFilter<TInputImage>
   m_ComponentOffsetFront = m_ComponentOffsetBack = 0;
   m_Splitter = SplitterType::New();
   this->InPlaceOn();
+  this->DynamicMultiThreadingOff();
 }
 
 template <class TInputImage>
@@ -71,18 +72,16 @@ public:
   typedef OneDimensionalInPlaceAccumulateFilter<TInputImage> FilterType;
   typedef typename FilterType::OutputImageRegionType OutputImageRegionType;
   typedef typename FilterType::InputImageType InputImageType;
-  static void ThreadedGenerateData(FilterType *filter,
-                                   const OutputImageRegionType & outputRegionForThread,
-                                   itk::ThreadIdType threadId);
+  static void DynamicThreadedGenerateData(FilterType *filter,
+                                          const OutputImageRegionType & outputRegionForThread);
 };
 
 
 template <class TPixel, class TInputImage>
 void
 OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
-::ThreadedGenerateData(FilterType *filter,
-                       const OutputImageRegionType & outputRegionForThread,
-                       itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(FilterType *filter,
+                              const OutputImageRegionType & outputRegionForThread)
 {
   // Get filter parameters
   int radius = filter->GetRadius();
@@ -217,7 +216,9 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
 
 // ### PY, 05/18/2016: checked again, this SSE code is not causing any differences in float/double
 //                     processing, safe to keep as is!
+#ifndef __aarch64__
 #define _NCC_SSE_
+#endif
 #ifdef _NCC_SSE_
 
 #include <xmmintrin.h>
@@ -264,17 +265,15 @@ public:
   typedef OneDimensionalInPlaceAccumulateFilter<TInputImage> FilterType;
   typedef typename FilterType::OutputImageRegionType OutputImageRegionType;
   typedef typename FilterType::InputImageType InputImageType;
-  static void ThreadedGenerateData(FilterType *filter,
-                                   const OutputImageRegionType & outputRegionForThread,
-                                   itk::ThreadIdType threadId);
+  static void DynamicThreadedGenerateData(FilterType *filter,
+                                          const OutputImageRegionType & outputRegionForThread);
 };
 
 template <class TInputImage>
 void
 OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
-::ThreadedGenerateData(FilterType *filter,
-                       const OutputImageRegionType & outputRegionForThread,
-                       itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(FilterType *filter,
+                              const OutputImageRegionType & outputRegionForThread)
 {
   // Get filter parameters
   int dimension = filter->GetDimension();
@@ -468,16 +467,12 @@ OneDimensionalInPlaceAccumulateFilterWorker<float, TInputImage>
 template <class TInputImage>
 void
 OneDimensionalInPlaceAccumulateFilter<TInputImage>
-::ThreadedGenerateData(
-    const OutputImageRegionType & outputRegionForThread,
-    itk::ThreadIdType threadId)
+::ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
+                       itk::ThreadIdType itkNotUsed(threadId) )
 {
   typedef OneDimensionalInPlaceAccumulateFilterWorker<OutputImageComponentType, InputImageType> WorkerType;
-  WorkerType::ThreadedGenerateData(this, outputRegionForThread, threadId);
+  WorkerType::DynamicThreadedGenerateData(this, outputRegionForThread);
 }
-
-
-
 
 template <class TInputImage>
 typename TInputImage::Pointer

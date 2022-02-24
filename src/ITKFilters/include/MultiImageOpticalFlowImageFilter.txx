@@ -45,9 +45,8 @@
 template <class TMetricTraits>
 void
 MultiImageOpticalFlowImageFilter<TMetricTraits>
-::ThreadedGenerateData(
-  const OutputImageRegionType& outputRegionForThread,
-  itk::ThreadIdType threadId )
+::DynamicThreadedGenerateData(
+  const OutputImageRegionType& outputRegionForThread)
 {
   // Get the number of components
   int ncomp = this->GetFixedImage()->GetNumberOfComponentsPerPixel();
@@ -56,8 +55,8 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
   typedef MultiComponentMetricWorker<TMetricTraits, MetricImageType> InterpType;
   InterpType iter(this, this->GetMetricOutput(), outputRegionForThread);
 
-  // Get the per-component metric array
-  typename Superclass::ThreadData &td = this->m_ThreadData[threadId];
+  // This is the accumulator of metric and gradient values for this region
+  typename Superclass::ThreadAccumulatedData td(ncomp);
 
   // Iterate over the lines
   for(; !iter.IsAtEnd(); iter.NextLine())
@@ -89,47 +88,101 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
         typedef typename InterpType::InterpType FastInterpolator;
         typename FastInterpolator::InOut status = iter.Interpolate();
 
-        // Outside interpolations are ignored
-        if(status != FastInterpolator::OUTSIDE)
+        // Logic splits on whether we want weighted or unweighted computation. For weighted computation,
+        // hits outside of the moving mask / moving domain do not contribute to the metric at all. For
+        // unweighted computation, locations outside of the moving mask / moving domain are assugmed to
+        // have a fixed background intensity value (default being 0)
+        if(this->m_Weighted)
           {
-          // Iterate over the components
-          for(int k = 0; k < ncomp; k++)
+          itkAssertOrThrowMacro(false, "Weighted SSD metric not yet implemented");
+          }
+        else
+          {
+          // For unweighted computation, every visited pixel contributes 1.0 to the mask
+          td.mask += 1.0;
+
+          // There is some code duplication here, but it looks neater than having multiple if statements
+          // and should run faster as well
+          if(status == FastInterpolator::INSIDE)
             {
-            // Compute the weighted squared difference
-            double del = iter.GetFixedLine()[k] - iter.GetMovingSample()[k];
-            double delw = this->m_Weights[k] * del;
-            double del2w = delw * del;
-
-            // Add the value to the metric
-            metric += del2w;
-
-            // Add the value to each component
-            td.comp_metric[k] += del2w;
-
-            // This is currently computing negative half of the gradient
-            if(this->m_ComputeGradient)
+            for(int k = 0; k < ncomp; k++)
               {
-              const RealType *grad_mov_k = iter.GetMovingSampleGradient(k);
-              if(this->m_UseDemonsGradientForm)
-                {
-                // The Newton-Gauss formulation from Vercauteren 2008
-                double denominator = this->m_DemonsSigma;
-                for(int i = 0; i < ImageDimension; i++)
-                  denominator += grad_mov_k[i] * grad_mov_k[i];
+              // Compute the metric
+              double del = iter.GetFixedLine()[k] - iter.GetMovingSample()[k];
+              double delw = this->m_Weights[k] * del;
+              double del2w = delw * del;
 
-                double scale = delw / denominator;
-                for(int i = 0; i < ImageDimension; i++)
-                  grad_metric[i] += scale * grad_mov_k[i];
-                }
-              else
+              // Add the value to the metric
+              metric += del2w;
+              td.comp_metric[k] += del2w;
+
+              if(this->m_ComputeGradient)
                 {
-                // Simple, unscaled gradient to use with affine registration
+                const RealType *grad_mov_k = iter.GetMovingSampleGradient(k);
                 for(int i = 0; i < ImageDimension; i++)
                   grad_metric[i] += delw * grad_mov_k[i];
                 }
               }
             }
+          else if(status == FastInterpolator::OUTSIDE)
+            {
+            // Compute the metric
+            for(int k = 0; k < ncomp; k++)
+              {
+              // Compute the metric
+              double del = iter.GetFixedLine()[k] - this->m_BackgroundValue;
+              double delw = this->m_Weights[k] * del;
+              double del2w = delw * del;
 
+              // Add the value to the metric
+              metric += del2w;
+              td.comp_metric[k] += del2w;
+              }
+            }
+          else
+            {
+            // Compute the metric
+            for(int k = 0; k < ncomp; k++)
+              {
+              // Compute the metric
+              double mov_sample = iter.GetMovingSample()[k] + (1.0 - iter.GetMask()) * this->m_BackgroundValue;
+              double del = iter.GetFixedLine()[k] - mov_sample;
+              double delw = this->m_Weights[k] * del;
+              double del2w = delw * del;
+
+              // Add the value to the metric
+              metric += del2w;
+              td.comp_metric[k] += del2w;
+
+              // Compute the gradient
+              if(this->m_ComputeGradient)
+                {
+                const RealType *grad_mov_k = iter.GetMovingSampleGradient(k);
+                for(int i = 0; i < ImageDimension; i++)
+                  {
+                  double d_mov_sample = grad_mov_k[i] - iter.GetMaskGradient()[i] * this->m_BackgroundValue;
+                  grad_metric[i] += delw * d_mov_sample;
+                  }
+                }
+              }
+            }
+          }
+
+        // Add metric to the total
+        td.metric += metric;
+
+        // Complete gradient computation for affine registration
+        if(this->m_ComputeGradient && this->m_ComputeAffine)
+          {
+          for(int i = 0, q = 0; i < ImageDimension; i++)
+            {
+            td.gradient[q++] += grad_metric[i];
+            for(int j = 0; j < ImageDimension; j++)
+              td.gradient[q++] += grad_metric[i] * iter.GetIndex()[j];
+            }
+          }
+
+/*
           // If on the border, apply the mask
           if(status == FastInterpolator::BORDER && this->m_ComputeMovingDomainMask)
             {
@@ -174,15 +227,18 @@ MultiImageOpticalFlowImageFilter<TMetricTraits>
                 }
               }
             }
-          } // not outside
+          } // not outside */
         } // check fixed mask
 
       // Last thing - update the output voxels
-      *iter.GetOutputLine() = metric;
+      *iter.GetOutputLine() += metric;
       if(grad_line)
-        grad_line[iter.GetLinePos()] = grad_metric;
+        grad_line[iter.GetLinePos()] += grad_metric;
       }
     }
+
+  // Update the accumulated values in a thread-safe way
+  this->m_AccumulatedData.Accumulate(td);
 }
 
 

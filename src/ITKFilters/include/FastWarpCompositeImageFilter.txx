@@ -34,12 +34,15 @@
 template <class TInputImage, class TOutputImage, class TDeformationField>
 void
 FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
-::ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread,
-                       itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread)
 {
-  // Our images
-  const DeformationFieldType *def = this->GetDeformationField();
+  // The moving image
   InputImageType *input = this->GetMovingImage();
+
+  // The deformation field. If null, the deformation is identity and we need to use the
+  // reference space input
+  const DeformationFieldType *def = this->GetDeformationField();
+  const ImageBaseType *ref_space = def ? def : this->GetReferenceSpace();
 
   int line_len = outputRegionForThread.GetSize(0);
 
@@ -61,7 +64,7 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
   for(IterType it(this->GetOutput(), outputRegionForThread); !it.IsAtEnd(); it.NextLine())
     {
     // Get the pointer to the displacement vector line and the output vector line
-    const DeformationVectorType *phi = it.GetPixelPointer(def);
+    const DeformationVectorType *phi = def ? it.GetPixelPointer(def) : nullptr;
     OutputComponentType *out = it.GetPixelPointer(this->GetOutput());
 
     // Voxel index
@@ -74,9 +77,9 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
     if(m_UsePhysicalSpace)
       {
       // Compute starting point and point step
-      this->GetDeformationField()->TransformIndexToPhysicalPoint(idx, p);
+      this->GetReferenceSpace()->TransformIndexToPhysicalPoint(idx, p);
       idx[0] += 1;
-      this->GetDeformationField()->TransformIndexToPhysicalPoint(idx, p_step);
+      this->GetReferenceSpace()->TransformIndexToPhysicalPoint(idx, p_step);
       for(int j = 0; j < ImageDimension; j++)
         p_step[j] -= p[j];
       }
@@ -84,22 +87,48 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
     // Loop over the line
     for(int i = 0; i < line_len; i++)
       {
-      if(m_UsePhysicalSpace)
+      if(phi)
         {
-        for(int j = 0; j < ImageDimension; j++)
+        // We use this code if there is an actual transform
+        if(m_UsePhysicalSpace)
           {
-          pd[j] = p[j] + phi[i][j] * m_DeformationScaling;
-          p[j] += p_step[j];
-          }
+          for(int j = 0; j < ImageDimension; j++)
+            {
+            pd[j] = p[j] + phi[i][j] * m_DeformationScaling;
+            p[j] += p_step[j];
+            }
 
-        // TODO: this calls IsInside() internally, which limits efficiency
-        input->TransformPhysicalPointToContinuousIndex(pd, cix);
+          // TODO: this calls IsInside() internally, which limits efficiency
+          input->TransformPhysicalPointToContinuousIndex(pd, cix);
+          }
+        else
+          {
+          for(int j = 0; j < ImageDimension; j++)
+            cix[j] = idx[j] + phi[i][j] * m_DeformationScaling;
+          idx[0]++;
+          }
         }
       else
         {
-        for(int j = 0; j < ImageDimension; j++)
-          cix[j] = idx[j] + phi[i][j] * m_DeformationScaling;
-        idx[0]++;
+        // We use this code if there is an actual transform
+        if(m_UsePhysicalSpace)
+          {
+          for(int j = 0; j < ImageDimension; j++)
+            {
+            pd[j] = p[j];
+            p[j] += p_step[j];
+            }
+
+          // TODO: this calls IsInside() internally, which limits efficiency
+          // and we can just do the above stepping using indices. FIX!!!
+          input->TransformPhysicalPointToContinuousIndex(pd, cix);
+          }
+        else
+          {
+          for(int j = 0; j < ImageDimension; j++)
+            cix[j] = idx[j];
+          idx[0]++;
+          }
         }
 
       // Perform the interpolation
@@ -127,7 +156,9 @@ void
 FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
 ::GenerateInputRequestedRegion()
 {
-  this->GetDeformationField()->SetRequestedRegion(this->GetOutput()->GetRequestedRegion());
+  if(this->GetDeformationField())
+    this->GetDeformationField()->SetRequestedRegion(this->GetOutput()->GetRequestedRegion());
+
   this->GetMovingImage()->SetRequestedRegionToLargestPossibleRegion();
 
 }
@@ -140,7 +171,7 @@ FastWarpCompositeImageFilter<TInputImage,TOutputImage,TDeformationField>
   Superclass::GenerateOutputInformation();
 
   this->GetOutput()->SetNumberOfComponentsPerPixel(this->GetMovingImage()->GetNumberOfComponentsPerPixel());
-  this->GetOutput()->SetLargestPossibleRegion(this->GetDeformationField()->GetLargestPossibleRegion());
+  this->GetOutput()->SetLargestPossibleRegion(this->GetReferenceSpace()->GetLargestPossibleRegion());
 }
 
 

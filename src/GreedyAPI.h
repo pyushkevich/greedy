@@ -35,6 +35,7 @@
 #include <vnl/vnl_random.h>
 #include <map>
 #include "itkCommand.h"
+#include <vtkSmartPointer.h>
 
 template <typename T, unsigned int V> class MultiImageOpticalFlowHelper;
 
@@ -42,6 +43,8 @@ namespace itk {
   template <typename T, unsigned int D1, unsigned int D2> class MatrixOffsetTransformBase;
 
 }
+
+class vtkPolyData;
 
 /**
  * This is the top level class for the greedy software. It contains methods
@@ -77,6 +80,10 @@ public:
     VectorImagePointer grad_moving;
     double weight;
   };
+
+  // Mesh data structures
+  typedef vtkSmartPointer<vtkPolyData> MeshPointer;
+  typedef std::vector<MeshPointer> MeshArray;
 
   static void ConfigThreads(const GreedyParameters &param);
 
@@ -168,18 +175,73 @@ public:
   static void WriteAffineTransform(const std::string &filename, LinearTransformType *tran);
 
   static vnl_matrix<double> MapAffineToPhysicalRASSpace(
-      OFHelperType &of_helper, int level,
+      OFHelperType &of_helper, unsigned int group, unsigned int level,
       LinearTransformType *tran);
 
   static void MapPhysicalRASSpaceToAffine(
-      OFHelperType &of_helper, int level,
+      OFHelperType &of_helper, unsigned int group, unsigned int level,
       vnl_matrix<double> &Qp,
       LinearTransformType *tran);
+
+  static void MapRASAffineToPhysicalWarp(const vnl_matrix<double> &mat,
+                                         VectorImagePointer &out_warp);
 
   void RecordMetricValue(const MultiComponentMetricReport &metric);
 
   // Helper method to print iteration reports
   std::string PrintIter(int level, int iter, const MultiComponentMetricReport &metric) const;
+
+  /**
+   * Read images specified in parameters into a helper data structure and initialize
+   * the multi-resolution pyramid
+   */
+  void ReadImages(GreedyParameters &param, OFHelperType &ofhelper,
+                  bool force_resample_to_fixed_space);
+
+  /**
+   * Compute one of the metrics (specified in the parameters). This code is called by
+   * RunDeformable and is provided as a separate public method for testing purposes
+   */
+  void EvaluateMetricForDeformableRegistration(
+      GreedyParameters &param, OFHelperType &of_helper, unsigned int level,
+      VectorImageType *phi, MultiComponentMetricReport &metric_report,
+      ImageType *out_metric_image, VectorImageType *out_metric_gradient, double eps);
+
+  /**
+   * Load initial transform (affine or deformable) into a deformation field
+   */
+  void LoadInitialTransform(
+      GreedyParameters &param, OFHelperType &of_helper,
+      unsigned int level, VectorImageType *phi);
+
+
+  /**
+   * Generate an affine cost function for given level based on parameter values
+   */
+  AbstractAffineCostFunction<VDim, TReal> *CreateAffineCostFunction(
+      GreedyParameters &param, OFHelperType &of_helper, int level);
+
+  /**
+   * Initialize affine transform (to identity, filename, etc.) based on the
+   * parameter values; resulting transform is placed into tLevel.
+   */
+  void InitializeAffineTransform(
+      GreedyParameters &param, OFHelperType &of_helper,
+      AbstractAffineCostFunction<VDim, TReal> *acf,
+      LinearTransformType *tLevel);
+
+  /**
+   * Check the derivatives of affine transform
+   */
+  int CheckAffineDerivatives(GreedyParameters &param, OFHelperType &of_helper,
+                             AbstractAffineCostFunction<VDim, TReal> *acf,
+                             LinearTransformType *tLevel, int level, double tol);
+
+  /** Apply affine transformation to a mesh */
+  static void TransformMeshAffine(vtkPolyData *mesh, vnl_matrix<double> mat);
+
+  /** Apply warp to a mesh */
+  static void TransformMeshWarp(vtkPolyData *mesh, VectorImageType *warp);
 
 protected:
 
@@ -203,9 +265,12 @@ protected:
   // will be unknown.
   template <class TImage>
   itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename,
-                                              itk::ImageIOBase::IOComponentType *comp_type = NULL);
+                                              itk::IOComponentEnum *comp_type = NULL);
 
   template<class TObject> TObject *CheckCache(const std::string &filename) const;
+
+  // Get a filename for dumping intermediate outputs
+  std::string GetDumpFile(const GreedyParameters &param, const char *pattern, ...);
 
   // This function reads an image base object via cache. It is more permissive than using
   // ReadImageViaCache.
@@ -215,38 +280,29 @@ protected:
   // Write an image using the cache
   template <class TImage>
   void WriteImageViaCache(TImage *img, const std::string &filename,
-                          typename LDDMMType::IOComponentType comp = itk::ImageIOBase::UNKNOWNCOMPONENTTYPE);
+                          itk::IOComponentEnum comp = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE);
 
   // Write a compressed warp via cache (in float format)
   void WriteCompressedWarpInPhysicalSpaceViaCache(
     ImageBaseType *moving_ref_space, VectorImageType *warp, const char *filename, double precision);
 
-  void ReadImages(GreedyParameters &param, OFHelperType &ofhelper);
-
   void ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
                           ImageBaseType *ref_space,
-                          VectorImagePointer &out_warp);
+                          VectorImagePointer &out_warp,
+                          MeshArray *meshes = nullptr);
 
   // Compute the moments of a composite image (mean and covariance matrix of coordinate weighted by intensity)
-  void ComputeImageMoments(CompositeImageType *image, const std::vector<double> &weights, VecFx &m1, MatFx &m2);
+  void ComputeImageMoments(CompositeImageType *image, const vnl_vector<float> &weights, VecFx &m1, MatFx &m2);
 
+  // Resample an image to reference space if the spaces do not match or if an explicit warp is provided
+  CompositeImagePointer ResampleImageToReferenceSpaceIfNeeded(
+      CompositeImageType *img, ImageBaseType *ref_space, VectorImageType *resample_warp, TReal fill_value);
 
+  ImagePointer ResampleMaskToReferenceSpaceIfNeeded(
+      ImageType *mask, ImageBaseType *ref_space, VectorImageType *resample_warp);
 
   // friend class PureAffineCostFunction<VDim, TReal>;
 
-};
-
-// Little helper functions
-template <unsigned int VDim> class array_caster
-{
-public:
-  template <class T> static itk::Size<VDim> to_itkSize(const T &t)
-  {
-    itk::Size<VDim> sz;
-    for(int i = 0; i < VDim; i++)
-      sz[i] = t[i];
-    return sz;
-  }
 };
 
 

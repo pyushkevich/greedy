@@ -6,10 +6,10 @@
 ##   ENABLE_TESTING()
 ##   INCLUDE(CTest)
 
-set(CTEST_PROJECT_NAME "greedy")
+set(CTEST_PROJECT_NAME "GreedyReg")
 set(CTEST_NIGHTLY_START_TIME "01:00:00 UTC")
 
 set(CTEST_DROP_METHOD "http")
-set(CTEST_DROP_SITE "itksnap.org")
-set(CTEST_DROP_LOCATION "/cdash/submit.php?project=greedy")
+set(CTEST_DROP_SITE "my.cdash.org")
+set(CTEST_DROP_LOCATION "/submit.php?project=GreedyReg")
 set(CTEST_DROP_SITE_CDASH TRUE)

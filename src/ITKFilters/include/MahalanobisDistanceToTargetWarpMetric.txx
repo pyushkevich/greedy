@@ -142,7 +142,7 @@ public:
 template <class TMetricTraits>
 void
 MahalanobisDistanceToTargetWarpMetric<TMetricTraits>
-::ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread, itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(const OutputImageRegionType &outputRegionForThread)
 {
   // Get the fixed image (means and inverse covariances)
   InputImageType *stats = this->GetFixedImage();
@@ -159,7 +159,7 @@ MahalanobisDistanceToTargetWarpMetric<TMetricTraits>
   typedef MahalanobisDistanceFunctor<typename TMetricTraits::RealType, ImageDimension> Functor;
 
   // Get the per-component metric array
-  typename Superclass::ThreadData &td = this->m_ThreadData[threadId];
+  typename Superclass::ThreadAccumulatedData td(nc);
 
   // Loop over the lines
   for (; !iter.IsAtEnd(); iter.NextLine())
@@ -228,6 +228,9 @@ MahalanobisDistanceToTargetWarpMetric<TMetricTraits>
         }
       }
     } // iteration over lines
+
+  // Accumulate this thread's data to total in thread-safe way
+  this->m_AccumulatedData.Accumulate(td);
 }
 
 

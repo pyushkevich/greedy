@@ -89,7 +89,7 @@ public:
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, ImageType::ImageDimension );
 
-  enum InOut { INSIDE, OUTSIDE, BORDER };
+  enum InOut { INSIDE = 0, OUTSIDE, BORDER };
 
   /**
    * Get the number that should be added to the input pointer when parsing the input and
@@ -205,6 +205,10 @@ public:
 
   FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : Superclass(image, mask)
   {
+    xind = image->GetLargestPossibleRegion().GetIndex()[0];
+    yind = image->GetLargestPossibleRegion().GetIndex()[1];
+    zind = image->GetLargestPossibleRegion().GetIndex()[2];
+
     xsize = image->GetLargestPossibleRegion().GetSize()[0];
     ysize = image->GetLargestPossibleRegion().GetSize()[1];
     zsize = image->GetLargestPossibleRegion().GetSize()[2];
@@ -217,9 +221,12 @@ public:
   {
     const InputComponentType *dp;
 
-    x0 = (int) floor(cix[0]); fx = cix[0] - x0;
-    y0 = (int) floor(cix[1]); fy = cix[1] - y0;
-    z0 = (int) floor(cix[2]); fz = cix[2] - z0;
+    // Adjust for non-zero index
+    RealType px = cix[0] - xind, py = cix[1] - yind, pz = cix[2] - zind;
+
+    x0 = (int) floor(px); fx = px - x0;
+    y0 = (int) floor(py); fy = py - y0;
+    z0 = (int) floor(pz); fz = pz - z0;
 
     x1 = x0 + 1;
     y1 = y0 + 1;
@@ -393,9 +400,11 @@ public:
 
   InOut InterpolateNearestNeighbor(RealType *cix, OutputComponentType *out)
   {
-    x0 = (int) floor(cix[0] + 0.5);
-    y0 = (int) floor(cix[1] + 0.5);
-    z0 = (int) floor(cix[2] + 0.5);
+    // Adjust for non-zero index
+    RealType px = cix[0] - xind, py = cix[1] - yind, pz = cix[2] - zind;
+    x0 = (int) floor(px + 0.5);
+    y0 = (int) floor(py + 0.5);
+    z0 = (int) floor(pz + 0.5);
 
     if (x0 >= 0 && x0 < xsize &&
         y0 >= 0 && y0 < ysize &&
@@ -631,6 +640,9 @@ protected:
   // Image size
   int xsize, ysize, zsize;
 
+  // Image index
+  int xind, yind, zind;
+
   // State of current interpolation
   const InputComponentType *d000, *d001, *d010, *d011, *d100, *d101, *d110, *d111;
   RealType m000, m001, m010, m011, m100, m101, m110, m111;
@@ -661,6 +673,9 @@ public:
 
   FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : Superclass(image, mask)
   {
+    xind = image->GetLargestPossibleRegion().GetIndex()[0];
+    yind = image->GetLargestPossibleRegion().GetIndex()[1];
+
     xsize = image->GetLargestPossibleRegion().GetSize()[0];
     ysize = image->GetLargestPossibleRegion().GetSize()[1];
   }
@@ -672,8 +687,11 @@ public:
   {
     const InputComponentType *dp;
 
-    x0 = (int) floor(cix[0]); fx = cix[0] - x0;
-    y0 = (int) floor(cix[1]); fy = cix[1] - y0;
+    // Adjust for non-zero index
+    RealType px = cix[0] - xind, py = cix[1] - yind;
+
+    x0 = (int) floor(px); fx = px - x0;
+    y0 = (int) floor(py); fy = py - y0;
 
     x1 = x0 + 1;
     y1 = y0 + 1;
@@ -803,8 +821,9 @@ public:
 
   InOut InterpolateNearestNeighbor(RealType *cix, OutputComponentType *out)
   {
-    x0 = (int) floor(cix[0] + 0.5);
-    y0 = (int) floor(cix[1] + 0.5);
+    RealType px = cix[0] - xind, py = cix[1] - yind;
+    x0 = (int) floor(px + 0.5);
+    y0 = (int) floor(py + 0.5);
 
     if (x0 >= 0 && x0 < xsize && y0 >= 0 && y0 < ysize)
       {
@@ -982,7 +1001,7 @@ protected:
   }
 
   // Image size
-  int xsize, ysize;
+  int xsize, ysize, xind, yind;
 
   // State of current interpolation
   const InputComponentType *d00, *d01, *d10, *d11;

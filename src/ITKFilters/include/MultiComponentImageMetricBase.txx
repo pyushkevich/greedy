@@ -58,7 +58,7 @@ MultiComponentImageMetricBase<TMetricTraits>
     }
   else
     {
-    return NULL;
+    return nullptr;
     }
 }
 
@@ -78,7 +78,7 @@ void
 MultiComponentImageMetricBase<TMetricTraits>
 ::UpdateOutputs()
 {
-  this->ToggleOutput(m_ComputeGradient && !m_ComputeAffine, "phi_gradient");
+  this->ToggleOutput(m_ComputeGradient, "phi_gradient");
   this->ToggleOutput(m_ComputeGradient && m_ComputeAffine, "tran_gradient");
 
   if(m_ComputeAffine)
@@ -109,13 +109,8 @@ MultiComponentImageMetricBase<TMetricTraits>
   const InputImageType *fixed = this->GetFixedImage();
 
   // Create the prototype results vector
-  m_ThreadData.clear();
-  for (unsigned i = 0; i < this->GetNumberOfThreads(); i++)
-    {
-    ThreadData td;
-    td.comp_metric = vnl_vector<double>(fixed->GetNumberOfComponentsPerPixel(), 0.0);
-    m_ThreadData.push_back(td);
-    }
+  m_AccumulatedData.comp_metric.set_size(fixed->GetNumberOfComponentsPerPixel());
+  m_AccumulatedData.comp_metric.fill(0.0);
 }
 
 template <class TMetricTraits>
@@ -126,20 +121,7 @@ MultiComponentImageMetricBase<TMetricTraits>
   // Compute summary stats
   const InputImageType *fixed = this->GetFixedImage();
 
-  // Allocate the final result vector
-  m_AccumulatedData = ThreadData();
-  m_AccumulatedData.comp_metric = vnl_vector<double>(fixed->GetNumberOfComponentsPerPixel(), 0.0);
-
-  for(int i = 0; i < m_ThreadData.size(); i++)
-    {
-    m_AccumulatedData.metric += m_ThreadData[i].metric;
-    m_AccumulatedData.mask += m_ThreadData[i].mask;
-    m_AccumulatedData.gradient += m_ThreadData[i].gradient;
-    m_AccumulatedData.grad_mask += m_ThreadData[i].grad_mask;
-    m_AccumulatedData.comp_metric += m_ThreadData[i].comp_metric;
-    }
-
-  /*
+    /*
   printf("acc metric: %f\n", m_AccumulatedData.metric);
   printf("acc mask: %f\n", m_AccumulatedData.mask);
   */
@@ -151,9 +133,6 @@ MultiComponentImageMetricBase<TMetricTraits>
   // Compute the affine gradient
   if(m_ComputeAffine)
     {
-    m_AffineTransformGradient = TransformType::New();
-
-
     vnl_vector<double> grad_metric(m_AccumulatedData.gradient.size());
     for (unsigned j = 0; j < m_AccumulatedData.gradient.size(); j++)
       {
@@ -163,8 +142,15 @@ MultiComponentImageMetricBase<TMetricTraits>
           / m_AccumulatedData.mask;
       }
 
-    // Pack into the output
-    unflatten_affine_transform(grad_metric.data_block(), m_AffineTransformGradient.GetPointer());
+    // Pack gradient into transform object
+    m_AffineTransformGradient = TransformType::New();
+    unflatten_affine_transform(grad_metric.data_block(),
+                               m_AffineTransformGradient.GetPointer());
+
+    // Pack mask gradient into transform object
+    m_AffineTransformMaskGradient = TransformType::New();
+    unflatten_affine_transform(m_AccumulatedData.grad_mask.data_block(),
+                               m_AffineTransformMaskGradient.GetPointer());
     }
 }
 
@@ -183,6 +169,20 @@ MultiComponentImageMetricBase<TMetricTraits>
   return result;
   */
 }
+
+template <class TMetricTraits>
+void
+MultiComponentImageMetricBase<TMetricTraits>::ThreadAccumulatedData
+::Accumulate(const ThreadAccumulatedData &other)
+{
+  std::lock_guard<std::mutex> guard(this->mutex);
+  metric += other.metric;
+  mask += other.mask;
+  gradient += other.gradient;
+  grad_mask += other.grad_mask;
+  comp_metric += other.comp_metric;
+}
+
 
 #include "itkImageLinearIteratorWithIndex.h"
 #include "ImageRegionConstIteratorWithIndexOverride.h"

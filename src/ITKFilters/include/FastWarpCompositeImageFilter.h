@@ -74,11 +74,25 @@ public:
 
   typedef itk::ImageBase<ImageDimension>              ImageBaseType;
 
-  /** Set the fixed image */
-  itkNamedInputMacro(DeformationField, DeformationFieldType, "Primary")
 
-  /** Set the moving image */
+  /** Set the reference image. It must be supplied if no deformation is provided */
+  itkNamedInputMacro(ReferenceSpace, ImageBaseType, "Primary")
+
+  /** Set the moving image. This is a required input */
   itkNamedInputMacro(MovingImage, InputImageType, "moving")
+
+  /** Set the deformation field. Either this or a reference space must be supplied */
+  virtual void SetDeformationField (DeformationFieldType *phi)
+    {
+    itk::ProcessObject::SetInput("phi", phi);
+    itk::ProcessObject::SetInput("Primary", phi);
+    }
+
+  /** Get the deformation field */
+  virtual DeformationFieldType* GetDeformationField()
+    {
+    return dynamic_cast<DeformationFieldType *>(itk::ProcessObject::GetInput("phi"));
+    }
 
   /**
    * Set whether the filter should use physical space calculations, i.e., the
@@ -124,10 +138,9 @@ protected:
 
   ~FastWarpCompositeImageFilter() {}
 
-  void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                            itk::ThreadIdType threadId ) ITK_OVERRIDE;
+  void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
 
-  virtual void VerifyInputInformation() ITK_OVERRIDE {}
+  virtual void VerifyInputInformation() const ITK_OVERRIDE {}
 
   virtual void GenerateInputRequestedRegion() ITK_OVERRIDE;
 

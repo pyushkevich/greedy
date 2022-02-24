@@ -74,8 +74,8 @@ protected:
   JacobianDeterminantImageFilter() {}
   ~JacobianDeterminantImageFilter() {}
 
-  void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                            itk::ThreadIdType threadId );
+  void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
+
 private:
 
   JacobianDeterminantImageFilter(const Self&); //purposely not implemented

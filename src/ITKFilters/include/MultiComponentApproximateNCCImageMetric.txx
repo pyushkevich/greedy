@@ -89,9 +89,7 @@ MultiImageApproximateNCCPrecomputeFilter<TMetricTraits,TOutputImage>
 template <class TMetricTraits, class TOutputImage>
 void
 MultiImageApproximateNCCPrecomputeFilter<TMetricTraits,TOutputImage>
-::ThreadedGenerateData(
-  const OutputImageRegionType& outputRegionForThread,
-  itk::ThreadIdType threadId )
+::DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread)
 {
   typedef FastLinearInterpolator<InputImageType, RealType, ImageDimension> FastInterpolator;
 
@@ -396,13 +394,13 @@ MultiComponentApproximateNCCImageMetric<TMetricTraits>
 template <class TMetricTraits>
 void
 MultiComponentApproximateNCCImageMetric<TMetricTraits>
-::ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread, itk::ThreadIdType threadId)
+::DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread)
 {
   int nc = m_WorkingImage->GetNumberOfComponentsPerPixel();
   int line_len = outputRegionForThread.GetSize()[0];
 
   // Our thread data
-  typename Superclass::ThreadData &td = this->m_ThreadData[threadId];
+  typename Superclass::ThreadAccumulatedData td;
 
   // Set up an iterator for the working image
   typedef itk::ImageLinearConstIteratorWithIndex<InputImageType> InputIteratorTypeBase;
@@ -487,6 +485,9 @@ MultiComponentApproximateNCCImageMetric<TMetricTraits>
         }
       }
     }
+
+  // Accumulate data from this thread
+  this->m_AccumulatedData.Accumulate(td);
 
   delete[] grad_fixed;
 }

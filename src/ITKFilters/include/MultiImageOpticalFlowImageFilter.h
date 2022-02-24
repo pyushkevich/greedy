@@ -138,8 +138,7 @@ protected:
   MultiImageOpticalFlowImageFilter() : m_UseDemonsGradientForm(false), m_DemonsSigma(0.1) {}
   ~MultiImageOpticalFlowImageFilter() {}
 
-  void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                            itk::ThreadIdType threadId ) ITK_OVERRIDE;
+  void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
 
 private:
   MultiImageOpticalFlowImageFilter(const Self&); //purposely not implemented

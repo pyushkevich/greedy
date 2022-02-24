@@ -27,15 +27,30 @@
 #include "AffineCostFunctions.h"
 #include "MultiImageRegistrationHelper.h"
 #include "AffineTransformUtilities.h"
+#include "GreedyParameters.h"
+#include "GreedyAPI.h"
+
+
+template<unsigned int VDim, typename TReal>
+void
+AbstractAffineCostFunction<VDim, TReal>
+::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
+{
+  this->ComputeWithMask(x, f, g, nullptr, nullptr);
+}
 
 template <unsigned int VDim, typename TReal>
 PureAffineCostFunction<VDim, TReal>
-::PureAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
+::PureAffineCostFunction(
+    GreedyParameters *param, ParentType *parent,
+    unsigned int group, unsigned int level,
+    OFHelperType *helper)
   : Superclass(VDim * (VDim + 1))
 {
   // Store the data
   m_Param = param;
   m_OFHelper = helper;
+  m_Group = group;
   m_Level = level;
   m_Parent = parent;
 
@@ -43,35 +58,27 @@ PureAffineCostFunction<VDim, TReal>
   // these affine cost functions may be created without needing to do any computation
   m_Allocated = false;
 
-  m_Phi = VectorImageType::New();
-  m_Phi->CopyInformation(helper->GetReferenceSpace(level));
-  m_Phi->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-
-  m_GradMetric = VectorImageType::New();
-  m_GradMetric->CopyInformation(helper->GetReferenceSpace(level));
-  m_GradMetric->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-
-  m_GradMask = VectorImageType::New();
-  m_GradMask->CopyInformation(helper->GetReferenceSpace(level));
-  m_GradMask->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-
   m_Metric = ImageType::New();
   m_Metric->CopyInformation(helper->GetReferenceSpace(level));
   m_Metric->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
-
-  m_Mask = ImageType::New();
-  m_Mask->CopyInformation(helper->GetReferenceSpace(level));
-  m_Mask->SetRegions(helper->GetReferenceSpace(level)->GetBufferedRegion());
 }
 
-
+/*
 template <unsigned int VDim, typename TReal>
 void
 PureAffineCostFunction<VDim, TReal>
 ::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
+*/
+template <unsigned int VDim, typename TReal>
+void
+PureAffineCostFunction<VDim, TReal>
+::ComputeWithMask(vnl_vector<double> const& x,
+                  double *f_metric, vnl_vector<double>* g_metric,
+                  double *f_mask, vnl_vector<double>* g_mask)
 {
   // Form a matrix/vector from x
-  typename LinearTransformType::Pointer tran = LinearTransformType::New();
+  typedef typename LinearTransformType::Pointer LTPointer;
+  LTPointer tran = LinearTransformType::New();
 
   // Set the components of the transform
   unflatten_affine_transform(x.data_block(), tran.GetPointer());
@@ -82,21 +89,15 @@ PureAffineCostFunction<VDim, TReal>
   // Allocate the memory if needed
   if(!m_Allocated)
     {
-    m_Phi->Allocate();
-    m_GradMetric->Allocate();
-    m_GradMask->Allocate();
     m_Metric->Allocate();
-    m_Mask->Allocate();
     m_Allocated = true;
     }
-
-  // Compute the gradient
-  double val = 0.0;
 
   // The scaling of the metric. For some metrics, we need to change sign (to minimize) and also
   // it is more readable if it is scaled by some large factor
   double metric_scale =
       (m_Param->metric == GreedyParameters::NCC
+       || m_Param->metric == GreedyParameters::WNCC
        || m_Param->metric == GreedyParameters::MI
        || m_Param->metric == GreedyParameters::NMI)
       ? -10000.0 : 1.0;
@@ -105,49 +106,86 @@ PureAffineCostFunction<VDim, TReal>
   MultiComponentMetricReport out_metric;
 
   // Gradient output
-  typename LinearTransformType::Pointer grad;
-  if(g)
-    grad = LinearTransformType::New();
+  LTPointer grad_metric = g_metric ? LinearTransformType::New() : nullptr;
+  LTPointer grad_mask = g_mask ? LinearTransformType::New() : nullptr;
 
   // Perform actual metric computation
   if(m_Param->metric == GreedyParameters::SSD)
     {
-    m_OFHelper->ComputeAffineMSDMatchAndGradient(
-          m_Level, tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, out_metric, grad);
+    m_OFHelper->ComputeAffineSSDMetricAndGradient(
+          m_Group, m_Level, tran,
+          std::isnan(m_Param->background),
+          m_Param->background,
+          m_Metric, out_metric,
+          grad_metric, grad_mask);
 
     }
-  else if(m_Param->metric == GreedyParameters::NCC)
+  else if(m_Param->metric == GreedyParameters::WNCC || m_Param->metric == GreedyParameters::NCC)
     {
-    m_OFHelper->ComputeAffineNCCMatchAndGradient(
-          m_Level, tran, array_caster<VDim>::to_itkSize(m_Param->metric_radius),
-          m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, out_metric, grad);
+    m_OFHelper->ComputeAffineNCCMetricAndGradient(
+          m_Group, m_Level, tran, array_caster<VDim>::to_itkSize(m_Param->metric_radius),
+          m_Param->metric == GreedyParameters::WNCC,
+          m_Metric, out_metric,
+          grad_metric, grad_mask);
     }
   else if(m_Param->metric == GreedyParameters::MI || m_Param->metric == GreedyParameters::NMI)
     {
-    m_OFHelper->ComputeAffineMIMatchAndGradient(
-          m_Level, m_Param->metric == GreedyParameters::NMI,
-          tran, m_Metric, m_Mask, m_GradMetric, m_GradMask, m_Phi, out_metric, grad);
+    m_OFHelper->ComputeAffineNMIMetricAndGradient(
+          m_Group, m_Level, m_Param->metric == GreedyParameters::NMI,
+          tran, m_Metric, out_metric,
+          grad_metric, grad_mask);
     }
 
   // Handle the gradient
-  if(g)
+  if(g_metric)
     {
-    flatten_affine_transform(grad.GetPointer(), g->data_block());
-    (*g) *= metric_scale;
+    flatten_affine_transform(grad_metric.GetPointer(), g_metric->data_block());
+    (*g_metric) *= metric_scale;
     }
+
+  if(g_mask)
+    flatten_affine_transform(grad_mask.GetPointer(), g_mask->data_block());
 
   // Scale the output metric
   out_metric.Scale(metric_scale);
 
   // Report the output values
-  if(f)
-    *f = out_metric.TotalMetric;
+  if(f_metric)
+    *f_metric = out_metric.TotalPerPixelMetric;
+
+  if(f_mask)
+    *f_mask = out_metric.MaskVolume;
+
+  // Keep track of line searches
+  m_LineSearchMemory.update(x, out_metric.TotalPerPixelMetric, g_metric);
+
+  /*
+  // Line search reporting
+  static vnl_vector<double> last_g, last_g_x;
+  static double last_g_f;
+  if(g)
+    {
+    last_g = *g;
+    last_g_x = x;
+    last_g_f = out_metric.TotalPerPixelMetric;
+    printf("GRAD: f = %16.12f   ", out_metric.TotalPerPixelMetric);
+    std::cout << last_g << std::endl;
+    }
+  else if(last_g.size() == x.size())
+    {
+    vnl_vector<double> dx = x - last_g_x;
+    double df = *f - last_g_f;
+    printf("LS: dx = %16.12f  df = %16.12f\n", dx.magnitude(), df);
+    }
+  */
+
+  // TODO: Move this up where groups are integrated
 
   // Has the metric improved?
   if(m_Parent->GetMetricLog().size())
     {
     const std::vector<MultiComponentMetricReport> &log = m_Parent->GetMetricLog().back();
-    if(log.size() == 0 || log.back().TotalMetric > out_metric.TotalMetric)
+    if(log.size() == 0 || log.back().TotalPerPixelMetric > out_metric.TotalPerPixelMetric)
       {
       // Record the metric value
       m_Parent->RecordMetricValue(out_metric);
@@ -155,7 +193,8 @@ PureAffineCostFunction<VDim, TReal>
       // Write out the current iteration transform
       if(m_Param->output_intermediate.length())
         {
-        vnl_matrix<double> Q_physical = ParentType::MapAffineToPhysicalRASSpace(*m_OFHelper, m_Level, tran);
+        // TODO: this does not make any sense, really... Should change all affine ops to work in physical space
+        vnl_matrix<double> Q_physical = ParentType::MapAffineToPhysicalRASSpace(*m_OFHelper, 0, m_Level, tran);
         m_Parent->WriteAffineMatrixViaCache(m_Param->output_intermediate, Q_physical);
         }
       }
@@ -195,10 +234,10 @@ PureAffineCostFunction<VDim, TReal>
   typename LinearTransformType::MatrixType matrix;
   typename LinearTransformType::OffsetType offset;
 
-  for(int i = 0; i < VDim; i++)
+  for(unsigned int i = 0; i < VDim; i++)
     {
     offset[i] = 1.0;
-    for(int j = 0; j < VDim; j++)
+    for(unsigned int j = 0; j < VDim; j++)
       matrix(i, j) = image_dim[j];
     }
 
@@ -215,19 +254,23 @@ PureAffineCostFunction<VDim, TReal>
  */
 template <unsigned int VDim, typename TReal>
 PhysicalSpaceAffineCostFunction<VDim, TReal>
-::PhysicalSpaceAffineCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
-  : Superclass(VDim * (VDim + 1)), m_PureFunction(param, parent, level, helper)
+::PhysicalSpaceAffineCostFunction(
+    GreedyParameters *param, ParentType *parent,
+    unsigned int group, unsigned int level,
+    OFHelperType *helper)
+  : Superclass(VDim * (VDim + 1)),
+    m_PureFunction(param, parent, group, level, helper)
 {
   // The rigid transformation must be rigid in physical space, not in voxel space
   // So in the constructor, we must compute the mappings from the two spaces
   GetVoxelSpaceToNiftiSpaceTransform(helper->GetReferenceSpace(level), Q_fix, b_fix);
-  GetVoxelSpaceToNiftiSpaceTransform(helper->GetMovingReferenceSpace(level), Q_mov, b_mov);
+  GetVoxelSpaceToNiftiSpaceTransform(helper->GetMovingReferenceSpace(group, level), Q_mov, b_mov);
 
   // Compute the inverse transformations
-  Q_fix_inv = vnl_matrix_inverse<double>(Q_fix);
+  Q_fix_inv = vnl_matrix_inverse<double>(Q_fix.as_matrix()).as_matrix();
   b_fix_inv = - Q_fix_inv * b_fix;
 
-  Q_mov_inv = vnl_matrix_inverse<double>(Q_mov);
+  Q_mov_inv = vnl_matrix_inverse<double>(Q_mov.as_matrix()).as_matrix();
   b_mov_inv = - Q_mov_inv * b_mov;
 
   // Take advantage of the fact that the transformation is linear in A and b to compute
@@ -247,8 +290,6 @@ PhysicalSpaceAffineCostFunction<VDim, TReal>
     this->map_phys_to_vox(x_phys, x_vox);
     J_phys_vox.set_column(i, x_vox - x_vox_0);
     }
-
-
 }
 
 template <unsigned int VDim, typename TReal>
@@ -271,31 +312,32 @@ PhysicalSpaceAffineCostFunction<VDim, TReal>
   flatten_affine_transform(A_vox, b_vox, x_vox.data_block());
 }
 
-
 template <unsigned int VDim, typename TReal>
 void
 PhysicalSpaceAffineCostFunction<VDim, TReal>
-::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
+::ComputeWithMask(vnl_vector<double> const& x,
+                  double *f_metric, vnl_vector<double>* g_metric,
+                  double *f_mask, vnl_vector<double>* g_mask)
 {
   // Map to voxel space
   vnl_vector<double> x_vox(m_PureFunction.get_number_of_unknowns());
   this->map_phys_to_vox(x, x_vox);
 
-  // Do we need the gradient?
-  if(g)
-    {
-    // Compute the function and gradient wrt voxel parameters
-    vnl_vector<double> g_vox(m_PureFunction.get_number_of_unknowns());
-    m_PureFunction.compute(x_vox, f, &g_vox);
+  // Voxel-space gradients
+  vnl_vector<double> g_metric_vox(m_PureFunction.get_number_of_unknowns());
+  vnl_vector<double> g_mask_vox(m_PureFunction.get_number_of_unknowns());
 
-    // Transform voxel-space gradient into physical-space gradient
-    *g = J_phys_vox.transpose() * g_vox;
-    }
-  else
-    {
-    // Just compute the function
-    m_PureFunction.compute(x_vox, f, NULL);
-    }
+  // Compute the function and gradient wrt voxel parameters
+  m_PureFunction.ComputeWithMask(x_vox,
+                                 f_metric, g_metric ? &g_metric_vox : nullptr,
+                                 f_mask, g_mask ? &g_mask_vox : nullptr);
+
+  // Update the gradients
+  if(g_metric)
+    *g_metric = J_phys_vox.transpose() * g_metric_vox;
+
+  if(g_mask)
+    *g_mask = J_phys_vox.transpose() * g_mask_vox;
 }
 
 template <unsigned int VDim, typename TReal>
@@ -350,22 +392,27 @@ PhysicalSpaceAffineCostFunction<VDim, TReal>
 template <unsigned int VDim, typename TReal>
 void
 ScalingCostFunction<VDim, TReal>
-::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
+::ComputeWithMask(vnl_vector<double> const& x,
+                  double *f_metric, vnl_vector<double>* g_metric,
+                  double *f_mask, vnl_vector<double>* g_mask)
 {
   // Scale the parameters so they are in unscaled units
   vnl_vector<double> x_scaled = element_quotient(x, m_Scaling);
 
+  // Scaled gradients
+  vnl_vector<double> g_metric_scaled(x_scaled.size());
+  vnl_vector<double> g_mask_scaled(x_scaled.size());
+
   // Call the wrapped method
-  if(g)
-    {
-    vnl_vector<double> g_scaled(x_scaled.size());
-    m_PureFunction->compute(x_scaled, f, &g_scaled);
-    *g = element_quotient(g_scaled, m_Scaling);
-    }
-  else
-    {
-    m_PureFunction->compute(x_scaled, f, g);
-    }
+  m_PureFunction->ComputeWithMask(x_scaled,
+                                  f_metric, g_metric ? &g_metric_scaled : nullptr,
+                                  f_mask, g_mask ? &g_mask_scaled : nullptr);
+
+  if(g_metric)
+    *g_metric = element_quotient(g_metric_scaled, m_Scaling);
+
+  if(g_mask)
+    *g_mask = element_quotient(g_mask_scaled, m_Scaling);
 }
 
 // Get the parameters for the specified initial transform
@@ -395,8 +442,9 @@ ScalingCostFunction<VDim, TReal>
  */
 template <unsigned int VDim, typename TReal>
 RigidCostFunction<VDim, TReal>
-::RigidCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
-  : Superclass(VDim * 2), m_AffineFn(param, parent, level, helper)
+::RigidCostFunction(GreedyParameters *param, ParentType *parent,
+                    unsigned int group, unsigned int level, OFHelperType *helper)
+  : Superclass(VDim * 2), m_AffineFn(param, parent, group, level, helper)
 {
   // Store the flipped status of the matrix
   this->flip.set_identity();
@@ -405,7 +453,9 @@ RigidCostFunction<VDim, TReal>
 template <unsigned int VDim, typename TReal>
 void
 RigidCostFunction<VDim, TReal>
-::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
+::ComputeWithMask(vnl_vector<double> const& x,
+                  double *f_metric, vnl_vector<double>* g_metric,
+                  double *f_mask, vnl_vector<double>* g_mask)
 {
   // Place parameters into q and b
   Vec q, b;
@@ -450,12 +500,22 @@ RigidCostFunction<VDim, TReal>
   vnl_vector<double> x_affine(m_AffineFn.get_number_of_unknowns());
   flatten_affine_transform(this->flip * R, b, x_affine.data_block());
 
-  // Split depending on whether there is gradient to compute
-  if(g)
+  // Compute the affine metric
+  vnl_vector<double> g_metric_affine(m_AffineFn.get_number_of_unknowns());
+  vnl_vector<double> g_mask_affine(m_AffineFn.get_number_of_unknowns());
+  m_AffineFn.ComputeWithMask(x_affine,
+                             f_metric, g_metric ? &g_metric_affine : nullptr,
+                             f_mask, g_mask ? &g_mask_affine : nullptr);
+
+  // If gradients requested, do the math for the jacobians
+  if(g_metric || g_mask)
     {
     // Create a vector to store the affine gradient
-    vnl_vector<double> g_affine(m_AffineFn.get_number_of_unknowns());
-    m_AffineFn.compute(x_affine, f, &g_affine);
+    vnl_vector<double> g_metric_affine(m_AffineFn.get_number_of_unknowns());
+    vnl_vector<double> g_mask_affine(m_AffineFn.get_number_of_unknowns());
+    m_AffineFn.ComputeWithMask(x_affine,
+                               f_metric, &g_metric_affine,
+                               f_mask, &g_mask_affine);
 
     // Compute the matrices d_Qmat
     Mat d_Qmat[3], d_R[3];
@@ -512,11 +572,10 @@ RigidCostFunction<VDim, TReal>
       }
 
     // Multiply the gradient by the jacobian
-    *g = jac.transpose() * g_affine;
-    }
-  else
-    {
-    m_AffineFn.compute(x_affine, f, NULL);
+    if(g_metric)
+      *g_metric = jac.transpose() * g_metric_affine;
+    if(g_mask)
+      *g_mask = jac.transpose() * g_mask_affine;
     }
 }
 
@@ -534,7 +593,7 @@ RigidCostFunction<VDim, TReal>
 
   // So we take the average of the image dimensions and use that as scaling
   double mean_dim = 0;
-  for(int i = 0; i < VDim; i++)
+  for(unsigned int i = 0; i < VDim; i++)
     mean_dim += image_dim[i] / VDim;
   scaling[0] = scaling[1] = scaling[2] = mean_dim;
   scaling[3] = scaling[4] = scaling[5] = 1.0;
@@ -563,7 +622,7 @@ RigidCostFunction<VDim, TReal>
     }
 
   // Compute polar decomposition of the affine matrix
-  vnl_svd<double> svd(this->flip * A);
+  vnl_svd<double> svd(this->flip.as_matrix() * A);
   Mat R = svd.U() * svd.V().transpose();
   Vec q = this->GetAxisAngle(R);
 
@@ -673,7 +732,7 @@ RigidCostFunction<VDim, TReal>
   // Generate a random axis of rotation. A triple of Gaussian numbers, normalized to
   // unit length gives a uniform distribution over the sphere
   Vec q_axis;
-  for(int d = 0; d < VDim; d++)
+  for(unsigned int d = 0; d < VDim; d++)
     q_axis[d] = randy.normal();
   q_axis.normalize();
 
@@ -690,8 +749,10 @@ RigidCostFunction<VDim, TReal>
  */
 template <typename TReal>
 RigidCostFunction<2, TReal>
-::RigidCostFunction(GreedyParameters *param, ParentType *parent, int level, OFHelperType *helper)
-  : Superclass(3), m_AffineFn(param, parent, level, helper)
+::RigidCostFunction(GreedyParameters *param, ParentType *parent,
+                    unsigned int group, unsigned int level,
+                    OFHelperType *helper)
+  : Superclass(3), m_AffineFn(param, parent, group, level, helper)
 {
   // Store the flipped status of the matrix
   this->flip.set_identity();
@@ -700,7 +761,9 @@ RigidCostFunction<2, TReal>
 template <typename TReal>
 void
 RigidCostFunction<2, TReal>
-::compute(const vnl_vector<double> &x, double *f, vnl_vector<double> *g)
+::ComputeWithMask(vnl_vector<double> const& x,
+                  double *f_metric, vnl_vector<double>* g_metric,
+                  double *f_mask, vnl_vector<double>* g_mask)
 {
   // Place parameters into theta and b
   double theta = x[0];
@@ -713,13 +776,15 @@ RigidCostFunction<2, TReal>
   vnl_vector<double> x_affine(m_AffineFn.get_number_of_unknowns());
   flatten_affine_transform(this->flip * R, b, x_affine.data_block());
 
-  // Split depending on whether there is gradient to compute
-  if(g)
-    {
-    // Create a vector to store the affine gradient
-    vnl_vector<double> g_affine(m_AffineFn.get_number_of_unknowns());
-    m_AffineFn.compute(x_affine, f, &g_affine);
+  vnl_vector<double> g_metric_affine(m_AffineFn.get_number_of_unknowns());
+  vnl_vector<double> g_mask_affine(m_AffineFn.get_number_of_unknowns());
+  m_AffineFn.ComputeWithMask(x_affine,
+                             f_metric, g_metric ? &g_metric_affine : nullptr,
+                             f_mask, g_mask ? &g_mask_affine : nullptr);
 
+  // If gradients requested, do the math for the jacobians
+  if(g_metric || g_mask)
+    {
     // Compute the matrices d_Qmat (derivative wrt theta)
     Mat d_R;
     d_R(0,0) = -sin(theta); d_R(0,1) =  cos(theta);
@@ -749,11 +814,10 @@ RigidCostFunction<2, TReal>
       }
 
     // Multiply the gradient by the jacobian
-    *g = jac.transpose() * g_affine;
-    }
-  else
-    {
-    m_AffineFn.compute(x_affine, f, NULL);
+    if(g_metric)
+      *g_metric = jac.transpose() * g_metric_affine;
+    if(g_mask)
+      *g_mask = jac.transpose() * g_mask_affine;
     }
 }
 
@@ -801,7 +865,7 @@ RigidCostFunction<2, TReal>
     }
 
   // Compute polar decomposition of the affine matrix
-  vnl_svd<double> svd(this->flip * A);
+  vnl_svd<double> svd(this->flip.as_matrix() * A);
   Mat R = svd.U() * svd.V().transpose();
 
   // Use the angle
@@ -869,7 +933,123 @@ RigidCostFunction<2, TReal>
   template class ClassName<3, double>; \
   template class ClassName<4, double>;
 
+
+#include <vnl/algo/vnl_svd.h>
+
+void LineSearchMemory
+::update(const vnl_vector<double> &x, double f, vnl_vector<double> *g)
+{
+  // Create the entry
+  Entry e; e.f = f; e.x = x;
+  if(g)
+    e.g = *g;
+
+  if(data.size() > 0 && data[0].x.size() != e.x.size())
+    data.clear();
+
+  // If fewer than 2 points, append and exit
+  // If there are more than two entries, check for collinearity
+  while(data.size() >= 2)
+    {
+    const auto &x1 = data[0].x;
+    vnl_matrix<double> M(3, x1.size());
+    M.set_row(0, data[0].x.data_block());
+    M.set_row(1, data[1].x.data_block());
+    M.set_row(2, e.x.data_block());
+
+    vnl_svd<double> svd(M, 1e-6);
+    auto W = svd.W();
+    unsigned int rank = 0;
+    // std::cout << "W = " << std::endl;
+    for(unsigned int k = 0; k < W.size(); k++)
+      {
+      // std::cout << W(k) << " ";
+      if(W(k) / W(0) >= 1e-5)
+        rank++;
+      }
+    // std::cout << std::endl;
+
+    if(rank > 1)
+      data.pop_front();
+    else
+      break;
+    }
+
+  // Append the new data
+  data.push_back(e);
+
+  // Report
+  // std::cout << "Line search queue length: " << data.size() << " at " << std::setprecision(10) << e.x << std::endl;
+}
+
+
+template<unsigned int VDim, typename TReal>
+MaskWeightedSumAffineConstFunction<VDim, TReal>
+::~MaskWeightedSumAffineConstFunction()
+{
+  // Delete all the component functions
+  for(auto *p : m_Components)
+    delete p;
+}
+
+template<unsigned int VDim, typename TReal>
+void
+MaskWeightedSumAffineConstFunction<VDim, TReal>
+::ComputeWithMask(const vnl_vector<double> &x,
+                  double *f_metric, vnl_vector<double> *g_metric,
+                  double *f_mask, vnl_vector<double> *g_mask)
+{
+  // Integrate the total metric
+  double total_metric = 0.0, total_mask = 0.0;
+  bool need_grad = g_metric || g_mask;
+
+  // Number of unknowns
+  unsigned int n = m_Components.front()->get_number_of_unknowns();
+
+  // Accumulated metric/mask gradients
+  vnl_vector<double> g_total_metric(n, 0.0), g_total_mask(n, 0.0);
+
+  for(Superclass* fn : m_Components)
+    {
+    vnl_vector<double> g_metric_comp(n);
+    vnl_vector<double> g_mask_comp(n);
+    double f_metric_comp = 0.0, f_mask_comp = 0.0;
+
+    // Compute the component metric
+    fn->ComputeWithMask(x,
+                        &f_metric_comp, need_grad ? &g_metric_comp : nullptr,
+                        &f_mask_comp, need_grad ? &g_mask_comp : nullptr);
+
+    // Accumulate the metric and mask
+    total_metric += f_metric_comp * f_mask_comp;
+    total_mask += f_mask_comp;
+
+    // Accumulate total gradients
+    if(need_grad)
+      {
+      g_total_metric += g_metric_comp * f_mask_comp + g_mask_comp  * f_metric_comp;
+      g_total_mask += g_mask_comp;
+      }
+    }
+
+  // Return the weighed value
+  double normalized_metric = total_metric / total_mask;
+  if(f_metric)
+    *f_metric = normalized_metric;
+  if(f_mask)
+    *f_mask = total_mask;
+
+  // (a/b)' = (a' - (a/b) * b') / b
+
+  // Compute total gradients
+  if(g_metric)
+    *g_metric = (g_total_metric - normalized_metric * g_total_mask) / total_mask;
+  if(g_mask)
+    *g_mask = g_total_mask;
+}
+
 greedy_template_inst(PureAffineCostFunction)
 greedy_template_inst(PhysicalSpaceAffineCostFunction)
 greedy_template_inst(ScalingCostFunction)
 greedy_template_inst(RigidCostFunction)
+greedy_template_inst(MaskWeightedSumAffineConstFunction)

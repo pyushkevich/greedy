@@ -25,7 +25,6 @@
 #define MULTICOMPONENTAPPROXIMATENCCIMAGEMETRIC_H
 
 #include "MultiComponentImageMetricBase.h"
-#include "itkBarrier.h"
 
 /**
  * Normalized cross-correlation metric similar to the one used in ANTS. The gradient
@@ -111,8 +110,7 @@ protected:
   // virtual void GenerateInputRequestedRegion();
 
   virtual void BeforeThreadedGenerateData();
-  virtual void ThreadedGenerateData(const OutputImageRegionType &outputRegionForThread,
-                                    itk::ThreadIdType threadId);
+  virtual void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
 
 
 private:
@@ -208,17 +206,13 @@ protected:
   MultiImageApproximateNCCPrecomputeFilter();
   ~MultiImageApproximateNCCPrecomputeFilter() {}
 
-  /** SimpleWarpImageFilter is implemented as a multi-threaded filter.
-   * As such, it needs to provide and implementation for
-   * ThreadedGenerateData(). */
-  virtual void ThreadedGenerateData(const OutputImageRegionType& outputRegionForThread,
-                                    itk::ThreadIdType threadId );
+  virtual void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
 
   /** Set up the output information */
   virtual void GenerateOutputInformation();
 
   /** Override input checks to allow fixed and moving to be in different space */
-  virtual void VerifyInputInformation() {}
+  virtual void VerifyInputInformation() const ITK_OVERRIDE {}
 
 private:
   MultiImageApproximateNCCPrecomputeFilter(const Self&); //purposely not implemented

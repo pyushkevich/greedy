@@ -62,7 +62,8 @@ int usage()
   printf("Required options: \n");
   printf("  -d DIM                 : Number of image dimensions\n");
   printf("  -i fix.nii mov.nii     : Image pair (may be repeated)\n");
-  printf("  -o output.nii          : Output file\n");
+  printf("  -o <file>              : Output file (matrix in affine mode; image in deformable mode, \n");
+  printf("                           metric computation mode; ignored in reslicing mode)\n");
   printf("Mode specification: \n");
   printf("  -a                     : Perform affine registration and save to output (-o)\n");
   printf("  -brute radius          : Perform a brute force search around each voxel \n");
@@ -87,14 +88,27 @@ int usage()
   printf("                               may also be specified per level (e.g. 0.3x0.1)\n");
   printf("  -n NxNxN               : number of iterations per level of multi-res (100x100) \n");
   printf("  -threads N             : set the number of allowed concurrent threads\n");
-  printf("  -gm mask.nii           : mask for gradient computation\n");
-  printf("  -gm-trim <radius>      : generate mask for gradient computation by trimming the extent\n");
+  printf("  -gm mask.nii           : fixed image mask (metric gradients computed only over the mask)\n");
+  printf("  -gm-trim <radius>      : generate the fixed image mask by trimming the extent\n");
   printf("                           of the fixed image by given radius. This is useful during affine\n");
   printf("                           registration with the NCC metric when the background of your images\n");
-  printf("                           is non-zero. The radius should match that of the NCC metric.");
-  printf("  -fm mask.nii           : metric calculation exclusion mask for the fixed image\n");
-  printf("  -mm mask.nii           : metric calculation exclusion mask for the moving image\n");
-  printf("  -it filenames          : sequence of transforms to apply to the moving image first \n");
+  printf("                           is non-zero. The radius should match that of the NCC metric.\n");
+  printf("  -mm mask.nii           : moving image mask (pixels outside are excluded from metric computation)\n");
+  printf("  -ncc-mask-dilate       : flag, specifies that fixed and moving masks should be dilated by the radius\n");
+  printf("                           of the NCC/WNCC metric during registration. This is for when your mask goes\n");
+  printf("                           up to the edge of the tissue and you want the tissue/background edge to count\n");
+  printf("                           towards the metric.\n");
+  printf("Defining a reference space for registration (primarily in deformable mode): \n");
+  printf("  -ref <image>           : Use supplied image, rather than fixed image to define the reference space\n");
+  printf("  -ref-pad <radius>      : Define the reference space by padding the fixed image by radius. Useful when\n");
+  printf("                           the stuff you want to register is at the border of the fixed image.\n");
+  printf("  -bg <float|NaN>        : When mapping fixed and moving images to reference space, fill missing values\n");
+  printf("                           with specified value (default: 0). Passing NaN creates a mask that excludes\n");
+  printf("                           missing values from the registration. This value is also used when computing\n");
+  printf("                           the metric at a pixel that maps outide of the moving image or moving mask\n");
+  printf("  -it filenames          : Specify transforms (matrices, warps) that map moving image to reference space.\n");
+  printf("                           Typically used to supply an affine transform when running deformable registration.\n");
+  printf("                           Different from -ia, which specifies the initial transform for affine registration.\n");
   printf("Specific to deformable mode: \n");
   printf("  -tscale MODE           : time step behavior mode: CONST, SCALE [def], SCALEDOWN\n");
   printf("  -s sigma1 sigma2       : smoothing for the greedy update step. Must specify units,\n");
@@ -119,7 +133,7 @@ int usage()
   printf("  -sv-incompr            : Incompressibility mode, implements Mansi et al. 2011 iLogDemons\n");
   printf("  -id image.nii          : Specifies the initial warp to start iteration from. In stationary mode, this \n");
   printf("                           is the initial stationary velocity field (output by -oroot option)\n");
-  printf("Initial transform specification: \n");
+  printf("Initial transform specification (for affine mode): \n");
   printf("  -ia filename           : initial affine matrix for optimization (not the same as -it) \n");
   printf("  -ia-identity           : initialize affine matrix based on NIFTI headers \n");
   printf("  -ia-image-centers      : initialize affine matrix based on matching image centers \n");
@@ -143,17 +157,22 @@ int usage()
   printf("  -rb value              : background (i.e. outside) intensity for the next pair (default 0)\n");
   printf("  -rc outwarp            : write composed transforms to outwarp \n");
   printf("  -rj outjacobian        : write Jacobian determinant image to outjacobian \n");
+  printf("Specific to metric computation mode (-metric): \n");
+  printf("  -og out.nii            : write the gradient of the metric to file\n");
   printf("For developers: \n");
   printf("  -debug-deriv           : enable periodic checks of derivatives (debug) \n");
   printf("  -debug-deriv-eps       : epsilon for derivative debugging \n");
   printf("  -debug-aff-obj         : plot affine objective in neighborhood of -ia matrix \n");
+  printf("  -dump-pyramid          : dump the image pyramid at the start of the registration\n");
   printf("  -dump-moving           : dump moving image at each iter\n");
   printf("  -dump-freq N           : dump frequency\n");
+  printf("  -dump-prefix <string>  : prefix for dump files (may be a path) \n");
   printf("  -powell                : use Powell's method instead of LGBFS\n");
   printf("  -float                 : use single precision floating point (off by default)\n");
   printf("  -version               : print version info\n");
   printf("  -V <level>             : set verbosity level (0: none, 1: default, 2: verbose)\n");
-
+  printf("Environment variables: \n");
+  printf("  GREEDY_DATA_ROOT       : if set, filenames can be specified relative to this path\n");
   return -1;
 }
 
@@ -178,14 +197,22 @@ public:
 int main(int argc, char *argv[])
 {
   GreedyParameters param;
-  GreedyParameters::SetToDefaults(param);
 
   if(argc < 2)
     return usage();
 
   try
   {
-    CommandLineHelper cl(argc, argv);
+    CommandLineHelper cl(argc, argv);    
+
+    // Check for the environment variable specifying data root
+    std::string data_root;
+    if(itksys::SystemTools::GetEnv("GREEDY_DATA_ROOT", data_root))
+      {
+      printf("Greedy data root is %s\n", data_root.c_str());
+      cl.set_data_root(data_root.c_str());
+      }
+
     while(!cl.is_at_end())
       {
       // Read the next command
