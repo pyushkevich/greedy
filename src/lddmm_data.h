@@ -217,11 +217,11 @@ public:
   static void compute_navier_stokes_kernel(ImageType *kernel, double alpha, double gamma);
 
   // Create a reference space (unallocated) for downsampling. Mostly used internally
-  static ImageBasePointer create_reference_space_for_downsample(ImageBaseType *src, double factor);
+  static ImageBasePointer create_reference_space_for_downsample(ImageBaseType *src, Vec factors);
 
   // New, hopefully faster, downsample code
-  static ImagePointer img_downsample(ImageType *src, double factor);
-  static CompositeImagePointer cimg_downsample(CompositeImageType *img, double factor);
+  static ImagePointer img_downsample(ImageType *src, Vec factors);
+  static CompositeImagePointer cimg_downsample(CompositeImageType *img, Vec factors);
 
   // Downsample and upsample images (includes smoothing, use sparingly)
   static void img_shrink(ImageType *src, ImageType *trg, int factor);

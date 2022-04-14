@@ -1081,23 +1081,43 @@ LDDMMData<TFloat, VDim>
   flt->Update();
 }
 
+template <class TImage>
+void img_smooth_dim_inplace(TImage *img, unsigned int dim, double sigma)
+{
+  typedef itk::RecursiveGaussianImageFilter<TImage, TImage> Filter;
+  typename Filter::Pointer fltSmooth = Filter::New();
+  fltSmooth->SetInput(img);
+  fltSmooth->SetOrder(itk::RecursiveGaussianImageFilterEnums::GaussianOrder::ZeroOrder);
+  fltSmooth->SetDirection(dim);
+  fltSmooth->SetSigma(sigma);
+  fltSmooth->InPlaceOn();
+  fltSmooth->Update();
+
+  img->CopyInformation(fltSmooth->GetOutput());
+  img->SetRegions(fltSmooth->GetOutput()->GetBufferedRegion());
+  img->SetPixelContainer(fltSmooth->GetOutput()->GetPixelContainer());
+}
+
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
 ::img_smooth(ImageType *src, ImageType *trg, Vec sigma)
 {
-  typedef itk::SmoothingRecursiveGaussianImageFilter<ImageType, ImageType> Filter;
-  typename Filter::Pointer fltSmooth = Filter::New();
-  fltSmooth->SetInput(src);
-  fltSmooth->SetSigmaArray(sigma);
-  fltSmooth->Update();
+  // If the source and target are not the same, copy from source to target
+  if(src->GetPixelContainer() != trg->GetPixelContainer())
+    {
+    trg->CopyInformation(src);
+    trg->SetRegions(src->GetBufferedRegion());
+    img_copy(src, trg);
+    }
 
-  // TODO: this is a work-around for a stupid bug with this recursive filter. When the data
-  // type is float, the filter does not allow me to graft an output
-  ImageType *result = fltSmooth->GetOutput();
-  trg->SetRegions(result->GetBufferedRegion());
-  trg->CopyInformation(result);
-  trg->SetPixelContainer(result->GetPixelContainer());
+  // Apply smoothing in each dimension
+  for(unsigned int d = 0; d < VDim; d++)
+    {
+    std::cout << "Smooth dir " << d << " Sigma " << sigma[d] << " Dim " << trg->GetBufferedRegion().GetSize()[d] << std::endl;
+    if(sigma[d] > 0.0)
+      img_smooth_dim_inplace(trg, d, sigma[d]);
+    }
 }
 
 template <class TFloat, uint VDim>
@@ -1116,18 +1136,20 @@ LDDMMData<TFloat, VDim>
     }
   else
     {
-    typedef itk::SmoothingRecursiveGaussianImageFilter<CompositeImageType, CompositeImageType> Filter;
-    typename Filter::Pointer fltSmooth = Filter::New();
-    fltSmooth->SetInput(src);
-    fltSmooth->SetSigmaArray(sigma);
-    fltSmooth->Update();
+    // If the source and target are not the same, copy from source to target
+    if(src->GetPixelContainer() != trg->GetPixelContainer())
+      {
+      trg->CopyInformation(src);
+      trg->SetRegions(src->GetBufferedRegion());
+      cimg_copy(src, trg);
+      }
 
-    // TODO: this is a work-around for a stupid bug with this recursive filter. When the data
-    // type is float, the filter does not allow me to graft an output
-    CompositeImageType *result = fltSmooth->GetOutput();
-    trg->SetRegions(result->GetBufferedRegion());
-    trg->CopyInformation(result);
-    trg->SetPixelContainer(result->GetPixelContainer());
+    // Apply smoothing in each dimension
+    for(unsigned int d = 0; d < VDim; d++)
+      {
+      if(sigma[d] > 0.0)
+        img_smooth_dim_inplace(trg, d, sigma[d]);
+      }
     }
 }
 
@@ -1743,7 +1765,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::ImageBasePointer
 LDDMMData<TFloat, VDim>
-::create_reference_space_for_downsample(ImageBaseType *src, double factor)
+::create_reference_space_for_downsample(ImageBaseType *src, Vec factors)
 {
   // Compute the size and index of the new image
   typename ImageBaseType::SizeType sz_pre = src->GetBufferedRegion().GetSize(), sz_post;
@@ -1755,10 +1777,10 @@ LDDMMData<TFloat, VDim>
   for(unsigned int i = 0; i < VDim; i++)
     {
     // Size gets rounded up (since it doesn't have to be exact, we adjust based on spacing
-    sz_post[i] = (unsigned long) std::ceil(sz_pre[i] / factor);
+    sz_post[i] = (unsigned long) std::ceil(sz_pre[i] / factors[i]);
 
     // Index gets rounded to closest int
-    idx_post[i] = (long) std::floor(idx_pre[i] / factor + 0.5);
+    idx_post[i] = (long) std::floor(idx_pre[i] / factors[i] + 0.5);
 
     // Compute the spacing (to keep the bounding box exactly the same)
     spc_post[i] = spc_pre[i] * sz_pre[i] * 1.0 / sz_post[i];
@@ -1788,18 +1810,18 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::CompositeImagePointer
 LDDMMData<TFloat, VDim>
-::cimg_downsample(CompositeImageType *img, double factor)
+::cimg_downsample(CompositeImageType *img, Vec factors)
 {
   // First smooth the image to avoid aliasing
   Vec sigma;
   for(unsigned int d = 0; d < VDim; d++)
-    sigma[d] = 0.5 * factor * img->GetSpacing()[d];
+    sigma[d] = (factors[d] > 1) ? 0.5 * factors[d] * img->GetSpacing()[d] : 0.0;
 
   CompositeImagePointer smoothed = CompositeImageType::New();
   cimg_smooth(img, smoothed, sigma);
 
   // Create a target space
-  ImageBasePointer ref_space = create_reference_space_for_downsample(img, factor);
+  ImageBasePointer ref_space = create_reference_space_for_downsample(img, factors);
 
   // Use the fast resampler to resample the image to target resolution
   typedef FastWarpCompositeImageFilter<CompositeImageType, CompositeImageType, VectorImageType> WF;
@@ -1818,18 +1840,18 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::ImagePointer
 LDDMMData<TFloat, VDim>
-::img_downsample(ImageType *img, double factor)
+::img_downsample(ImageType *img, Vec factors)
 {
   // First smooth the image to avoid aliasing
   Vec sigma;
   for(unsigned int d = 0; d < VDim; d++)
-    sigma[d] = 0.5 * factor * img->GetSpacing()[d];
+    sigma[d] = (factors[d] > 1) ? 0.5 * factors[d] * img->GetSpacing()[d] : 0.0;
 
   ImagePointer smoothed = ImageType::New();
   img_smooth(img, smoothed, sigma);
 
   // Create a target space
-  ImageBasePointer ref_space = create_reference_space_for_downsample(img, factor);
+  ImageBasePointer ref_space = create_reference_space_for_downsample(img, factors);
 
   // Use the fast resampler to resample the image to target resolution
   typedef FastWarpCompositeImageFilter<ImageType, ImageType, VectorImageType> WF;
