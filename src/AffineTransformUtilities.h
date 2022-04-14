@@ -211,11 +211,13 @@ void itk_vector_to_vnl_vector(
 template <unsigned int VDim> class array_caster
 {
 public:
-  template <class T> static itk::Size<VDim> to_itkSize(const T &t)
+  template <class T> static itk::Size<VDim> to_itkSize(const T &t, bool zero_last_dim = false)
   {
     itk::Size<VDim> sz;
     for(int i = 0; i < VDim; i++)
       sz[i] = t[i];
+    if(zero_last_dim)
+      sz[VDim-1] = 0;
     return sz;
   }
 };

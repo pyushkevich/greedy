@@ -377,7 +377,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 typename MultiImageOpticalFlowHelper<TFloat, VDim>::Vec
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::GetSmoothingSigmasInPhysicalUnits(int level, double sigma, bool in_physical_units)
+::GetSmoothingSigmasInPhysicalUnits(int level, double sigma, bool in_physical_units, bool zero_last_dim)
 {
   Vec sigmas;
   if(in_physical_units)
@@ -389,6 +389,10 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     for(unsigned int k = 0; k < VDim; k++)
       sigmas[k] = this->GetReferenceSpace(level)->GetSpacing()[k] * sigma;
     }
+
+  if(zero_last_dim)
+    sigmas[VDim-1] = 0.0;
+
   return sigmas;
 }
 

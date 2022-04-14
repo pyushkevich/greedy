@@ -197,6 +197,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->flag_ncc_mask_dilate = true;
     }
+  else if(cmd == "-z" || cmd == "-zero-last-dimension")
+    {
+    this->flag_zero_last_dim = true;
+    }
   else if(cmd == "-o")
     {
     this->output = cl.read_output_filename();

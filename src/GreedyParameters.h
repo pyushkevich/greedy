@@ -412,6 +412,10 @@ struct GreedyParameters
   // Whether to use an alternative solver for affine optimization
   bool flag_powell = false;
 
+  // Whether the to apply smoothing, metric, etc. to the last dimension
+  // of the image - turn on for 2D/3D registration
+  bool flag_zero_last_dim = false;
+
   // Weight applied to new image pairs
   double current_weight = 1.0;
 

@@ -705,7 +705,7 @@ void GreedyApproach<VDim, TReal>
 
   // If the metric is NCC, then also apply special processing to the gradient masks
   if(ncc_metric)
-    ofhelper.DilateCompositeGradientMasksForNCC(array_caster<VDim>::to_itkSize(param.metric_radius));
+    ofhelper.DilateCompositeGradientMasksForNCC(array_caster<VDim>::to_itkSize(param.metric_radius, param.flag_zero_last_dim));
 
   // Save the image pyramid
   if(param.flag_dump_pyramid)
@@ -1530,7 +1530,7 @@ void GreedyApproach<VDim, TReal>
 
     else if(param.metric == GreedyParameters::NCC)
       {
-      itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
+      itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius, param.flag_zero_last_dim);
 
       // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
       of_helper.ComputeNCCMetricAndGradient(g, level, phi, radius, false,
@@ -1540,7 +1540,7 @@ void GreedyApproach<VDim, TReal>
 
     else if(param.metric == GreedyParameters::WNCC)
       {
-      itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius);
+      itk::Size<VDim> radius = array_caster<VDim>::to_itkSize(param.metric_radius, param.flag_zero_last_dim);
 
       // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
       // TODO: configure weighting
@@ -1655,11 +1655,11 @@ int GreedyApproach<VDim, TReal>
     // Smoothing factors for this level, in physical units
     typename LDDMMType::Vec sigma_pre_phys =
         of_helper.GetSmoothingSigmasInPhysicalUnits(level, param.sigma_pre.sigma,
-                                                    param.sigma_pre.physical_units);
+                                                    param.sigma_pre.physical_units, param.flag_zero_last_dim);
 
     typename LDDMMType::Vec sigma_post_phys =
         of_helper.GetSmoothingSigmasInPhysicalUnits(level, param.sigma_post.sigma,
-                                                    param.sigma_post.physical_units);
+                                                    param.sigma_post.physical_units, param.flag_zero_last_dim);
 
     // Report the smoothing factors used
     gout.printf("LEVEL %d of %d\n", level+1, nlevels);
@@ -2142,8 +2142,9 @@ int GreedyApproach<VDim, TReal>
 
   // Create a neighborhood for computing offsets
   itk::Neighborhood<float, VDim> dummy_nbr;
-  itk::Size<VDim> search_rad = array_caster<VDim>::to_itkSize(param.brute_search_radius);
-  itk::Size<VDim> metric_rad = array_caster<VDim>::to_itkSize(param.metric_radius);
+  itk::Size<VDim> search_rad = array_caster<VDim>::to_itkSize(param.brute_search_radius, param.flag_zero_last_dim);
+  itk::Size<VDim> metric_rad = array_caster<VDim>::to_itkSize(param.metric_radius, param.flag_zero_last_dim);
+
   dummy_nbr.SetRadius(search_rad);
 
   // Iterate over all offsets

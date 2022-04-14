@@ -144,7 +144,7 @@ public:
     { return m_InputGroups[group].m_MovingPyramid.image_pyramid[level]; }
 
   /** Get the smoothing factor for given level based on parameters */
-  Vec GetSmoothingSigmasInPhysicalUnits(int level, double sigma, bool in_physical_units);
+  Vec GetSmoothingSigmasInPhysicalUnits(int level, double sigma, bool in_physical_units, bool zero_last_dim);
 
   /** Get the component weights in a group */
   vnl_vector<float> GetWeights(unsigned int group, double scaling = 1.0);

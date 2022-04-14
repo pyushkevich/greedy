@@ -109,6 +109,8 @@ int usage()
   printf("  -it filenames          : Specify transforms (matrices, warps) that map moving image to reference space.\n");
   printf("                           Typically used to supply an affine transform when running deformable registration.\n");
   printf("                           Different from -ia, which specifies the initial transform for affine registration.\n");
+  printf("  -z                     : Stands for 'zero last dimension'. This flag should be used when performing 2D/3D\n");
+  printf("                           registration. It sets sigmas and NCC radius to zero in the last dimension\n");
   printf("Specific to deformable mode: \n");
   printf("  -tscale MODE           : time step behavior mode: CONST, SCALE [def], SCALEDOWN\n");
   printf("  -s sigma1 sigma2       : smoothing for the greedy update step. Must specify units,\n");
