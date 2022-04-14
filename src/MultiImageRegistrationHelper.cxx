@@ -285,12 +285,27 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       }
     else
       {
+      // Determine the scaling factors depending on the image size
+      typename LDDMMType::Vec adj_factors;
+      for(unsigned int d = 0; d < VDim; d++)
+        {
+        int dim = pyramid.image_full->GetBufferedRegion().GetSize()[d];
+        int max_factor = m_PyramidFactors[i];
+        while(dim < max_factor && max_factor > 1)
+          max_factor = max_factor >> 1;
+        adj_factors[d] = std::min(m_PyramidFactors[i], max_factor);
+        }
+
       // Downsample the image itself
-      pyramid.image_pyramid[i] = LDDMMType::cimg_downsample(pyramid.image_full, m_PyramidFactors[i]);
+      std::cout << "Level " << i << " Adj Factors: " << adj_factors << std::endl;
+      pyramid.image_pyramid[i] = LDDMMType::cimg_downsample(pyramid.image_full, adj_factors);
+      std::cout << "Level " << i
+                << " Downsample Dimensions " << pyramid.image_pyramid[i]->GetBufferedRegion().GetSize()
+                << " Adj Factors: " << adj_factors << std::endl;
       if(pyramid.mask_full)
         {
         // Downsample the mask
-        pyramid.mask_pyramid[i] = LDDMMType::img_downsample(pyramid.mask_full, m_PyramidFactors[i]);
+        pyramid.mask_pyramid[i] = LDDMMType::img_downsample(pyramid.mask_full, adj_factors);
 
         // This command applies masked downsampling, i.e., we normalize the smoothed downsampled image
         // by the smoothed downsampled mask to avoid the bleeding in of pixels outside of the mask into
