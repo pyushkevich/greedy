@@ -612,10 +612,18 @@ void GreedyApproach<VDim, TReal>
       CompositeImagePointer imgFix = ReadImageViaCache<CompositeImageType>(is.inputs[i].fixed);
       CompositeImagePointer imgMov = ReadImageViaCache<CompositeImageType>(is.inputs[i].moving);
 
+      // Use NaN as the outside value if we want to create a moving mask
+      TReal fill_value = param.background;
+
       // Check if the reference space has already been defined
-      if(!ref_space)
+      if(ref_space)
         {
-        // Reference space may involve padding the first input image
+        // If the reference space does not match the fixed image space, reslice the fixed image
+        // to the reference space
+        imgFix = ResampleImageToReferenceSpaceIfNeeded(imgFix, ref_space, nullptr, fill_value);
+        }
+      else
+        {
         if(param.reference_space_padding.size())
           {
           // Check the padding size
@@ -626,19 +634,23 @@ void GreedyApproach<VDim, TReal>
             pad_size[d] = param.reference_space_padding[d];
 
           // Apply the padding to the fixed image
-          ImagePointer imgRef = LDDMMType::new_img(imgFix);
-          typedef itk::ConstantPadImageFilter<ImageType, ImageType> PadFilter;
-          typename PadFilter::Pointer pad = PadFilter::New();
-          pad->SetInput(imgRef);
-          pad->SetPadBound(pad_size);
-          pad->Update();
-          ref_space = pad->GetOutput();
+          CompositeImagePointer imgPad = CompositeImageType::New();
+          typename CompositeImageType::RegionType inner = imgFix->GetBufferedRegion();
+          typename CompositeImageType::RegionType outer = inner;
+          outer.PadByRadius(pad_size);
+          imgPad->SetBufferedRegion(outer);
+          imgPad->CopyInformation(imgFix);
+          imgPad->SetNumberOfComponentsPerPixel(imgFix->GetNumberOfComponentsPerPixel());
+          imgPad->Allocate();
+          for(unsigned long i = 0; i < imgPad->GetPixelContainer()->Size(); i++)
+            imgPad->GetBufferPointer()[i] = fill_value;
+          itk::ImageAlgorithm::Copy(imgFix.GetPointer(), imgPad.GetPointer(), inner, inner);
+
+          imgFix = imgPad;
           use_ref_space_for_moving = true;
           }
-        else
-          {
-          ref_space = imgFix;
-          }
+
+        ref_space = imgFix;
         }
 
       // Once we know the reference space, we can read the moving image pre-transforms
@@ -646,13 +658,6 @@ void GreedyApproach<VDim, TReal>
         {
         ReadTransformChain(is.moving_pre_transforms, ref_space, moving_pre_warp);
         }
-
-      // Use NaN as the outside value if we want to create a moving mask
-      TReal fill_value = param.background;
-
-      // If the reference space does not match the fixed image space, reslice the fixed image
-      // to the reference space
-      imgFix = ResampleImageToReferenceSpaceIfNeeded(imgFix, ref_space, nullptr, fill_value);
 
       // The moving image gets resampled to reference space if the reference space is specified or
       // if a moving pre-warp is specified.
@@ -701,7 +706,7 @@ void GreedyApproach<VDim, TReal>
   bool masked_downsampling = (param.metric != GreedyParameters::NCC);
 
   // Build the composite images
-  ofhelper.BuildCompositeImages(noise, masked_downsampling);
+  ofhelper.BuildCompositeImages(noise, masked_downsampling, param.flag_zero_last_dim);
 
   // If the metric is NCC, then also apply special processing to the gradient masks
   if(ncc_metric)
@@ -1983,7 +1988,8 @@ int GreedyApproach<VDim, TReal>
   else
     {
     // Write the resulting transformation field
-    WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevel, param.output.c_str(), param.warp_precision);
+    if(param.output.size())
+      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevel, param.output.c_str(), param.warp_precision);
 
     // If an inverse is requested, compute the inverse using the Chen 2008 fixed method.
     // A modification of this method is that if convergence is slow, we take the square

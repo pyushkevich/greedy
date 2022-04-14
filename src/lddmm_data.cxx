@@ -1168,17 +1168,20 @@ void
 LDDMMData<TFloat, VDim>
 ::vimg_smooth(VectorImageType *src, VectorImageType *trg, Vec sigma)
 {
-  typedef itk::SmoothingRecursiveGaussianImageFilter<VectorImageType, VectorImageType> Filter;
-  typename Filter::Pointer fltSmooth = Filter::New();
-  fltSmooth->SetInput(src);
-  fltSmooth->SetSigmaArray(sigma);
-  // fltSmooth->SetSigma(sigma);
-  // fltSmooth->GraftOutput(trg);
-  fltSmooth->Update();
+  // If the source and target are not the same, copy from source to target
+  if(src->GetPixelContainer() != trg->GetPixelContainer())
+    {
+    trg->CopyInformation(src);
+    trg->SetRegions(src->GetBufferedRegion());
+    vimg_copy(src, trg);
+    }
 
-  // TODO: this is a work-around for a stupid bug with this recursive filter. When the data
-  // type is float, the filter does not allow me to graft an output
-  LDDMMData<TFloat, VDim>::vimg_copy(fltSmooth->GetOutput(), trg);
+  // Apply smoothing in each dimension
+  for(unsigned int d = 0; d < VDim; d++)
+    {
+    if(sigma[d] > 0.0)
+      img_smooth_dim_inplace(trg, d, sigma[d]);
+    }
 }
 
 template <class TFloat, uint VDim>

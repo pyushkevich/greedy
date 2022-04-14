@@ -210,7 +210,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
                     ImagePyramid &pyramid,
                     double noise_sigma_rel,
                     bool masked_downsampling,
-                    bool scale_intensity_by_voxel_size)
+                    bool scale_intensity_by_voxel_size,
+                    bool zero_last_dim)
 {
   typedef LDDMMData<TFloat, VDim> LDDMMType;
 
@@ -296,6 +297,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         adj_factors[d] = std::min(m_PyramidFactors[i], max_factor);
         }
 
+      if(zero_last_dim)
+        adj_factors[VDim-1] = 1;
+
       // Downsample the image itself
       std::cout << "Level " << i << " Adj Factors: " << adj_factors << std::endl;
       pyramid.image_pyramid[i] = LDDMMType::cimg_downsample(pyramid.image_full, adj_factors);
@@ -334,7 +338,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::BuildCompositeImages(double noise_sigma_relative, bool masked_downsampling)
+::BuildCompositeImages(double noise_sigma_relative, bool masked_downsampling, bool zero_last_dim)
 {
   typedef LDDMMData<TFloat, VDim> LDDMMType;
 
@@ -345,7 +349,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     this->InitializePyramid(group.m_Fixed, group.m_FixedMaskImage, group.m_FixedPyramid,
                             noise_sigma_relative,
                             masked_downsampling,
-                            m_ScaleFixedImageWithVoxelSize);
+                            m_ScaleFixedImageWithVoxelSize,
+                            zero_last_dim);
 
     // Release memory
     group.m_Fixed.clear(); group.m_FixedMaskImage = nullptr;
@@ -354,7 +359,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     this->InitializePyramid(group.m_Moving, group.m_MovingMaskImage, group.m_MovingPyramid,
                             noise_sigma_relative,
                             masked_downsampling,
-                            false);
+                            false,
+                            zero_last_dim);
 
     // Release memory
     group.m_Moving.clear(); group.m_MovingMaskImage = nullptr;

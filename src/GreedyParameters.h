@@ -356,8 +356,8 @@ struct GreedyParameters
   // image region.
   std::vector<int> reference_space_padding;
 
-  // Initial affine transform mode
-  AffineInitMode affine_init_mode = VOX_IDENTITY;
+  // Initial affine transform mode - using voxel space makes more sence as default
+  AffineInitMode affine_init_mode = RAS_IDENTITY;
 
   // Degrees of freedom (rigid or affine)
   AffineDOF affine_dof = DOF_AFFINE;

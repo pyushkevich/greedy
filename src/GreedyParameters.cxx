@@ -122,6 +122,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->affine_init_mode = RAS_IDENTITY;
     }
+  else if(cmd == "-ia-voxel-grid")
+    {
+    this->affine_init_mode = VOX_IDENTITY;
+    }
   else if(cmd == "-ia-image-centers" || cmd == "-iaic" || cmd == "-ia-ic")
     {
     this->affine_init_mode = IMG_CENTERS;
@@ -573,8 +577,8 @@ std::string GreedyParameters::GenerateCommandLine()
       oss << "," << this->affine_init_transform.exponent;
     }
 
-  else if(this->affine_init_mode == RAS_IDENTITY)
-    oss << " -ia-identity";
+  else if(this->affine_init_mode == VOX_IDENTITY)
+    oss << " -ia-voxel-grid";
 
   else if(this->affine_init_mode == IMG_CENTERS)
     oss << " -ia-image-centers";

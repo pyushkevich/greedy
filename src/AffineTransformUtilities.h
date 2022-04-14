@@ -215,7 +215,7 @@ public:
   {
     itk::Size<VDim> sz;
     for(int i = 0; i < VDim; i++)
-      sz[i] = t[i];
+      sz[i] = i < t.size() ? t[i] : t[t.size() - 1];
     if(zero_last_dim)
       sz[VDim-1] = 0;
     return sz;

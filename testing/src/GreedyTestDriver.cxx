@@ -35,6 +35,9 @@ int usage()
   printf("  grad_metric_aff <2|3> <eps> <tol> <greedy_opts>\n");
   printf("        : check gradients of various metrics with respect to affine transforms\n");
   printf("          Greedy options: -i, -ia, -m, -gm, -mm \n");
+  printf("  reg_2d_3d <aff|def> <metric_value> <tol> <greedy_opts>\n");
+  printf("        : Test 2D/3D registration using phantom images\n");
+  printf("          Greedy options: -i, -ia, -m, -n \n");
   return -1;
 }
 
@@ -831,6 +834,68 @@ int RunAffineGradientTest(CommandLineHelper &cl)
   return retval;
 }
 
+int RunReg2D3D(CommandLineHelper &cl)
+{
+  // Set up greedy parameters for this test
+  GreedyParameters gp;
+  gp.dim = 3;
+
+  // Read mode, etc
+  auto mode = cl.read_string();
+  if(mode == "def")
+    gp.mode = GreedyParameters::GREEDY;
+  else if(mode == "aff")
+    gp.mode = GreedyParameters::AFFINE;
+  else
+    throw GreedyException("Unknown mode parameter: %s", mode.c_str());
+
+  // Read required parameters
+  double target_value = cl.read_double();
+  double tol = cl.read_double();
+
+  // List of greedy commands that are recognized by this test command
+  std::set<std::string> greedy_cmd {
+    "-m", "-threads", "-i", "-ia", "-m", "-n"
+  };
+
+  // Parse the parameters
+  std::string arg;
+  while(cl.read_command(arg))
+    {
+    if(greedy_cmd.find(arg) != greedy_cmd.end())
+      gp.ParseCommandLine(arg, cl);
+    else
+      throw GreedyException("Unknown test parameter: %s", arg.c_str());
+    }
+
+  // Create a helper
+  typedef GreedyApproach<3> GreedyAPI;
+  GreedyAPI api;
+
+  // Configure threading
+  api.ConfigThreads(gp);
+
+  // Set values specific to 2D/3D
+  gp.flag_zero_last_dim = true;
+  if(gp.mode == GreedyParameters::GREEDY)
+    {
+    gp.reference_space_padding = std::vector<int>(3, 0);
+    gp.reference_space_padding[2] = 4;
+    gp.background = atof("NaN");
+    api.RunDeformable(gp);
+    }
+  else
+    {
+    api.RunAffine(gp);
+    }
+
+  double final_metric = api.GetLastMetricReport().TotalPerPixelMetric;
+  std::cout << "Final metric: " << final_metric << " vs. target value: " << target_value << std::endl;
+  int rc = std::fabs(final_metric - target_value) < tol;
+  std::cout << "Test " << (rc ? "Succeeded" : "Failed") << std::endl;
+  return rc;
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -864,6 +929,10 @@ int main(int argc, char *argv[])
       return RunAffineGradientTest<2>(cl);
     else if (dim == 3)
       return RunAffineGradientTest<3>(cl);
+    }
+  else if(cmd == "reg_2d_3d")
+    {
+    return RunReg2D3D(cl);
     }
   else if(cmd == "ncc_gradient_vs_matlab")
     {

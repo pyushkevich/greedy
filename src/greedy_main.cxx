@@ -137,7 +137,8 @@ int usage()
   printf("                           is the initial stationary velocity field (output by -oroot option)\n");
   printf("Initial transform specification (for affine mode): \n");
   printf("  -ia filename           : initial affine matrix for optimization (not the same as -it) \n");
-  printf("  -ia-identity           : initialize affine matrix based on NIFTI headers \n");
+  printf("  -ia-identity           : initialize affine matrix based on NIFTI headers (default) \n");
+  printf("  -ia-voxel-grid         : initialize affine matrix so that voxels with corresponding indices align \n");
   printf("  -ia-image-centers      : initialize affine matrix based on matching image centers \n");
   printf("  -ia-image-side CODE    : initialize affine matrix based on matching center of one image side \n");
   printf("  -ia-moments <1|2>      : initialize affine matrix based on matching moments of inertia\n");

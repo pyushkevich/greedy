@@ -101,7 +101,7 @@ public:
   void DownsampleImage(VectorImageType *src, VectorImageType *dst, int factor, bool has_nans);
   
   /** Compute the composite image - must be run before any sampling is done */
-  void BuildCompositeImages(double noise_sigma_relative, bool masked_downsampling);
+  void BuildCompositeImages(double noise_sigma_relative, bool masked_downsampling, bool zero_last_dim);
 
   /**
    * Apply a dilation to the fixed gradient masks - this is used with the NCC metric. The initial
@@ -338,7 +338,8 @@ protected:
   void InitializePyramid(const MultiCompImageSet &src, FloatImageType *mask,
                          ImagePyramid &pyramid, double noise_sigma_rel,
                          bool masked_downsampling,
-                         bool scale_intensity_by_voxel_size);
+                         bool scale_intensity_by_voxel_size,
+                         bool zero_last_dim);
 
   void PlaceIntoComposite(FloatImageType *src, MultiComponentImageType *target, int offset);
   void PlaceIntoComposite(VectorImageType *src, MultiComponentImageType *target, int offset);

@@ -122,8 +122,9 @@ PureAffineCostFunction<VDim, TReal>
     }
   else if(m_Param->metric == GreedyParameters::WNCC || m_Param->metric == GreedyParameters::NCC)
     {
+    auto radius = array_caster<VDim>::to_itkSize(m_Param->metric_radius, m_Param->flag_zero_last_dim);
     m_OFHelper->ComputeAffineNCCMetricAndGradient(
-          m_Group, m_Level, tran, array_caster<VDim>::to_itkSize(m_Param->metric_radius),
+          m_Group, m_Level, tran, radius,
           m_Param->metric == GreedyParameters::WNCC,
           m_Metric, out_metric,
           grad_metric, grad_mask);
