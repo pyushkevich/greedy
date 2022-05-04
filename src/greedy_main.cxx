@@ -104,7 +104,8 @@ int usage()
   printf("                           the stuff you want to register is at the border of the fixed image.\n");
   printf("  -bg <float|NaN>        : When mapping fixed and moving images to reference space, fill missing values\n");
   printf("                           with specified value (default: 0). Passing NaN creates a mask that excludes\n");
-  printf("                           missing values from the registration.\n");
+  printf("                           missing values from the registration. This value is also used when computing\n");
+  printf("                           the metric at a pixel that maps outide of the moving image or moving mask\n");
   printf("  -it filenames          : Specify transforms (matrices, warps) that map moving image to reference space.\n");
   printf("                           Typically used to supply an affine transform when running deformable registration.\n");
   printf("                           Different from -ia, which specifies the initial transform for affine registration.\n");

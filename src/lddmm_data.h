@@ -240,6 +240,16 @@ public:
   // Replace NaNs in an image using a mask
   static void img_reconstitute_nans_in_place(ImageType *src, ImageType *nan_mask);
 
+  // Composite image matj
+  static void cimg_add_in_place(CompositeImageType *trg, CompositeImageType *a);
+  static void cimg_scale_in_place(CompositeImageType *trg, TFloat scale);
+  static void cimg_threshold_in_place(CompositeImageType *trg,
+                                      double lt, double up, double fore, double back);
+
+  // Extract single component in cimg
+  static void cimg_extract_component(CompositeImageType *src, ImageType *trg, unsigned int c);
+  static void cimg_update_component(CompositeImageType *src, ImageType *trg, unsigned int c);
+
   // Apply noise to image components
   static void cimg_add_gaussian_noise_in_place(CompositeImageType *img,
                                                const std::vector<double> &sigma,
@@ -336,6 +346,10 @@ protected:
   static CompositeImagePointer vimg_as_cimg(VectorImageType *src);
   static ImagePointer cimg_as_img(CompositeImageType *src);
   static CompositeImagePointer img_as_cimg(ImageType *src);
+
+  // Functor ops for composite images
+  template <class TFunctor>
+  static void cimg_apply_binary_functor_in_place(CompositeImageType *trg, CompositeImageType *a);
 
   // A vector image for in-place interpolation operations
   VectorImagePointer vtmp;

@@ -49,6 +49,9 @@
 #include "MultiComponentImageMetricBase.h"
 #include "WarpFunctors.h"
 
+#include <vtkPolyData.h>
+#include "GreedyMeshIO.h"
+
 #include <vnl/algo/vnl_powell.h>
 #include <vnl/algo/vnl_amoeba.h>
 #include <vnl/algo/vnl_svd.h>
@@ -209,18 +212,46 @@ GreedyApproach<VDim, TReal>
       }
     }
 
+  // Compute the exponent and its logarithm
+  double abs_exponent = fabs(ts.exponent);
+  int log_abs_exponent = int(log2(abs_exponent) + 0.5);
+  if(abs_exponent != (int) (pow(2.0, log_abs_exponent) + 0.5))
+    throw GreedyException("Transform exponent must be a power of 2");
+
   // Compute the exponent
   if(ts.exponent == 1.0)
     {
-    return Qp;
     }
   else if(ts.exponent == -1.0)
     {
-    return vnl_matrix_inverse<double>(Qp).as_matrix();
+    Qp = vnl_matrix_inverse<double>(Qp).as_matrix();
     }
-  else
+  else if(ts.exponent > 0)
     {
-    throw GreedyException("Transform exponent values of +1 and -1 are the only ones currently supported");
+    // Multiply the matrix by itself
+    for(int j = 0; j < log_abs_exponent; j++)
+      Qp = Qp * Qp;
+    }
+  else if(ts.exponent < 0)
+    {
+    // Compute the matrix square root
+    for(int j = 0; j < log_abs_exponent; j++)
+      {
+      // Peform Denman-Beavers iteration
+      typedef vnl_matrix_fixed<double, VDim+1, VDim+1> MatrixType;
+      MatrixType Z, Y = Qp;
+      Z.set_identity();
+
+      for(size_t i = 0; i < 16; i++)
+        {
+        MatrixType Ynext = 0.5 * (Y + vnl_matrix_inverse<double>(Z.as_matrix()).as_matrix());
+        MatrixType Znext = 0.5 * (Z + vnl_matrix_inverse<double>(Y.as_matrix()).as_matrix());
+        Y = Ynext;
+        Z = Znext;
+        }
+
+      Qp = Y.as_matrix();
+      }
     }
 
   return Qp;
@@ -1478,7 +1509,10 @@ void GreedyApproach<VDim, TReal>
     // Switch based on the metric
     if(param.metric == GreedyParameters::SSD)
       {
-      of_helper.ComputeSSDMetricAndGradient(g, level, phi, out_metric_image,
+      of_helper.ComputeSSDMetricAndGradient(g, level, phi,
+                                            std::isnan(param.background),
+                                            param.background,
+                                            out_metric_image,
                                             group_report, out_metric_gradient, eps);
       group_report.Scale(1.0 / eps);
       }
@@ -2166,9 +2200,51 @@ int GreedyApproach<VDim, TReal>
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
+::MapRASAffineToPhysicalWarp(const vnl_matrix<double> &mat,
+                             VectorImagePointer &out_warp)
+{
+  vnl_matrix<double>  A = mat.extract(VDim, VDim);
+  vnl_vector<double> b = mat.get_column(VDim).extract(VDim);
+
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+  mt->ParallelizeImageRegion<VDim>(
+        out_warp->GetBufferedRegion(),
+        [out_warp,A,b](const itk::ImageRegion<VDim> &region)
+    {
+    typedef itk::ImageRegionIteratorWithIndex<VectorImageType> IterType;
+    vnl_vector<double> q;
+    itk::Point<double, VDim> pt, pt2;
+
+    for(IterType it(out_warp, region); !it.IsAtEnd(); ++it)
+      {
+      // Get the physical position
+      // TODO: this calls IsInside() internally, which limits efficiency
+      out_warp->TransformIndexToPhysicalPoint(it.GetIndex(), pt);
+
+      // Add the displacement (in DICOM coordinates) and
+      for(unsigned int i = 0; i < VDim; i++)
+        pt2[i] = pt[i] + it.Value()[i];
+
+      // Switch to NIFTI coordinates
+      pt2[0] = -pt2[0]; pt2[1] = -pt2[1];
+
+      // Apply the matrix - get the transformed coordinate in DICOM space
+      q = A * pt2.GetVnlVector() + b;
+      q[0] = -q[0]; q[1] = -q[1];
+
+      // Compute the difference in DICOM space
+      for(unsigned int i = 0; i < VDim; i++)
+        it.Value()[i] = q[i] - pt[i];
+      }
+    }, nullptr);
+}
+
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
 ::ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
                      ImageBaseType *ref_space,
-                     VectorImagePointer &out_warp)
+                     VectorImagePointer &out_warp,
+                     MeshArray *meshes)
 {
   // Create the initial transform and set it to zero
   out_warp = VectorImageType::New();
@@ -2212,6 +2288,11 @@ void GreedyApproach<VDim, TReal>
         OFHelperType::VoxelWarpToPhysicalWarp(warp_exp, warp_i, warp_i);
         }
 
+      // Apply the warp to the meshes
+      if(meshes)
+        for(auto &m : *meshes)
+          TransformMeshWarp(m, warp_i);
+
       // Now we need to compose the current transform and the overall warp.
       LDDMMType::interp_vimg(warp_i, out_warp, 1.0, warp_tmp, false, true);
       LDDMMType::vimg_add_in_place(out_warp, warp_tmp);
@@ -2220,35 +2301,13 @@ void GreedyApproach<VDim, TReal>
       {
       // Read the transform as a matrix
       vnl_matrix<double> mat = ReadAffineMatrixViaCache(tran_chain[i]);
-      vnl_matrix<double>  A = mat.extract(VDim, VDim);
-      vnl_vector<double> b = mat.get_column(VDim).extract(VDim), q;
 
-      // TODO: stick this in a filter to take advantage of threading!
-      typedef itk::ImageRegionIteratorWithIndex<VectorImageType> IterType;
-      for(IterType it(out_warp, out_warp->GetBufferedRegion()); !it.IsAtEnd(); ++it)
-        {
-        itk::Point<double, VDim> pt, pt2;
-        typename VectorImageType::IndexType idx = it.GetIndex();
+      // Apply the matrix to the meshes
+      if(meshes)
+        for(auto &m : *meshes)
+          TransformMeshAffine(m, mat);
 
-        // Get the physical position
-        // TODO: this calls IsInside() internally, which limits efficiency
-        out_warp->TransformIndexToPhysicalPoint(idx, pt);
-
-        // Add the displacement (in DICOM coordinates) and
-        for(unsigned int i = 0; i < VDim; i++)
-          pt2[i] = pt[i] + it.Value()[i];
-
-        // Switch to NIFTI coordinates
-        pt2[0] = -pt2[0]; pt2[1] = -pt2[1];
-
-        // Apply the matrix - get the transformed coordinate in DICOM space
-        q = A * pt2.GetVnlVector() + b;
-        q[0] = -q[0]; q[1] = -q[1];
-
-        // Compute the difference in DICOM space
-        for(unsigned int i = 0; i < VDim; i++)
-          it.Value()[i] = q[i] - pt[i];
-        }
+      MapRASAffineToPhysicalWarp(mat, out_warp);
       }
     }
 }
@@ -2364,6 +2423,61 @@ public:
   }
 };
 
+
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
+::TransformMeshAffine(vtkPolyData *mesh, vnl_matrix<double> mat)
+{
+  vnl_matrix_fixed<double, VDim+1, VDim+1> matfix = mat;
+  vnl_vector_fixed<double, VDim+1> x_fix, y_fix; x_fix[VDim] = 1.0;
+  for(unsigned int i = 0; i < mesh->GetNumberOfPoints(); i++)
+    {
+    double *x = mesh->GetPoint(i);
+    for(unsigned int d = 0; d < VDim; d++)
+      x_fix[d] = x[d];
+
+    y_fix = matfix * x_fix;
+
+    mesh->GetPoints()->SetPoint(i, y_fix.data_block());
+    }
+}
+
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
+::TransformMeshWarp(vtkPolyData *mesh, VectorImageType *warp)
+{
+  typedef FastLinearInterpolator<VectorImageType, TReal, VDim> FastInterpolator;
+  typedef itk::Point<TReal, VDim> PointType;
+  typedef itk::ContinuousIndex<TReal, VDim> CIndexType;
+  FastInterpolator interp(warp);
+
+  // Each vertex is simply multiplied by the matrix
+  for(unsigned int i = 0; i < mesh->GetNumberOfPoints(); i++)
+    {
+    double *x_mesh = mesh->GetPoint(i);
+
+    // Set the initial point
+    PointType p_input, p_input_lps, p_out_lps, p_out_ras;
+    for(unsigned int d = 0; d < VDim; d++)
+      p_input[d] = x_mesh[d];
+
+    // Map the physical coordinate to a continuous index
+    PhysicalCoordinateTransform<VDim, PointType>::ras_to_lps(p_input, p_input_lps);
+
+    CIndexType cix;
+    typename VectorImageType::PixelType vec;
+    vec.Fill(0.0);
+    warp->TransformPhysicalPointToContinuousIndex(p_input_lps, cix);
+    interp.Interpolate(cix.GetDataPointer(), &vec);
+
+    for(unsigned int d = 0; d < VDim; d++)
+      p_out_lps[d] = vec[d] + p_input_lps[d];
+
+    PhysicalCoordinateTransform<VDim, PointType>::lps_to_ras(p_out_lps, p_out_ras);
+
+    mesh->GetPoints()->SetPoint(i, p_out_ras.GetDataPointer());
+    }
+}
 
 
 template <unsigned int VDim, typename TReal>
@@ -2535,9 +2649,14 @@ int GreedyApproach<VDim, TReal>
   // Read the fixed as a plain image (we don't care if it's composite)
   typename ImageBaseType::Pointer ref = ReadImageBaseViaCache(r_param.ref_image);
 
+  typedef vtkSmartPointer<vtkPolyData> MeshPointer;
+  std::vector<MeshPointer> meshes;
+  for(unsigned int i = 0; i < r_param.meshes.size(); i++)
+    meshes.push_back(ReadPolyData(r_param.meshes[i].fixed.c_str()));
+
   // Read the transform chain
   VectorImagePointer warp;
-  ReadTransformChain(param.reslice_param.transforms, ref, warp);
+  ReadTransformChain(param.reslice_param.transforms, ref, warp, &meshes);
 
   // Write the composite warp if requested
   if(r_param.out_composed_warp.size())
@@ -2678,7 +2797,13 @@ int GreedyApproach<VDim, TReal>
       }
     }
 
+  // Save the meshes
+  for(unsigned int i = 0; i < r_param.meshes.size(); i++)
+    WritePolyData(meshes[i], r_param.meshes[i].output.c_str());
+
+
   // Process meshes
+  /*
   for(unsigned int i = 0; i < r_param.meshes.size(); i++)
     {
     typedef itk::Mesh<TReal, VDim> MeshType;
@@ -2745,6 +2870,7 @@ int GreedyApproach<VDim, TReal>
       writer->Update();
       }
     }
+    */
 
 
 
@@ -2927,7 +3053,7 @@ int GreedyApproach<VDim, TReal>
   OFHelperType::ComputeDeformationFieldInverse(warp, uInverse, param.warp_exponent, true);
 
   // Write the warp using compressed format
-  WriteCompressedWarpInPhysicalSpaceViaCache(uInverse, warp, param.invwarp_param.out_warp.c_str(), param.warp_precision);
+  WriteCompressedWarpInPhysicalSpaceViaCache(warp, uInverse, param.invwarp_param.out_warp.c_str(), param.warp_precision);
 
   return 0;
 }
@@ -2956,7 +3082,7 @@ int GreedyApproach<VDim, TReal>
   OFHelperType::ComputeWarpRoot(warp, warp_root, param.warp_exponent, 1e-6);
 
   // Write the warp using compressed format
-  WriteCompressedWarpInPhysicalSpaceViaCache(warp_root, warp, param.warproot_param.out_warp.c_str(), param.warp_precision);
+  WriteCompressedWarpInPhysicalSpaceViaCache(warp, warp_root, param.warproot_param.out_warp.c_str(), param.warp_precision);
 
   return 0;
 }

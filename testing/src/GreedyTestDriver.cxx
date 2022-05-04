@@ -598,7 +598,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
 
   // List of greedy commands that are recognized by this test command
   std::set<std::string> greedy_cmd {
-    "-m", "-threads", "-i", "-it", "-gm", "-mm", "-ia"
+    "-m", "-threads", "-i", "-it", "-gm", "-mm", "-ia", "-bg"
   };
 
   // Parse the parameters
@@ -784,7 +784,7 @@ int RunAffineGradientTest(CommandLineHelper &cl)
 
   // List of greedy commands that are recognized by this test command
   std::set<std::string> greedy_cmd {
-    "-m", "-threads", "-i", "-ia", "-gm", "-mm"
+    "-m", "-threads", "-i", "-ia", "-gm", "-mm", "-bg"
   };
 
   // Parse the parameters

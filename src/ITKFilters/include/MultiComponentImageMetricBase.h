@@ -175,6 +175,19 @@ public:
   /** Whether the transformation is affine */
   itkGetMacro(ComputeAffine, bool)
 
+  /** Background value, i.e., default value of lookups outside of the mask */
+  itkGetMacro(BackgroundValue, InputComponentType);
+  itkSetMacro(BackgroundValue, InputComponentType);
+
+  /**
+   * Whether the metric is weighted by the moving image mask/domain. When a metric is weighted,
+   * pixels that map outside of the moving image (or outside of the moving image mask) do not
+   * count towards the metric. In other words, the outside is treated like missing data. This is
+   * not supporeted by all the metrics
+   */
+  itkGetMacro(Weighted, bool)
+  itkSetMacro(Weighted, bool)
+
   /** Specify whether the filter should compute gradients (whether affine or deformable) */
   void SetComputeGradient(bool flag)
   {
@@ -272,7 +285,11 @@ protected:
   bool m_ComputeGradient;
   bool m_ComputeAffine;
 
+  // Whether the metric is weighted
+  bool m_Weighted = false;
 
+  // The background value
+  InputComponentType m_BackgroundValue = 0;
 
   // Per-thread data
   ThreadAccumulatedData m_AccumulatedData;

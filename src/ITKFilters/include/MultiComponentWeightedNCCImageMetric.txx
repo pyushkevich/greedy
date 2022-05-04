@@ -62,7 +62,7 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
 
         // Split on weighted vs. unweighted mode, since the accumulated quantities
         // are going to be different
-        if(m_Weighted)
+        if(this->m_Weighted)
           {
           // If status is outside, we must zero out all accumulated elements
           if(status == FastInterpolator::OUTSIDE ||
@@ -231,7 +231,7 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
 
   // This array holds the components accumulated on the second pass. This is only needed
   // for WNCC with multiple components
-  bool need_accum_scratch_space = m_Weighted && m_InputComponents > 1;
+  bool need_accum_scratch_space = this->m_Weighted && m_InputComponents > 1;
   InputComponentType *out_accum_line =
       need_accum_scratch_space ? new InputComponentType[m_SecondPassAccumComponents] : nullptr;
 
@@ -283,7 +283,7 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
         {
         // How we calculate variance and covariance depends on weighting
         double N = patch_size, w_scale = 1.0;
-        if(m_Weighted)
+        if(this->m_Weighted)
           {
           N = sum_w;
           w_scale = std::pow(sum_w * one_over_patch_size, m_WeightScalingExponent);
@@ -340,7 +340,7 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
             double q_fm = w_scale * abs_cov_fm * one_over_denom;
             double q_m  = ncc_fm_w_scaled / var_m;
 
-            if(m_Weighted)
+            if(this->m_Weighted)
               {
               double q_f  = ncc_fm_w_scaled / var_f;
               *p_accum_out++ = sum_w * q_fm;
@@ -442,7 +442,7 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
         const InputComponentType *p_accum = p_work + 1;
         const InputComponentType *p_saved = p_work + m_SavedComponentsOffset;
 
-        if(m_Weighted)
+        if(this->m_Weighted)
           {
           // Read the saved weight and gradient that are at the start of saved data
           double w = *p_saved++;
@@ -596,7 +596,7 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
 
   // On the second pass, we have 3 accumulations per component for unweighted
   // and six per component for weighted
-  m_SecondPassAccumComponents = m_NeedGradient ? (m_Weighted ? 6 : 3) * m_InputComponents : 0;
+  m_SecondPassAccumComponents = m_NeedGradient ? (this->m_Weighted ? 6 : 3) * m_InputComponents : 0;
 
   // The offset in the working image where saved components start
   m_SavedComponentsOffset = std::max(m_FirstPassAccumComponents, m_SecondPassAccumComponents+1);
@@ -605,7 +605,7 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
   // without having to perform costly interpolation again
   m_FirstPassSavedComponents = m_NeedGradient
                                ? (2 + ImageDimension) * m_InputComponents +
-                                 (m_Weighted ? 1 + ImageDimension : 0)
+                                 (this->m_Weighted ? 1 + ImageDimension : 0)
                                : 0;
 
   // Total size that the working image needs to be

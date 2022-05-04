@@ -152,7 +152,9 @@ public:
   /** Perform interpolation - compute [(I - J(Tx)) GradJ(Tx)] */
   void ComputeSSDMetricAndGradient(
       unsigned int group, unsigned int level,
-      VectorImageType *def, FloatImageType *out_metric_image,
+      VectorImageType *def,
+      bool weighted, double background_value,
+      FloatImageType *out_metric_image,
       MultiComponentMetricReport &out_metric_report,
       VectorImageType *out_gradient, double result_scaling = 1.0);
 
@@ -183,6 +185,7 @@ public:
   void ComputeAffineSSDMetricAndGradient(
       unsigned int group, unsigned int level,
       LinearTransformType *tran,
+      bool weighted, double background_value,
       FloatImageType *wrkMetric,
       MultiComponentMetricReport &metrics,
       LinearTransformType *grad_metric = NULL,

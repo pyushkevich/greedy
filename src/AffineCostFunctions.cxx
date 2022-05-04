@@ -113,7 +113,10 @@ PureAffineCostFunction<VDim, TReal>
   if(m_Param->metric == GreedyParameters::SSD)
     {
     m_OFHelper->ComputeAffineSSDMetricAndGradient(
-          m_Group, m_Level, tran, m_Metric, out_metric,
+          m_Group, m_Level, tran,
+          std::isnan(m_Param->background),
+          m_Param->background,
+          m_Metric, out_metric,
           grad_metric, grad_mask);
 
     }
@@ -590,7 +593,7 @@ RigidCostFunction<VDim, TReal>
 
   // So we take the average of the image dimensions and use that as scaling
   double mean_dim = 0;
-  for(int i = 0; i < VDim; i++)
+  for(unsigned int i = 0; i < VDim; i++)
     mean_dim += image_dim[i] / VDim;
   scaling[0] = scaling[1] = scaling[2] = mean_dim;
   scaling[3] = scaling[4] = scaling[5] = 1.0;
@@ -949,7 +952,6 @@ void LineSearchMemory
   while(data.size() >= 2)
     {
     const auto &x1 = data[0].x;
-    const auto &x2 = data[1].x;
     vnl_matrix<double> M(3, x1.size());
     M.set_row(0, data[0].x.data_block());
     M.set_row(1, data[1].x.data_block());
