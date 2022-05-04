@@ -16,6 +16,7 @@ Greedy is a tool for fast medical image registration. It was developed by Paul Y
    install
    quick_start
    reference
+   advanced
    related
    cite
 
