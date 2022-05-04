@@ -197,7 +197,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->input_groups.back().moving_mask = cl.read_existing_filename();
     }
-  else if(cmd == "-ncc-mask-dilate")
+  else if(cmd == "-wncc-mask-dilate")
     {
     this->flag_ncc_mask_dilate = true;
     }
@@ -615,7 +615,7 @@ std::string GreedyParameters::GenerateCommandLine()
     oss << " -gm-trim " << this->fixed_mask_trim_radius;
 
   if(this->flag_ncc_mask_dilate)
-    oss << " -ncc-mask-dilate";
+    oss << " -wncc-mask-dilate";
 
   if(this->output.size())
     oss << " -o " << this->output;

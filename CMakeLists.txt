@@ -191,6 +191,10 @@ SET(STACK_GREEDY_SRC
   src/dijkstra/ShortestPath.cxx
   src/greedy_stack_reg.cxx)
 
+SET(CHUNK_GREEDY_SRC
+  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
+  testing/src/greedy_multi_chunk.cxx)
+
 SET(TEMPLATE_AVG_SRC
   ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
   src/template_make_average.cxx)
@@ -249,6 +253,9 @@ IF(BUILD_CLI)
 
   ADD_EXECUTABLE(test_greedy testing/src/GreedyTestDriver.cxx)
   TARGET_LINK_LIBRARIES(test_greedy ${GREEDY_API_LIBS})
+
+  ADD_EXECUTABLE(multi_chunk_greedy ${CHUNK_GREEDY_SRC})
+  TARGET_LINK_LIBRARIES(multi_chunk_greedy ${GREEDY_API_LIBS})
 ENDIF(BUILD_CLI)
 
 # Install command-line executables

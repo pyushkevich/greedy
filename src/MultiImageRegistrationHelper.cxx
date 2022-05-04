@@ -166,41 +166,60 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     }
 }
 
+template <class TFloat, unsigned int VDim>
+void
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::DilateMask(FloatImageType *mask, SizeType radius, bool two_layer)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  // Threshold the mask itself
+  LDDMMType::img_threshold_in_place(mask, 0.5, 1e100, 0.5, 0);
+
+  // Make a copy of the mask
+  typename FloatImageType::Pointer mask_copy = LDDMMType::new_img(mask);
+  LDDMMType::img_copy(mask, mask_copy);
+
+  // Run the accumulation filter on the mask
+  typename FloatImageType::Pointer mask_accum =
+      AccumulateNeighborhoodSumsInPlace(mask_copy.GetPointer(), radius);
+
+  if(two_layer)
+    {
+    // Threshold the mask copy
+    LDDMMType::img_threshold_in_place(mask_accum, 0.25, 1e100, 0.5, 0);
+
+    // Add the two images - the result has 1 for the initial mask, 0.5 for the 'outer' mask
+    LDDMMType::img_add_in_place(mask, mask_accum);
+    }
+  else
+    {
+    // Threshold the mask copy
+    LDDMMType::img_threshold_in_place(mask_accum, 0.25, 1e100, 1.0, 0);
+
+    // Add the two images - the result has 1 for the initial mask, 0.5 for the 'outer' mask
+    LDDMMType::img_copy(mask_accum, mask);
+    }
+}
 
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::DilateCompositeGradientMasksForNCC(SizeType radius)
 {
-  /*
   typedef LDDMMData<TFloat, VDim> LDDMMType;
 
-  for(int level = 0; level < m_PyramidFactors.size(); level++)
+  // Iterate over the image groups
+  for(auto &group : m_InputGroups)
     {
-    if(m_GradientMaskComposite[level])
+    for(unsigned int level = 0; level < m_PyramidFactors.size(); level++)
       {
-      // Threshold the mask itself
-      LDDMMType::img_threshold_in_place(m_GradientMaskComposite[level], 0.5, 1e100, 0.5, 0);
-
-      // Make a copy of the mask
-      typename FloatImageType::Pointer mask_copy = LDDMMType::new_img(m_GradientMaskComposite[level]);
-      LDDMMType::img_copy(m_GradientMaskComposite[level], mask_copy);
-
-      // Run the accumulation filter on the mask
-      typename FloatImageType::Pointer mask_accum =
-          AccumulateNeighborhoodSumsInPlace(mask_copy.GetPointer(), radius);
-
-      // Threshold the mask copy
-      LDDMMType::img_threshold_in_place(mask_accum, 0.25, 1e100, 0.5, 0);
-
-      // Add the two images - the result has 1 for the initial mask, 0.5 for the 'outer' mask
-      LDDMMType::img_add_in_place(m_GradientMaskComposite[level], mask_accum);
+      // Dilate the fixed mask
+      if(group.m_FixedPyramid.mask_pyramid[level])
+        DilateMask(group.m_FixedPyramid.mask_pyramid[level], radius, true);
       }
     }
-    */
 }
-
-
 
 template <class TFloat, unsigned int VDim>
 void
@@ -210,6 +229,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
                     ImagePyramid &pyramid,
                     double noise_sigma_rel,
                     bool masked_downsampling,
+                    SizeType mask_dilate_radius,
                     bool scale_intensity_by_voxel_size,
                     bool zero_last_dim)
 {
@@ -283,6 +303,11 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       // Retain the image
       pyramid.image_pyramid[i] = pyramid.image_full;
       pyramid.mask_pyramid[i] = pyramid.mask_full;
+
+      // Dilate the mask if requested - here we take advantage of the fact that this code
+      // will only be called after the downsampling has already happened
+      if(pyramid.mask_pyramid[i] && mask_dilate_radius != SizeType::Filled(0))
+        DilateMask(pyramid.mask_pyramid[i], mask_dilate_radius, false);
       }
     else
       {
@@ -301,15 +326,15 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
         adj_factors[VDim-1] = 1;
 
       // Downsample the image itself
-      std::cout << "Level " << i << " Adj Factors: " << adj_factors << std::endl;
       pyramid.image_pyramid[i] = LDDMMType::cimg_downsample(pyramid.image_full, adj_factors);
-      std::cout << "Level " << i
-                << " Downsample Dimensions " << pyramid.image_pyramid[i]->GetBufferedRegion().GetSize()
-                << " Adj Factors: " << adj_factors << std::endl;
       if(pyramid.mask_full)
         {
         // Downsample the mask
         pyramid.mask_pyramid[i] = LDDMMType::img_downsample(pyramid.mask_full, adj_factors);
+
+        // Dilate mask if requested
+        if(pyramid.mask_pyramid[i] && mask_dilate_radius != SizeType())
+          DilateMask(pyramid.mask_pyramid[i], mask_dilate_radius, false);
 
         // This command applies masked downsampling, i.e., we normalize the smoothed downsampled image
         // by the smoothed downsampled mask to avoid the bleeding in of pixels outside of the mask into
@@ -338,7 +363,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
-::BuildCompositeImages(double noise_sigma_relative, bool masked_downsampling, bool zero_last_dim)
+::BuildCompositeImages(double noise_sigma_relative, bool masked_downsampling,
+                       SizeType fixed_mask_dilate_radius, SizeType moving_mask_dilate_radius,
+                       bool zero_last_dim)
 {
   typedef LDDMMData<TFloat, VDim> LDDMMType;
 
@@ -349,6 +376,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     this->InitializePyramid(group.m_Fixed, group.m_FixedMaskImage, group.m_FixedPyramid,
                             noise_sigma_relative,
                             masked_downsampling,
+                            fixed_mask_dilate_radius,
                             m_ScaleFixedImageWithVoxelSize,
                             zero_last_dim);
 
@@ -359,6 +387,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     this->InitializePyramid(group.m_Moving, group.m_MovingMaskImage, group.m_MovingPyramid,
                             noise_sigma_relative,
                             masked_downsampling,
+                            moving_mask_dilate_radius,
                             false,
                             zero_last_dim);
 

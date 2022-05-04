@@ -101,17 +101,19 @@ public:
   void DownsampleImage(VectorImageType *src, VectorImageType *dst, int factor, bool has_nans);
   
   /** Compute the composite image - must be run before any sampling is done */
-  void BuildCompositeImages(double noise_sigma_relative, bool masked_downsampling, bool zero_last_dim);
+  void BuildCompositeImages(double noise_sigma_relative, bool masked_downsampling,
+                            SizeType fixed_mask_dilate_radius, SizeType moving_mask_dilate_radius,
+                            bool zero_last_dim);
 
   /**
-   * Apply a dilation to the fixed gradient masks - this is used with the NCC metric. The initial
-   * user-specified mask is transformed into a dilated mask, with values as follows:
+   * Apply a dilation to the masks - this is used with the NCC and WNCC metrics.
+   * The dilated mask has two bands, as below:
    *   1.0 : voxel is inside the user-specified mask
    *   0.5 : voxel is within radius of the user-specified mask
    *   0.0 : voxel is outside of the user-specified mask
    *
-   * NCC metrics exploit this mask format for faster processing - region where the mask is zero are
-   * excluded from NCC computation and accumulation
+   * NCC metric exploits this mask format for faster processing - region where the mask is zero are
+   * excluded from NCC computation and accumulation.
    */
   void DilateCompositeGradientMasksForNCC(SizeType radius);
 
@@ -338,6 +340,7 @@ protected:
   void InitializePyramid(const MultiCompImageSet &src, FloatImageType *mask,
                          ImagePyramid &pyramid, double noise_sigma_rel,
                          bool masked_downsampling,
+                         SizeType mask_dilate_radius,
                          bool scale_intensity_by_voxel_size,
                          bool zero_last_dim);
 
@@ -349,6 +352,9 @@ protected:
 
   // Precompute histograms for MI/NMI
   void ComputeHistogramsIfNeeded(unsigned int group, unsigned int level);
+
+  // Helper method for DilateCompositeGradientMasksForNCC
+  void DilateMask(FloatImageType *mask, SizeType radius, bool two_layer);
 
   // Whether the fixed images should be scaled down by the pyramid factors
   // when subsampling. This is needed for the Mahalanobis distance metric, but not for

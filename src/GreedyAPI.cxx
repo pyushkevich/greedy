@@ -706,11 +706,18 @@ void GreedyApproach<VDim, TReal>
   bool masked_downsampling = (param.metric != GreedyParameters::NCC);
 
   // Build the composite images
-  ofhelper.BuildCompositeImages(noise, masked_downsampling, param.flag_zero_last_dim);
+  typename OFHelperType::SizeType mask_dilation = OFHelperType::SizeType::Filled(0);
+  if(param.metric == GreedyParameters::WNCC && param.flag_ncc_mask_dilate)
+    mask_dilation = array_caster<VDim>::to_itkSize(param.metric_radius, param.flag_zero_last_dim);
+  ofhelper.BuildCompositeImages(noise, masked_downsampling, mask_dilation, mask_dilation, param.flag_zero_last_dim);
 
-  // If the metric is NCC, then also apply special processing to the gradient masks
-  if(ncc_metric)
-    ofhelper.DilateCompositeGradientMasksForNCC(array_caster<VDim>::to_itkSize(param.metric_radius, param.flag_zero_last_dim));
+  // If the metric is NCC, but not WNCC, then also apply special processing to the fixed image mask.
+  // This is so that the region over which NCC is computed is larger than the fixed mask.
+  if(param.metric == GreedyParameters::NCC)
+    {
+    auto radius = array_caster<VDim>::to_itkSize(param.metric_radius, param.flag_zero_last_dim);
+    ofhelper.DilateCompositeGradientMasksForNCC(radius);
+    }
 
   // Save the image pyramid
   if(param.flag_dump_pyramid)
@@ -2714,7 +2721,7 @@ int GreedyApproach<VDim, TReal>
       for(int j = 0; j < n_pixels; j++)
         {
         short pixel = labels[j];
-        if(last_pixel != pixel || i == 0)
+        if(last_pixel != pixel || j == 0)
           {
           label_set.insert(pixel);
           last_pixel = pixel;
