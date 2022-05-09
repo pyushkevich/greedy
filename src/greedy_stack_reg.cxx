@@ -2516,7 +2516,7 @@ void recon(StackParameters &param, CommandLineHelper &cl)
 {
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
-    "-m", "-n", "-threads", "-gm-trim", "-search", "-V"
+    "-m", "-n", "-threads", "-gm-trim", "-search", "-V", "-bg", "-wncc-mask-dilate"
   };
 
   // Greedy parameters for this mode
@@ -2560,7 +2560,7 @@ void volmatch(StackParameters &param, CommandLineHelper &cl)
 {
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
-    "-m", "-n", "-threads", "-gm-trim", "-search", "-V"
+    "-m", "-n", "-threads", "-gm-trim", "-search", "-V", "-bg", "-wncc-mask-dilate"
   };
 
   // Greedy parameters for this mode
@@ -2657,7 +2657,7 @@ void voliter(StackParameters &param, CommandLineHelper &cl)
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
     "-m", "-n", "-threads", "-gm-trim", "-s", "-e", "-sv", "-exp", "-V", "-sv-incompr",
-    "-dump-pyramid", "-dump-moving", "-dump-frequency"
+    "-dump-pyramid", "-dump-moving", "-dump-frequency", "-bg", "-wncc-mask-dilate"
   };
 
   // Greedy parameters for this mode
