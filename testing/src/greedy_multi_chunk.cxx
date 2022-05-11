@@ -17,6 +17,7 @@ struct ChunkGreedyParameters
   std::string fn_chunk_mask;
   std::string fn_output_pattern;
   std::string fn_init_tran_pattern;
+  double reg_weight = 0.01;
 };
 
 int usage()
@@ -28,6 +29,7 @@ int usage()
   printf("  -cm: <file>      : Chunk mask, each chunk assigned a different label\n");
   printf("  -op: <pattern>   : Output pattern (printf format), equivalent to -o in greedy\n");
   printf("  -itp: <pattern>  : Initial transform pattern (printf format), equivalent to -it in greedy\n");
+  printf("  -wreg <value>    : Regularization term weight (default: 0.01)\n");
   printf("main greedy options accepted: \n");
   printf("  -d, -i, -m, -n, -a, -dof, -bg, -ia, -wncc-mask-dilate, -search");
   return -1;
@@ -561,7 +563,7 @@ int run_affine(ChunkGreedyParameters cgp, GreedyParameters gp)
         printf("%d: %8.4f  %8.4f\n", i, xGradA[i], xGradN[i]);
 
       std::cout << "Level: " << level << " XLevel: " << xLevel << std::endl;
-      MultiChunkAffineCostFunction<VDim, TReal> cfun(total_unk, label_data, level, &reg, 0.01);
+      MultiChunkAffineCostFunction<VDim, TReal> cfun(total_unk, label_data, level, &reg, cgp.reg_weight);
 
       // Set up the optimizer
       vnl_lbfgs *optimizer = new vnl_lbfgs(cfun);
@@ -651,7 +653,7 @@ int run(ChunkGreedyParameters cgp, GreedyParameters gp)
 {
   if(gp.mode == GreedyParameters::AFFINE)
     run_affine<VDim>(cgp, gp);
-  if(gp.mode == GreedyParameters::GREEDY)
+  else if(gp.mode == GreedyParameters::GREEDY)
     run_deform<VDim>(cgp, gp);
   else
     throw GreedyException("Only affine mode is implemented");
@@ -686,6 +688,10 @@ int main(int argc, char *argv[])
     else if(arg == "-cm")
       {
       cg_param.fn_chunk_mask = cl.read_existing_filename();
+      }
+    else if(arg == "-wreg")
+      {
+      cg_param.reg_weight = cl.read_double();
       }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
