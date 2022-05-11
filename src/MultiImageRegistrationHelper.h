@@ -358,6 +358,12 @@ protected:
   // Precompute histograms for MI/NMI
   void ComputeHistogramsIfNeeded(unsigned int group, unsigned int level);
 
+  typedef std::pair<MultiComponentImagePointer, FloatImagePointer> IMPair;
+  IMPair MergeMaskWithNanMask(MultiComponentImageType *src_image,
+                              FloatImageType *src_mask,
+                              bool have_nans,
+                              SizeType dilate_radius);
+
   // Whether the fixed images should be scaled down by the pyramid factors
   // when subsampling. This is needed for the Mahalanobis distance metric, but not for
   // any of the metrics that use image intensities

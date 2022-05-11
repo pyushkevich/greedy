@@ -94,16 +94,16 @@ public:
   uint nt, nv;
 
   // Allocate image using an existing pointer
-  static void alloc_img(ImageType *img, ImageBaseType *ref);
-  static void alloc_vimg(VectorImageType *vimg, ImageBaseType *ref);
-  static void alloc_cimg(CompositeImageType *img, ImageBaseType *ref, int n_comp);
+  static void alloc_img(ImageType *img, ImageBaseType *ref, TFloat fill_value = 0.);
+  static void alloc_vimg(VectorImageType *vimg, ImageBaseType *ref, TFloat fill_value = 0.);
+  static void alloc_cimg(CompositeImageType *img, ImageBaseType *ref, int n_comp, TFloat fill_value = 0.);
   static void alloc_mimg(MatrixImageType *img, ImageBaseType *ref);
 
   // These methods are shorthands for creating an image and allocating it
-  static ImagePointer new_img(ImageBaseType *ref);
-  static VectorImagePointer new_vimg(ImageBaseType *ref);
+  static ImagePointer new_img(ImageBaseType *ref, TFloat fill_value = 0.);
+  static VectorImagePointer new_vimg(ImageBaseType *ref, TFloat fill_value = 0.);
   static MatrixImagePointer new_mimg(ImageBaseType *ref);
-  static CompositeImagePointer new_cimg(ImageBaseType *ref, int n_comp);
+  static CompositeImagePointer new_cimg(ImageBaseType *ref, int n_comp, TFloat fill_value = 0.);
 
   // Create and allocate velocity field
   static void new_vf(VelocityField &vf, uint nt, ImageBaseType *ref);
@@ -291,6 +291,11 @@ public:
   static void img_copy(const ImageType *src, ImageType *trg);
   static void mimg_copy(const MatrixImageType *src, MatrixImageType *trg);
   static void cimg_copy(const CompositeImageType *src, CompositeImageType *trg);
+
+  /** Duplicate an image - allocates and copies data */
+  static ImagePointer img_dup(const ImageType *src);
+  static VectorImagePointer vimg_dup(const VectorImageType *src);
+  static CompositeImagePointer cimg_dup(const CompositeImageType *src);
 
   /** Cast to image of different datatype automatically */
   static bool vimg_auto_cast(const VectorImageType *src, ImageBaseType *trg);

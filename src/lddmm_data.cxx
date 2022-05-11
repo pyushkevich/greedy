@@ -48,6 +48,7 @@
 #include "itkMinimumMaximumImageFilter.h"
 #include "itkTernaryFunctorImageFilter.h"
 #include "itkShiftScaleImageFilter.h"
+#include "itkImageDuplicator.h"
 #include "vnl/vnl_random.h"
 
 #include "FastWarpCompositeImageFilter.h"
@@ -65,21 +66,21 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::alloc_vimg(VectorImageType *img, ImageBaseType *ref)
+::alloc_vimg(VectorImageType *img, ImageBaseType *ref, TFloat fill_value)
 {
   img->SetRegions(ref->GetBufferedRegion());
   img->CopyInformation(ref);
   img->Allocate();
-  img->FillBuffer(Vec(0.0));
+  img->FillBuffer(Vec(fill_value));
 }
 
 template <class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::VectorImagePointer
 LDDMMData<TFloat, VDim>
-::new_vimg(ImageBaseType *ref)
+::new_vimg(ImageBaseType *ref, TFloat fill_value)
 {
   VectorImagePointer p = VectorImageType::New();
-  alloc_vimg(p, ref);
+  alloc_vimg(p, ref, fill_value);
   return p;
 }
 
@@ -107,7 +108,7 @@ LDDMMData<TFloat, VDim>
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::alloc_cimg(CompositeImageType *img, ImageBaseType *ref, int n_comp)
+::alloc_cimg(CompositeImageType *img, ImageBaseType *ref, int n_comp, TFloat fill_value)
 {
   img->SetRegions(ref->GetBufferedRegion());
   img->CopyInformation(ref);
@@ -116,38 +117,38 @@ LDDMMData<TFloat, VDim>
 
   typename CompositeImageType::PixelType cpix;
   cpix.SetSize(n_comp);
-  cpix.Fill(0.0);
+  cpix.Fill(fill_value);
   img->FillBuffer(cpix);
 }
 
 template <class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::CompositeImagePointer
 LDDMMData<TFloat, VDim>
-::new_cimg(ImageBaseType *ref, int n_comp)
+::new_cimg(ImageBaseType *ref, int n_comp, TFloat fill_value)
 {
   CompositeImagePointer p = CompositeImageType::New();
-  alloc_cimg(p, ref, n_comp);
+  alloc_cimg(p, ref, n_comp, fill_value);
   return p;
 }
 
 template <class TFloat, uint VDim>
 void 
 LDDMMData<TFloat, VDim>
-::alloc_img(ImageType *img, ImageBaseType *ref)
+::alloc_img(ImageType *img, ImageBaseType *ref, TFloat fill_value)
 {
   img->SetRegions(ref->GetBufferedRegion());
   img->CopyInformation(ref);
   img->Allocate();
-  img->FillBuffer(0.0);
+  img->FillBuffer(fill_value);
 }
 
 template <class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::ImagePointer
 LDDMMData<TFloat, VDim>
-::new_img(ImageBaseType *ref)
+::new_img(ImageBaseType *ref, TFloat fill_value)
 {
   ImagePointer p = ImageType::New();
-  alloc_img(p, ref);
+  alloc_img(p, ref, fill_value);
   return p;
 }
 
@@ -1547,6 +1548,51 @@ LDDMMData<TFloat, VDim>
   fltCast->SetInput(src);
   fltCast->GraftOutput(trg);
   fltCast->Update();
+  }
+
+template<class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::ImagePointer
+LDDMMData<TFloat, VDim>
+::img_dup(const ImageType *src)
+{
+  if(!src)
+    return nullptr;
+
+  typedef itk::ImageDuplicator<ImageType> DuplicatorType;
+  typename DuplicatorType::Pointer duplicator = DuplicatorType::New();
+  duplicator->SetInputImage(src);
+  duplicator->Update();
+  return duplicator->GetOutput();
+}
+
+template<class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::VectorImagePointer
+LDDMMData<TFloat, VDim>
+::vimg_dup(const VectorImageType *src)
+{
+  if(!src)
+    return nullptr;
+
+  typedef itk::ImageDuplicator<VectorImageType> DuplicatorType;
+  typename DuplicatorType::Pointer duplicator = DuplicatorType::New();
+  duplicator->SetInputImage(src);
+  duplicator->Update();
+  return duplicator->GetOutput();
+}
+
+template<class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::CompositeImagePointer
+LDDMMData<TFloat, VDim>
+::cimg_dup(const CompositeImageType *src)
+{
+  if(!src)
+    return nullptr;
+
+  typedef itk::ImageDuplicator<CompositeImageType> DuplicatorType;
+  typename DuplicatorType::Pointer duplicator = DuplicatorType::New();
+  duplicator->SetInputImage(src);
+  duplicator->Update();
+  return duplicator->GetOutput();
 }
 
 template <class TFloat, uint VDim>

@@ -222,6 +222,42 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
 }
 
 template <class TFloat, unsigned int VDim>
+typename MultiImageOpticalFlowHelper<TFloat, VDim>::IMPair
+MultiImageOpticalFlowHelper<TFloat, VDim>
+::MergeMaskWithNanMask(
+    MultiComponentImageType *src_image,
+    FloatImageType *src_mask,
+    bool have_nans,
+    SizeType dilate_radius)
+{
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+
+  // Make a copy of the supplied mask and dilate if needed
+  FloatImagePointer mask = LDDMMType::img_dup(src_mask);
+  if(mask && dilate_radius != SizeType::Filled(0))
+    DilateMask(mask, dilate_radius, false);
+
+  // Apply the nan mask to the current mask and image
+  if(have_nans)
+    {
+    if(!mask)
+      mask = LDDMMType::new_img(src_image, 1.0);
+
+    // We duplicate the source image because the filter below runs in-place and
+    // we might still need this image later
+    MultiComponentImagePointer src_image_copy = LDDMMType::cimg_dup(src_image);
+
+    typedef CompositeImageNanMaskingFilter<MultiComponentImageType, FloatImageType> NaNFilterType;
+    typename NaNFilterType::Pointer nanfilter = NaNFilterType::New();
+    nanfilter->SetInputCompositeImage(src_image_copy);
+    nanfilter->SetInputMaskImage(mask);
+    nanfilter->Update();
+    return std::make_pair(nanfilter->GetOutputCompositeImage(), nanfilter->GetOutputMaskImage());
+    }
+  else return std::make_pair(src_image, mask);
+}
+
+template <class TFloat, unsigned int VDim>
 void
 MultiImageOpticalFlowHelper<TFloat, VDim>
 ::InitializePyramid(const MultiCompImageSet &src,
@@ -236,8 +272,9 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   typedef LDDMMData<TFloat, VDim> LDDMMType;
 
   // Concatentate the input images into a single multi-component image
-  pyramid.image_full = LDDMMType::cimg_concat(src);
-  unsigned int nc = pyramid.image_full->GetNumberOfComponentsPerPixel();
+  MultiComponentImagePointer img_concat = LDDMMType::cimg_concat(src);
+
+  unsigned int nc = img_concat->GetNumberOfComponentsPerPixel();
 
   // Noise for each components
   std::vector<double> comp_noise;
@@ -252,7 +289,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     typename QuantileFilter::Pointer fltQuantile = QuantileFilter::New();
     fltQuantile->SetLowerQuantile(0.01);
     fltQuantile->SetUpperQuantile(0.99);
-    fltQuantile->SetInput(pyramid.image_full);
+    fltQuantile->SetInput(img_concat);
     fltQuantile->SetNoRemapping(true);
     fltQuantile->Update();
 
@@ -269,29 +306,13 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   else if(!mask)
     {
     // Otherwise check for nans but only if mask is not supplied
-    have_nans = LDDMMType::cimg_nancount(pyramid.image_full) > 0;
+    have_nans = LDDMMType::cimg_nancount(img_concat) > 0;
     }
 
-  // Store the mask
-  pyramid.mask_full = mask;
-  if(!mask && have_nans)
-    {
-    // If there are nans and no mask, the mask has to be created and initialized to all ones
-    pyramid.mask_full = LDDMMType::new_img(pyramid.image_full);
-    pyramid.mask_full->FillBuffer(1.0);
-    }
-
-  // Remove NaNs from the image and replace them with zeros, knocking them out of the mask
-  if(have_nans)
-    {
-    typedef CompositeImageNanMaskingFilter<MultiComponentImageType, FloatImageType> NaNFilterType;
-    typename NaNFilterType::Pointer nanfilter = NaNFilterType::New();
-    nanfilter->SetInputCompositeImage(pyramid.image_full);
-    nanfilter->SetInputMaskImage(pyramid.mask_full);
-    nanfilter->Update();
-    pyramid.image_full = nanfilter->GetOutputCompositeImage();
-    pyramid.mask_full = nanfilter->GetOutputMaskImage();
-    }
+  // Get the full resolution image and mask after removing nans and dilating user mask
+  IMPair q = MergeMaskWithNanMask(img_concat, mask, have_nans, mask_dilate_radius);
+  pyramid.image_full = q.first;
+  pyramid.mask_full = q.second;
 
   // Compute the pyramid
   pyramid.image_pyramid.resize(m_PyramidFactors.size());
@@ -303,16 +324,12 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       // Retain the image
       pyramid.image_pyramid[i] = pyramid.image_full;
       pyramid.mask_pyramid[i] = pyramid.mask_full;
-
-      // Dilate the mask if requested - here we take advantage of the fact that this code
-      // will only be called after the downsampling has already happened
-      if(pyramid.mask_pyramid[i] && mask_dilate_radius != SizeType::Filled(0))
-        DilateMask(pyramid.mask_pyramid[i], mask_dilate_radius, false);
       }
     else
       {
       // Determine the scaling factors depending on the image size
       typename LDDMMType::Vec adj_factors;
+      SizeType level_mask_dilate_radius = mask_dilate_radius;
       for(unsigned int d = 0; d < VDim; d++)
         {
         int dim = pyramid.image_full->GetBufferedRegion().GetSize()[d];
@@ -325,16 +342,21 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       if(zero_last_dim)
         adj_factors[VDim-1] = 1;
 
+      // Adjust the dilation radius to get desired effect
+      for(unsigned int d = 0; d < VDim; d++)
+        level_mask_dilate_radius[d] *= adj_factors[d];
+
+      // Get the full resolution image and mask after removing nans and dilating user mask
+      IMPair imp_level = std::make_pair(pyramid.image_full, pyramid.mask_full);
+      if(level_mask_dilate_radius != mask_dilate_radius)
+        imp_level = MergeMaskWithNanMask(img_concat, mask, have_nans, level_mask_dilate_radius);
+
       // Downsample the image itself
-      pyramid.image_pyramid[i] = LDDMMType::cimg_downsample(pyramid.image_full, adj_factors);
-      if(pyramid.mask_full)
+      pyramid.image_pyramid[i] = LDDMMType::cimg_downsample(imp_level.first, adj_factors);
+      if(imp_level.second)
         {
         // Downsample the mask
-        pyramid.mask_pyramid[i] = LDDMMType::img_downsample(pyramid.mask_full, adj_factors);
-
-        // Dilate mask if requested
-        if(pyramid.mask_pyramid[i] && mask_dilate_radius != SizeType())
-          DilateMask(pyramid.mask_pyramid[i], mask_dilate_radius, false);
+        pyramid.mask_pyramid[i] = LDDMMType::img_downsample(imp_level.second, adj_factors);
 
         // This command applies masked downsampling, i.e., we normalize the smoothed downsampled image
         // by the smoothed downsampled mask to avoid the bleeding in of pixels outside of the mask into
