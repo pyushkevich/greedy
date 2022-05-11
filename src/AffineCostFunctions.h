@@ -61,7 +61,13 @@ public:
 
   AbstractAffineCostFunction(int n_unknowns) : vnl_cost_function(n_unknowns) {}
   virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran) = 0;
-  virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) = 0;
+
+  // Get the voxel-space transform corresponding to a set of coefficients
+  virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran, bool need_backprop) = 0;
+
+  // Backprop partial derivatives wrt the voxel-space transform
+  virtual vnl_vector<double> BackPropTransform(const LinearTransformType *g_tran) = 0;
+
   virtual void compute(vnl_vector<double> const& x, double *f, vnl_vector<double>* g);
   virtual ImageType *GetMetricImage() = 0;
 
@@ -71,6 +77,10 @@ public:
   virtual void ComputeWithMask(vnl_vector<double> const& x,
                                double *f_metric, vnl_vector<double>* g_metric,
                                double *f_mask, vnl_vector<double>* g_mask) = 0;
+
+  // Torch-like interface
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, bool need_backward) = 0;
+  virtual vnl_vector<double> backward(const vnl_vector<double> &g) = 0;
 };
 
 class LineSearchMemory
@@ -114,10 +124,15 @@ public:
   vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
 
   // Get the transform for the specificed coefficients
-  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
+  virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran, bool need_backprop) override;
+  virtual vnl_vector<double> BackPropTransform(const LinearTransformType *g_tran) override;
 
   // Get the preferred scaling for this function given image dimensions
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
+
+  // Torch-like interface
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, bool need_backward) override;
+  virtual vnl_vector<double> backward(const vnl_vector<double> &g) override;
 
   // Compute cost function and gradient, along with the mask volume and gradient
   virtual void ComputeWithMask(vnl_vector<double> const& x,
@@ -168,8 +183,13 @@ public:
                                   unsigned int group, unsigned int level,
                                   OFHelperType *helper);
   virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
-  virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
+  virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran, bool need_backprop) override;
+  virtual vnl_vector<double> BackPropTransform(const LinearTransformType *g_tran) override;
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
+
+  // Torch-like interface
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, bool need_backward) override;
+  virtual vnl_vector<double> backward(const vnl_vector<double> &g) override;
 
   // Compute cost function and gradient, along with the mask volume and gradient
   virtual void ComputeWithMask(vnl_vector<double> const& x,
@@ -225,7 +245,12 @@ public:
   vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
 
   // Get the transform for the specificed coefficients
-  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
+  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran, bool need_backprop) override;
+  virtual vnl_vector<double> BackPropTransform(const LinearTransformType *g_tran) override;
+
+  // Torch-like interface
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, bool need_backward) override;
+  virtual vnl_vector<double> backward(const vnl_vector<double> &g) override;
 
   // Cost function computation
   virtual void ComputeWithMask(vnl_vector<double> const& x,
@@ -267,6 +292,10 @@ public:
 
   ~MaskWeightedSumAffineConstFunction();
 
+  // Torch-like interface
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, bool need_backward) override;
+  virtual vnl_vector<double> backward(const vnl_vector<double> &g) override;
+
   virtual void ComputeWithMask(vnl_vector<double> const& x,
                                double *f_metric, vnl_vector<double>* g_metric,
                                double *f_mask, vnl_vector<double>* g_mask) override;
@@ -274,8 +303,11 @@ public:
   virtual vnl_vector<double> GetCoefficients(LinearTransformType *tran) override
     { return m_Components.front()->GetCoefficients(tran); }
 
-  virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override
-    { return m_Components.front()->GetTransform(coeff, tran); }
+  virtual void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran, bool need_backprop) override
+    { return m_Components.front()->GetTransform(coeff, tran, need_backprop); }
+
+  virtual vnl_vector<double> BackPropTransform(const LinearTransformType *g_tran) override
+    { return m_Components.front()->BackPropTransform(g_tran); }
 
   // TODO: this is incorrect, but why do we need MetricImage?
   virtual ImageType *GetMetricImage() override
@@ -285,6 +317,76 @@ private:
   // Component functions
   std::vector<Superclass *> m_Components;
 };
+
+
+/** Rigid registration templated specialization */
+template <unsigned int VDim, typename TReal>
+class RigidCostFunctionImpl
+{
+public:
+  typedef vnl_vector_fixed<double, VDim> Vec;
+  typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
+
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, Mat &flip, bool need_backward)
+    { return vnl_vector<double>(); }
+
+  virtual vnl_vector<double> backward(const vnl_vector<double> &g)
+    { return vnl_vector<double>(); }
+
+  static vnl_vector<double> GetAxisAngle(const Mat &R) { return Vec(); }
+
+  static Mat GetRandomRotation(vnl_random &randy, double alpha) { return Mat(); }
+  static unsigned int GetNumberOfParameters() { return 0; }
+};
+
+
+/** Rigid registration templated specialization */
+template <typename TReal>
+class RigidCostFunctionImpl<3, TReal>
+{
+public:
+  typedef vnl_vector_fixed<double, 3> Vec;
+  typedef vnl_matrix_fixed<double, 3, 3> Mat;
+
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, Mat &flip, bool need_backward);
+  virtual vnl_vector<double> backward(const vnl_vector<double> &g);
+  static vnl_vector<double> GetAxisAngle(const Mat &R);
+  static Mat GetRandomRotation(vnl_random &randy, double alpha);
+  static unsigned int GetNumberOfParameters() { return 6; }
+
+protected:
+  static void GetRotationMatrix(const Vec &q, double &theta, Mat &R, Mat &Qmat, double &a1, double &a2);
+
+  // Jacobian matrix - stored internally for backward computations
+  vnl_matrix<double> jac;
+
+  // Epsilon for Rodriguez formula
+  static constexpr double eps = 1.0e-4;
+
+};
+
+/** Rigid registration templated specialization */
+template <typename TReal>
+class RigidCostFunctionImpl<2, TReal>
+{
+public:
+  typedef vnl_vector_fixed<double, 2> Vec;
+  typedef vnl_matrix_fixed<double, 2, 2> Mat;
+
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, Mat &flip, bool need_backward);
+  virtual vnl_vector<double> backward(const vnl_vector<double> &g);
+  static vnl_vector<double> GetAxisAngle(const Mat &R);
+  static Mat GetRandomRotation(vnl_random &randy, double alpha);
+  static unsigned int GetNumberOfParameters() { return 3; }
+
+protected:
+  static Mat GetRotationMatrix(double theta);
+
+  // Jacobian matrix - stored internally for backward computations
+  vnl_matrix<double> jac;
+};
+
+
 
 /** Cost function for rigid registration */
 template <unsigned int VDim, typename TReal = double>
@@ -301,14 +403,14 @@ public:
   typedef typename Superclass::VectorImageType VectorImageType;
   typedef typename Superclass::VectorImagePointer VectorImagePointer;
 
-
   typedef vnl_vector_fixed<double, VDim> Vec;
   typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
 
   RigidCostFunction(GreedyParameters *param, ParentType *parent,
                     unsigned int group, unsigned int level, OFHelperType *helper);
   vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
-  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
+  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran, bool need_backprop) override;
+  virtual vnl_vector<double> BackPropTransform(const LinearTransformType *g_tran) override;
   virtual void ComputeWithMask(vnl_vector<double> const& x,
                                double *f_metric, vnl_vector<double>* g_metric,
                                double *f_mask, vnl_vector<double>* g_mask) override;
@@ -322,72 +424,23 @@ public:
   // Get the metric image
   virtual ImageType *GetMetricImage() override { return m_AffineFn.GetMetricImage(); }
 
-protected:
+  // Torch-like interface
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, bool need_backward) override;
+  virtual vnl_vector<double> backward(const vnl_vector<double> &g) override;
 
-  static Mat GetRotationMatrix(const Vec &q);
-  static Vec GetAxisAngle(const Mat &R);
+protected:
 
   // We wrap around a physical space affine function, since rigid in physical space is not
   // the same as rigid in voxel space
   PhysicalSpaceAffineCostFunction<VDim, TReal> m_AffineFn;
 
-  // Flip matrix -- allows rigid registration with flips. If the input matrix has a flip,
-  // that flip is maintained during registration
-  Mat flip;
-
-};
-
-
-/** Specialized function for 2D rigid registration */
-template <typename TReal>
-class RigidCostFunction<2, TReal> : public AbstractAffineCostFunction<2, TReal>
-{
-public:
-  typedef AbstractAffineCostFunction<2, TReal> Superclass;
-  typedef typename Superclass::ParentType ParentType;
-  typedef typename Superclass::OFHelperType OFHelperType;
-  typedef typename Superclass::LinearTransformType LinearTransformType;
-
-  typedef typename Superclass::ImageType ImageType;
-  typedef typename Superclass::ImagePointer ImagePointer;
-  typedef typename Superclass::VectorImageType VectorImageType;
-  typedef typename Superclass::VectorImagePointer VectorImagePointer;
-
-  const static int VDim = 2;
-  typedef vnl_vector_fixed<double, VDim> Vec;
-  typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
-
-
-  RigidCostFunction(GreedyParameters *param, ParentType *parent,
-                    unsigned int group, unsigned int level, OFHelperType *helper);
-  vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
-  void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran) override;
-  virtual void ComputeWithMask(vnl_vector<double> const& x,
-                               double *f_metric, vnl_vector<double>* g_metric,
-                               double *f_mask, vnl_vector<double>* g_mask) override;
-
-  // Get the preferred scaling for this function given image dimensions
-  virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
-
-  // Generate a random rotation matrix with rotation angle alpha (radians)
-  static Mat GetRandomRotation(vnl_random &randy, double alpha);
-
-  // Get the metric image
-  virtual ImageType *GetMetricImage() override { return m_AffineFn.GetMetricImage(); }
-
-protected:
-
-  static Mat GetRotationMatrix(double theta);
-  static double GetRotationAngle(const Mat &R);
-
-  // We wrap around a physical space affine function, since rigid in physical space is not
-  // the same as rigid in voxel space
-  PhysicalSpaceAffineCostFunction<VDim, TReal> m_AffineFn;
+  // The 2D/3D specialization
+  typedef RigidCostFunctionImpl<VDim, TReal> Impl;
+  RigidCostFunctionImpl<VDim, TReal> impl;
 
   // Flip matrix -- allows rigid registration with flips. If the input matrix has a flip,
   // that flip is maintained during registration
   Mat flip;
-
 };
 
 

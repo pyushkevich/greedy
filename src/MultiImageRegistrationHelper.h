@@ -258,6 +258,11 @@ public:
     FloatImageType *error_norm = NULL, double tol = 0.0, int max_iter = 20);
 
   /**
+   * Apply dilation to a mask, with option to make the dilated portion have value 0.5
+   */
+  static void DilateMask(FloatImageType *mask, SizeType radius, bool two_layer);
+
+  /**
    * Internal method used to pack a bunch of multi-component images into a single one
    */
 
@@ -352,9 +357,6 @@ protected:
 
   // Precompute histograms for MI/NMI
   void ComputeHistogramsIfNeeded(unsigned int group, unsigned int level);
-
-  // Helper method for DilateCompositeGradientMasksForNCC
-  void DilateMask(FloatImageType *mask, SizeType radius, bool two_layer);
 
   // Whether the fixed images should be scaled down by the pyramid factors
   // when subsampling. This is needed for the Mahalanobis distance metric, but not for

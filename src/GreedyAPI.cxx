@@ -999,7 +999,7 @@ GreedyApproach<VDim, TReal>
       xInit[i] += rndy.drand32(-0.4, 0.4);
 
     // Map back into transform format
-    acf->GetTransform(xInit, tLevel);
+    acf->GetTransform(xInit, tLevel, false);
     }
 
   // If the uses asks for rigid search, do it!
@@ -1178,7 +1178,7 @@ int GreedyApproach<VDim, TReal>
 
   // Print the two matrices
   printf("\nANL:  ");
-  acf->GetTransform(xGrad, tLevel);
+  acf->GetTransform(xGrad, tLevel, false);
   for(unsigned int a = 0; a < VDim; a++)
     for(unsigned int b = 0; b < VDim; b++)
       printf("%9.4f ", tLevel->GetMatrix()(a,b));
@@ -1186,7 +1186,7 @@ int GreedyApproach<VDim, TReal>
     printf("%9.4f ", tLevel->GetOffset()[a]);
 
   printf("\nNUM:  ");
-  acf->GetTransform(xGradN, tLevel);
+  acf->GetTransform(xGradN, tLevel, false);
   for(unsigned int a = 0; a < VDim; a++)
     for(unsigned int b = 0; b < VDim; b++)
       printf("%9.4f ", tLevel->GetMatrix()(a,b));
@@ -1366,7 +1366,7 @@ int GreedyApproach<VDim, TReal>
         {
         // Get the final transform
         typename LinearTransformType::Pointer tFinal = LinearTransformType::New();
-        acf->GetTransform(xLevel, tFinal.GetPointer());
+        acf->GetTransform(xLevel, tFinal.GetPointer(), false);
 
         // TODO: this does not make any sense, really... Should change all affine ops to work in physical space
         Q_physical = MapAffineToPhysicalRASSpace(of_helper, 0, level, tFinal);
@@ -3037,7 +3037,7 @@ int GreedyApproach<VDim, TReal>
 
   // Save the best transform
   typename LinearTransformType::Pointer tran = LinearTransformType::New();
-  cost_fn.GetTransform(xBest, tran);
+  cost_fn.GetTransform(xBest, tran, false);
   vnl_matrix<double> Q_physical = MapAffineToPhysicalRASSpace(of_helper, 0, 0, tran);
   this->WriteAffineMatrixViaCache(param.output, Q_physical);
 
