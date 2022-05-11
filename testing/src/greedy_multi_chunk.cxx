@@ -15,7 +15,7 @@
 struct ChunkGreedyParameters
 {
   std::string fn_chunk_mask;
-  std::string fn_output_pattern;
+  std::string fn_output_pattern, fn_output_inv_pattern, fn_output_root_pattern;
   std::string fn_init_tran_pattern;
   double reg_weight = 0.01;
 };
@@ -26,12 +26,15 @@ int usage()
   printf("usage: \n");
   printf("  chunk_greedy <options> <greedy_options> \n");
   printf("options for chunk_greedy: \n");
-  printf("  -cm: <file>      : Chunk mask, each chunk assigned a different label\n");
-  printf("  -op: <pattern>   : Output pattern (printf format), equivalent to -o in greedy\n");
-  printf("  -itp: <pattern>  : Initial transform pattern (printf format), equivalent to -it in greedy\n");
-  printf("  -wreg <value>    : Regularization term weight (default: 0.01)\n");
+  printf("  -cm <file>      : Chunk mask, each chunk assigned a different label\n");
+  printf("  -wreg <value>   : Regularization term weight (default: 0.01)\n");
+  printf("  -o <pattern>    : Like -o in greedy, but a printf pattern \n");
+  printf("  -it <pattern>   : Like -it in greedy, but a printf pattern\n");
+  printf("  -oinv <pattern> : Like -oinv in greedy, but a printf pattern\n");
   printf("main greedy options accepted: \n");
   printf("  -d, -i, -m, -n, -a, -dof, -bg, -ia, -wncc-mask-dilate, -search");
+  printf("greedy options modified to accept printf-like pattern (e.g., test%%02d.mat): \n");
+  printf("  -o, -oinv, -oroot, -it");
   return -1;
 }
 
@@ -83,6 +86,20 @@ struct MultiChunkAffineAssembly
   vnl_matrix<double> Q_physical;
 };
 
+std::string ssprintf(const char *format, ...)
+{
+  if(format && strlen(format))
+    {
+    char buffer[4096];
+    va_list args;
+    va_start (args, format);
+    vsprintf (buffer, format, args);
+    va_end (args);
+    return std::string(buffer);
+    }
+  else
+    return std::string();
+}
 
 template <unsigned int VDim, typename TReal=double>
 void initialize_assemblies(ChunkGreedyParameters cgp, GreedyParameters gp,
@@ -131,9 +148,7 @@ void initialize_assemblies(ChunkGreedyParameters cgp, GreedyParameters gp,
       label_data[label].api.AddCachedInputObject("label_mask", label_data[label].mask);
 
       // Set the output filename
-      char buffer[1024];
-      sprintf(buffer, cgp.fn_output_pattern.c_str(), label);
-      label_data[label].gp.output = buffer;
+      label_data[label].gp.output = ssprintf(cgp.fn_output_pattern.c_str(), label);
       }
     }
 }
@@ -632,12 +647,15 @@ int run_deform(ChunkGreedyParameters cgp, GreedyParameters gp)
   // Peform affine-specific initialization for each label
   for(auto &item : label_data)
     {
+    // Map accepted patterns to item-specific parameters
     if(cgp.fn_init_tran_pattern.size())
       {
-      char buffer[1024];
-      sprintf(buffer, cgp.fn_init_tran_pattern.c_str(), item.first);
-      item.second.gp.input_groups[0].moving_pre_transforms.push_back(TransformSpec(buffer, 1.0));
+      std::string fn_tran = ssprintf(cgp.fn_init_tran_pattern.c_str(), item.first);
+      item.second.gp.input_groups[0].moving_pre_transforms.push_back(TransformSpec(fn_tran, 1.0));
       }
+
+    item.second.gp.inverse_warp = ssprintf(cgp.fn_output_inv_pattern.c_str(), item.first);
+    item.second.gp.root_warp = ssprintf(cgp.fn_output_root_pattern.c_str(), item.first);
 
     // Add random sampling jitter for affine stability at voxel edges
     item.second.api.RunDeformable(item.second.gp);
@@ -677,11 +695,19 @@ int main(int argc, char *argv[])
   std::string arg;
   while(cl.read_command(arg))
     {
-    if(arg == "-op")
+    if(arg == "-o")
       {
       cg_param.fn_output_pattern = cl.read_string();
       }
-    else if(arg == "-itp")
+    else if(arg == "-oinv")
+      {
+      cg_param.fn_output_inv_pattern = cl.read_string();
+      }
+    else if(arg == "-oroot")
+      {
+      cg_param.fn_output_root_pattern = cl.read_string();
+      }
+    else if(arg == "-it")
       {
       cg_param.fn_init_tran_pattern = cl.read_string();
       }
