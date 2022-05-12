@@ -32,7 +32,7 @@ int usage()
   printf("  -it <pattern>   : Like -it in greedy, but a printf pattern\n");
   printf("  -oinv <pattern> : Like -oinv in greedy, but a printf pattern\n");
   printf("main greedy options accepted: \n");
-  printf("  -d, -i, -m, -n, -a, -dof, -bg, -ia, -wncc-mask-dilate, -search, -ref-pad");
+  printf("  -d, -i, -m, -n, -a, -dof, -e, -s, -bg, -ia, -wncc-mask-dilate, -search, -ref-pad");
   printf("greedy options modified to accept printf-like pattern (e.g., test%%02d.mat): \n");
   printf("  -o, -oinv, -oroot, -it");
   return -1;
@@ -686,7 +686,7 @@ int main(int argc, char *argv[])
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
     "-threads", "-d", "-m", "-i", "-n", "-a", "-dof", "-bg", "-ia", "-wncc-mask-dilate", "-search", "-dump-pyramid", "-dump-metric",
-    "-it", "-sv", "-s", "-ref-pad"
+    "-it", "-sv", "-s", "-ref-pad", "-e"
   };
 
   CommandLineHelper cl(argc, argv);

@@ -627,24 +627,46 @@ void GreedyApproach<VDim, TReal>
         if(param.reference_space_padding.size())
           {
           // Check the padding size
-          itk::Size<VDim> pad_size;
+          itk::Size<VDim> pad_size, padded_size;
           if(param.reference_space_padding.size() != VDim)
-            throw GreedyException("Incorrect parameter to -mm-pad, should have %d elements", VDim);
+            throw GreedyException("Incorrect parameter to -ref-pad, should have %d elements", VDim);
+          typename CompositeImageType::RegionType region = imgFix->GetBufferedRegion();
+          typename CompositeImageType::IndexType shift;
           for(unsigned int d = 0; d < VDim; d++)
+            {
             pad_size[d] = param.reference_space_padding[d];
+            padded_size[d] = 2 * pad_size[d] + region.GetSize()[d];
+            shift[d] = pad_size[d];
+            }
 
-          // Apply the padding to the fixed image
+          // Create a region
+          typename CompositeImageType::RegionType outer;
+          outer.SetSize(padded_size);
+
+          // Compute the header of padded image
+          auto origin = imgFix->GetOrigin();
+          auto dir = imgFix->GetDirection();
+          auto spc = imgFix->GetSpacing();
+          for(unsigned int i = 0; i < VDim; i++)
+            for(unsigned int j = 0; j < VDim; j++)
+              origin[i] -= dir(i,j) * pad_size[j] * spc[j];
+
+          // Create the padded image
           CompositeImagePointer imgPad = CompositeImageType::New();
-          typename CompositeImageType::RegionType inner = imgFix->GetBufferedRegion();
-          typename CompositeImageType::RegionType outer = inner;
-          outer.PadByRadius(pad_size);
-          imgPad->SetBufferedRegion(outer);
-          imgPad->CopyInformation(imgFix);
+          imgPad->SetRegions(outer);
+          imgPad->SetSpacing(spc);
+          imgPad->SetDirection(dir);
+          imgPad->SetOrigin(origin);
           imgPad->SetNumberOfComponentsPerPixel(imgFix->GetNumberOfComponentsPerPixel());
           imgPad->Allocate();
+
+          // Fill with fill_value
           for(unsigned long i = 0; i < imgPad->GetPixelContainer()->Size(); i++)
             imgPad->GetBufferPointer()[i] = fill_value;
-          itk::ImageAlgorithm::Copy(imgFix.GetPointer(), imgPad.GetPointer(), inner, inner);
+
+          // Copy the center piece
+          auto inner = region; inner.SetIndex(shift);
+          itk::ImageAlgorithm::Copy(imgFix.GetPointer(), imgPad.GetPointer(), region, inner);
 
           imgFix = imgPad;
           use_ref_space_for_moving = true;
