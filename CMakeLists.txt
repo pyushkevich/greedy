@@ -218,7 +218,7 @@ SET(GREEDY_API_LIBS greedyapi
   ${SPARSE_LIBRARY})
 
 # List of installable targets
-SET(GREEDY_INSTALL_TARGETS greedy greedy_template_average)
+SET(GREEDY_INSTALL_TARGETS greedy greedy_template_average multi_chunk_greedy)
 
 # The executables are only compiled when the software is built as its own project
 IF(BUILD_CLI)
