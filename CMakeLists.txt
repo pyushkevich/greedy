@@ -156,6 +156,8 @@ SET(HEADERS
   src/ITKFilters/include/MultiImageOpticalFlowImageFilter.txx
   src/ITKFilters/include/OneDimensionalInPlaceAccumulateFilter.h
   src/ITKFilters/include/OneDimensionalInPlaceAccumulateFilter.txx
+  src/ITKFilters/include/itkSLICSuperVoxelImageFilter.h
+  src/ITKFilters/include/itkSLICSuperVoxelImageFilter.hxx
   src/lddmm_common.h
   src/lddmm_data.h
   src/AffineCostFunctions.h

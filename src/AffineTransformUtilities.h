@@ -148,6 +148,16 @@ GetVoxelSpaceToNiftiSpaceTransform(itk::ImageBase<VDim> *image,
   b = m_lps_to_ras * v_origin;
 }
 
+template <unsigned int VDim>
+vnl_vector_fixed<double, VDim>
+TransformIndexToNiftiRASCoordinates(itk::ImageBase<VDim> *image,const itk::Index<VDim> &idx)
+{
+  itk::Point<double, VDim> p;
+  image->TransformIndexToPhysicalPoint(idx, p);
+  p[0] = -p[0]; p[1] = -p[1];
+  return p.GetVnlVector();
+}
+
 template <class TITKMatrix, class TVNLMatrix>
 void vnl_matrix_to_itk_matrix(
     const TVNLMatrix &vmat,
