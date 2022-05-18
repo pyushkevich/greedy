@@ -418,6 +418,20 @@ LDDMMData<TFloat, VDim>
   flt->Update();
 }
 
+template<class TFloat, uint VDim>
+void
+LDDMMData<TFloat, VDim>
+::cimg_multiply_in_place(CompositeImageType *trg, ImageType *s)
+{
+  typedef itk::MultiplyImageFilter<
+    CompositeImageType, ImageType, CompositeImageType> MultiplyFilter;
+  typename MultiplyFilter::Pointer flt = MultiplyFilter::New();
+  flt->SetInput1(trg);
+  flt->SetInput2(s);
+  flt->GraftOutput(trg);
+  flt->Update();
+}
+
 // Scalar math
 
 template <class TFloat, uint VDim>

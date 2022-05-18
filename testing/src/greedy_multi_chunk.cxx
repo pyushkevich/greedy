@@ -10,6 +10,12 @@
 #include <AffineCostFunctions.h>
 #include <AffineTransformUtilities.h>
 #include <vnl/algo/vnl_lbfgs.h>
+#include "itkGradientMagnitudeImageFilter.h"
+#include "itkSLICSuperVoxelImageFilter.h"
+#include "itkCastImageFilter.h"
+#include "GreedyMeshIO.h"
+#include "vtkPolyData.h"
+#include "vtkPoints.h"
 
 
 struct ChunkGreedyParameters
@@ -493,11 +499,16 @@ int run_affine(ChunkGreedyParameters cgp, GreedyParameters gp)
   typedef GreedyApproach<VDim, TReal> GreedyAPI;
   typedef AbstractAffineCostFunction<VDim, TReal> AbstractAffineCF;
   typedef MultiChunkAffineAssembly<VDim, TReal> Assembly;
+  typedef typename LDDMMType::ImageType ImageType;
+  typedef typename LDDMMType::ImagePointer ImagePointer;
+  typedef typename itk::Image<short, VDim> ChunkMaskImageType;
+  typedef vnl_vector_fixed<double, VDim> Vec;
+  typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
 
   // Perform the common initialization (mask split, etc)
   std::map<short, Assembly> label_data;
   std::vector<short> chunk_labels;
-  typename itk::Image<short, VDim>::Pointer chunk_mask;
+  typename ChunkMaskImageType::Pointer chunk_mask;
   initialize_assemblies(cgp, gp, label_data, chunk_labels, chunk_mask);
 
   // Peform affine-specific initialization for each label
@@ -623,6 +634,68 @@ int run_affine(ChunkGreedyParameters cgp, GreedyParameters gp)
     // Create an affine problem for each level
     auto &ld = item.second;
     ld.api.WriteAffineMatrixViaCache(ld.gp.output, ld.Q_physical);
+    }
+
+  // If requested, generate point meshes for generating a deformable transformation
+  if(true)
+    {
+    // First we need to pass the chunk mask to a SLIC filter so that we break up each mask region
+    // into smaller subregions.
+    typedef itk::CastImageFilter<ChunkMaskImageType, ImageType> CastFilter;
+    typename CastFilter::Pointer caster = CastFilter::New();
+    caster->SetInput(chunk_mask);
+
+    // Compute the gradient of the image
+    typedef itk::GradientMagnitudeImageFilter<ImageType, ImageType> GradFilter;
+    typename GradFilter::Pointer gradFilter = GradFilter::New();
+    gradFilter->SetInput(caster->GetOutput());
+    gradFilter->Update();
+
+    // Create the main filter
+    typedef itk::SLICSuperVoxelImageFilter<ImageType, ImageType, ImageType> SLICFilter;
+    typename SLICFilter::Pointer fltSlic = SLICFilter::New();
+    fltSlic->SetInput(caster->GetOutput());
+    fltSlic->SetGradientImage(gradFilter->GetOutput());
+    fltSlic->SetMParameter(0.1);
+    fltSlic->SetSeedsPerDimension(40);
+    fltSlic->Update();
+
+    // Create point data
+    vtkNew<vtkPoints> pt_x;
+    vtkNew<vtkPoints> pt_y;
+
+    // Iterate over the clusters
+    unsigned int n = fltSlic->GetNumberOfClusters();
+    for(unsigned int i = 0; i < n; i++)
+      {
+      // Get the cluster index
+      itk::Index<VDim> idx = fltSlic->GetClusterCenter(i);
+
+      // Check the label value at the cluster - by looking up the mask image
+      unsigned int label = chunk_mask->GetPixel(idx);
+      if(label > 0)
+        {
+        // Map the index to physical RAS coordinates
+        Vec x = TransformIndexToNiftiRASCoordinates(chunk_mask.GetPointer(), idx);
+
+        // Use the transform corresponding to the label
+        const auto &A = label_data[label].Q_physical;
+        Vec y = A.extract(VDim, VDim) * x + A.get_column(VDim).extract(VDim);
+
+        pt_x->InsertNextPoint(x[0], x[1], VDim >= 3 ? x[2] : 0.0);
+        pt_y->InsertNextPoint(y[0], y[1], VDim >= 3 ? y[2] : 0.0);
+        }
+      }
+
+    // Create and save meshes
+    vtkNew<vtkPolyData> pd_x;
+    vtkNew<vtkPolyData> pd_y;
+    pd_x->SetPoints(pt_x);
+    pd_y->SetPoints(pt_y);
+
+    WritePolyData(pd_x, "/tmp/pdx.vtk");
+    WritePolyData(pd_y, "/tmp/pdy.vtk");
+    LDDMMType::img_write(fltSlic->GetOutput(), "/tmp/slic.nii.gz");
     }
 
   return 0;

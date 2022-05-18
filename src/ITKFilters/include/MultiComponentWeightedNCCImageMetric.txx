@@ -487,6 +487,10 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
               double grad_wm_d = *p_saved++;
               double d_metric_d_phi_k = grad_wm_d * mult_grad_wm + grad_w[d] * mult_grad_w;
 
+              // Catch extreme values
+              if(fabs(d_metric_d_phi_k) > 1e4)
+                std::cout << d_metric_d_phi_k << std::endl;
+
               // Store the metric
               if(p_grad_metric)
                 (*p_grad_metric)[d] += d_metric_d_phi_k;
@@ -655,7 +659,7 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
 
 #ifdef DUMP_NCC
   typename itk::ImageFileWriter<InputImageType>::Pointer pwriter2 = itk::ImageFileWriter<InputImageType>::New();
-  pwriter2->SetInput(img_accum);
+  pwriter2->SetInput(m_WorkingImage);
   pwriter2->SetFileName("nccaccum.nii.gz");
   pwriter2->Update();
 #endif

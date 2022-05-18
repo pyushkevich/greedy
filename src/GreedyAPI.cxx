@@ -741,6 +741,21 @@ void GreedyApproach<VDim, TReal>
     ofhelper.DilateCompositeGradientMasksForNCC(radius);
     }
 
+  // Conversely, when the metric is WNCC, the images should be multiplied by the masks
+  if(param.metric == GreedyParameters::WNCC)
+    {
+    for(unsigned int g = 0; g < ofhelper.GetNumberOfInputGroups(); g++)
+      {
+      for(unsigned int i = 0; i < ofhelper.GetNumberOfLevels(); i++)
+        {
+        if(ofhelper.GetFixedMask(g, i))
+          LDDMMType::cimg_multiply_in_place(ofhelper.GetFixedComposite(g, i), ofhelper.GetFixedMask(g, i));
+        if(ofhelper.GetMovingMask(g, i))
+          LDDMMType::cimg_multiply_in_place(ofhelper.GetMovingComposite(g, i), ofhelper.GetMovingMask(g, i));
+        }
+      }
+    }
+
   // Save the image pyramid
   if(param.flag_dump_pyramid)
     {
