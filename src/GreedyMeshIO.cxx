@@ -1,8 +1,10 @@
 #include "GreedyMeshIO.h"
 #include "GreedyException.h"
 
-#include <vtkPolyDataReader.h>
+#include <vtkGenericDataObjectReader.h>
 #include <vtkPolyDataWriter.h>
+#include <vtkUnstructuredGridWriter.h>
+#include <vtkUnstructuredGrid.h>
 #include <vtkPLYReader.h>
 #include <vtkPLYWriter.h>
 #include <vtkSTLReader.h>
@@ -56,13 +58,23 @@ vtkSmartPointer<TMesh> ReadMeshByExtension(const char *fname)
   else if(fn_str.rfind(".ply") == fn_str.length() - 4)
     return ReadMesh<vtkPLYReader, TMesh>(fname);
   else if(fn_str.rfind(".vtk") == fn_str.length() - 4)
-    return ReadMesh<vtkPolyDataReader, TMesh>(fname);
+    {
+    vtkSmartPointer<vtkGenericDataObjectReader> reader = vtkSmartPointer<vtkGenericDataObjectReader>::New();
+    reader->SetFileName(fname);
+    reader->Update();
+    if(reader->IsFilePolyData())
+      return reader->GetPolyDataOutput();
+    else if (reader->IsFileUnstructuredGrid())
+      return reader->GetUnstructuredGridOutput();
+    else
+      throw GreedyException("No mesh reader for file %s", fname);
+    }
   else
     throw GreedyException("No mesh reader for file %s", fname);
 }
 
 template<class TMesh>
-void WriteMeshByExtension(vtkPolyData *mesh, const char *fname)
+void WriteMeshByExtension(TMesh *mesh, const char *fname)
 {
   std::string fn_str = fname;
   if(fn_str.rfind(".byu") == fn_str.length() - 4)
@@ -72,19 +84,26 @@ void WriteMeshByExtension(vtkPolyData *mesh, const char *fname)
   else if(fn_str.rfind(".ply") == fn_str.length() - 4)
     WriteMesh<vtkPLYWriter, TMesh>(mesh, fname);
   else if(fn_str.rfind(".vtk") == fn_str.length() - 4)
-    WriteMesh<vtkPolyDataWriter, TMesh>(mesh, fname);
+    {
+    vtkPolyData *pd = dynamic_cast<vtkPolyData *>(mesh);
+    vtkUnstructuredGrid *usg = dynamic_cast<vtkUnstructuredGrid *>(mesh);
+    if(pd)
+      WriteMesh<vtkPolyDataWriter, vtkPolyData>(pd, fname);
+    else if (usg)
+      WriteMesh<vtkUnstructuredGridWriter, vtkUnstructuredGrid>(usg, fname);
+    }
   else
     throw GreedyException("No mesh writer for file %s", fname);
 }
 
 } // namespace
 
-vtkSmartPointer<vtkPolyData> ReadPolyData(const char *fname)
+vtkSmartPointer<vtkPointSet> ReadMesh(const char *fname)
 {
-  return greedy_mesh_io::ReadMeshByExtension<vtkPolyData>(fname);
+  return greedy_mesh_io::ReadMeshByExtension<vtkPointSet>(fname);
 }
 
-void WritePolyData(vtkPolyData *mesh, const char *fname)
+void WriteMesh(vtkPointSet *mesh, const char *fname)
 {
-  greedy_mesh_io::WriteMeshByExtension<vtkPolyData>(mesh, fname);
+  greedy_mesh_io::WriteMeshByExtension<vtkPointSet>(mesh, fname);
 }

@@ -50,6 +50,7 @@
 #include "WarpFunctors.h"
 
 #include <vtkPolyData.h>
+#include <vtkUnstructuredGrid.h>
 #include "GreedyMeshIO.h"
 
 #include <vnl/algo/vnl_powell.h>
@@ -2477,7 +2478,7 @@ public:
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
-::TransformMeshAffine(vtkPolyData *mesh, vnl_matrix<double> mat)
+::TransformMeshAffine(vtkPointSet *mesh, vnl_matrix<double> mat)
 {
   vnl_matrix_fixed<double, VDim+1, VDim+1> matfix = mat;
   vnl_vector_fixed<double, VDim+1> x_fix, y_fix; x_fix[VDim] = 1.0;
@@ -2495,7 +2496,7 @@ void GreedyApproach<VDim, TReal>
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
-::TransformMeshWarp(vtkPolyData *mesh, VectorImageType *warp)
+::TransformMeshWarp(vtkPointSet *mesh, VectorImageType *warp)
 {
   typedef FastLinearInterpolator<VectorImageType, TReal, VDim> FastInterpolator;
   typedef itk::Point<TReal, VDim> PointType;
@@ -2700,10 +2701,10 @@ int GreedyApproach<VDim, TReal>
   // Read the fixed as a plain image (we don't care if it's composite)
   typename ImageBaseType::Pointer ref = ReadImageBaseViaCache(r_param.ref_image);
 
-  typedef vtkSmartPointer<vtkPolyData> MeshPointer;
+  typedef vtkSmartPointer<vtkPointSet> MeshPointer;
   std::vector<MeshPointer> meshes;
   for(unsigned int i = 0; i < r_param.meshes.size(); i++)
-    meshes.push_back(ReadPolyData(r_param.meshes[i].fixed.c_str()));
+    meshes.push_back(ReadMesh(r_param.meshes[i].fixed.c_str()));
 
   // Read the transform chain
   VectorImagePointer warp;
@@ -2850,7 +2851,7 @@ int GreedyApproach<VDim, TReal>
 
   // Save the meshes
   for(unsigned int i = 0; i < r_param.meshes.size(); i++)
-    WritePolyData(meshes[i], r_param.meshes[i].output.c_str());
+    WriteMesh(meshes[i], r_param.meshes[i].output.c_str());
 
 
   // Process meshes

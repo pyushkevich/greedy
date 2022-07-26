@@ -1,8 +1,6 @@
 #ifndef GREEDYMESHIO_H
 #define GREEDYMESHIO_H
 
-#include <vtkPolyData.h>
-#include <vtkUnstructuredGrid.h>
 #include <vtkSmartPointer.h>
 
 class vtkPolyDataReader;
@@ -15,8 +13,9 @@ class vtkBYUReader;
 class vtkBYUWriter;
 class vtkOBJReader;
 class vtkOBJWriter;
+class vtkPointSet;
 
-vtkSmartPointer<vtkPolyData> ReadPolyData(const char *fname);
-void WritePolyData(vtkPolyData *mesh, const char *fname);
+vtkSmartPointer<vtkPointSet> ReadMesh(const char *fname);
+void WriteMesh(vtkPointSet *mesh, const char *fname);
 
 #endif // GREEDYMESHIO_H
