@@ -67,7 +67,8 @@ function json_sample()
     "rigid": [0, -1],
     "affine": [0, -1],
     "deformable": [2, -1],
-    "averaging": [0, -1]
+    "averaging": [0, -1],
+    "shape_averaging": [0, -1]
   },
   "scheduler": {
     "enabled": true,
@@ -172,6 +173,7 @@ GP_ITER_RIG=($(jq -r "(.iterations.rigid // [0,0])[]" "$JSON"))
 GP_ITER_AFF=($(jq -r "(.iterations.affine // [0,-1])[]" "$JSON"))
 GP_ITER_DEF=($(jq -r "(.iterations.deformable // [1,-1])[]" "$JSON"))
 GP_ITER_AVG=($(jq -r "(.iterations.averaging // [1,-1])[]" "$JSON"))
+GP_ITER_SHAPE_AVG=($(jq -r "(.iterations.averaging // $GP_ITER_AVG)[]" "$JSON"))
 
 # Scheduler
 GP_USE_PYBATCH=$(jq -r '.scheduler.enabled // false' "$JSON")
@@ -298,6 +300,7 @@ function set_iter_vars()
   DO_AFFINE=$(check_iter $iter ${GP_ITER_AFF[*]})
   DO_DEFORM=$(check_iter $iter ${GP_ITER_DEF[*]})
   DO_AVERAGE=$(check_iter $iter ${GP_ITER_AVG[*]})
+  DO_SHAPE_AVG=$(check_iter $iter ${GP_ITER_SHAPE_AVG[*]})
 }
 
 # Run command echoing the command to a log file
@@ -454,7 +457,7 @@ function template_make_average()
     greedy_template_average \
        -d $GP_DIM -i ${ALL_IMAGES[*]} $TEMPLATE_IMAGE \
        $([ $GP_USE_MASKS ] && echo "-m ${ALL_MASKS[*]} $TEMPLATE_MASK") \
-       $([ $ALL_TFORMS ] && echo "-w ${ALL_TFORMS[*]}") \
+       $([ $DO_SHAPE_AVG ] && [ $ALL_TFORMS ] && echo "-w ${ALL_TFORMS[*]}") \
        $GP_OPT_AVG
 
   else
