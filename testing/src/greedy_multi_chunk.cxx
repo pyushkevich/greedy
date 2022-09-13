@@ -693,8 +693,8 @@ int run_affine(ChunkGreedyParameters cgp, GreedyParameters gp)
     pd_x->SetPoints(pt_x);
     pd_y->SetPoints(pt_y);
 
-    WritePolyData(pd_x, "/tmp/pdx.vtk");
-    WritePolyData(pd_y, "/tmp/pdy.vtk");
+    WriteMesh(pd_x, "/tmp/pdx.vtk");
+    WriteMesh(pd_y, "/tmp/pdy.vtk");
     LDDMMType::img_write(fltSlic->GetOutput(), "/tmp/slic.nii.gz");
     }
 

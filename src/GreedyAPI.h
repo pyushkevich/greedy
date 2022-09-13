@@ -1,3 +1,4 @@
+
 /*=========================================================================
 
   Program:   ALFABIS fast medical image registration programs
@@ -44,7 +45,7 @@ namespace itk {
 
 }
 
-class vtkPolyData;
+class vtkPointSet;
 
 /**
  * This is the top level class for the greedy software. It contains methods
@@ -82,7 +83,7 @@ public:
   };
 
   // Mesh data structures
-  typedef vtkSmartPointer<vtkPolyData> MeshPointer;
+  typedef vtkSmartPointer<vtkPointSet> MeshPointer;
   typedef std::vector<MeshPointer> MeshArray;
 
   static void ConfigThreads(const GreedyParameters &param);
@@ -238,10 +239,10 @@ public:
                              LinearTransformType *tLevel, int level, double tol);
 
   /** Apply affine transformation to a mesh */
-  static void TransformMeshAffine(vtkPolyData *mesh, vnl_matrix<double> mat);
+  static void TransformMeshAffine(vtkPointSet *mesh, vnl_matrix<double> mat);
 
   /** Apply warp to a mesh */
-  static void TransformMeshWarp(vtkPolyData *mesh, VectorImageType *warp);
+  static void TransformMeshWarp(vtkPointSet *mesh, VectorImageType *warp);
 
 protected:
 
