@@ -2827,13 +2827,17 @@ int GreedyApproach<VDim, TReal>
       fltVoting->Update();
 
       // Save
-      WriteImageViaCache(fltVoting->GetOutput(), r_param.images[i].output.c_str());
+      WriteImageViaCache(fltVoting->GetOutput(), r_param.images[i].output.c_str(), r_param.images[i].save_format);
       }
     else
       {
       // Read the input image and record its type
       itk::IOComponentEnum comp;
       CompositeImagePointer moving = ReadImageViaCache<CompositeImageType>(filename, &comp);
+
+      // Override the component if requested
+      if(r_param.images[i].save_format != itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE)
+        comp = r_param.images[i].save_format;
 
       // Allocate the warped image
       CompositeImagePointer warped = LDDMMType::new_cimg(ref, moving->GetNumberOfComponentsPerPixel());

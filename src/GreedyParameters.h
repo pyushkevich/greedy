@@ -32,6 +32,7 @@
 #include <vnl/vnl_matrix.h>
 #include <vnl/vnl_vector.h>
 #include <ostream>
+#include "itkCommonEnums.h"
 
 class CommandLineHelper;
 
@@ -98,11 +99,13 @@ struct ResliceSpec
   std::string moving;
   std::string output;
   InterpSpec interp;
+  itk::IOComponentEnum save_format = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE;
 
   ResliceSpec(const std::string &in_moving = "",
               const std::string &in_output = "",
-              InterpSpec in_interp =  InterpSpec())
-    : moving(in_moving), output(in_output), interp(in_interp) {}
+              InterpSpec in_interp =  InterpSpec(),
+              itk::IOComponentEnum in_format = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE)
+    : moving(in_moving), output(in_output), interp(in_interp), save_format(in_format) {}
 };
 
 struct ResliceMeshSpec
@@ -421,6 +424,9 @@ struct GreedyParameters
 
   // Interpolation applied to new reslice image pairs
   InterpSpec current_interp;
+
+  // Save format for new reslice image pairs
+  itk::IOComponentEnum current_reslice_format = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE;
   
   // Verbosity flag
   Verbosity verbosity = VERB_DEFAULT;

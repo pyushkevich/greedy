@@ -368,6 +368,30 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
       std::cerr << "Unknown interpolation mode" << std::endl;
       }
     }
+  else if(cmd == "-rt")
+    {
+    std::string mode = cl.read_string();
+    if(mode == "auto")
+      this->current_reslice_format = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE;
+    else if(mode == "double")
+      this->current_reslice_format = itk::IOComponentEnum::DOUBLE;
+    else if(mode == "float")
+      this->current_reslice_format = itk::IOComponentEnum::FLOAT;
+    else if(mode == "uint")
+      this->current_reslice_format = itk::IOComponentEnum::UINT;
+    else if(mode == "int")
+      this->current_reslice_format = itk::IOComponentEnum::INT;
+    else if(mode == "ushort")
+      this->current_reslice_format = itk::IOComponentEnum::USHORT;
+    else if(mode == "short")
+      this->current_reslice_format = itk::IOComponentEnum::SHORT;
+    else if(mode == "uchar")
+      this->current_reslice_format = itk::IOComponentEnum::UCHAR;
+    else if(mode == "char")
+      this->current_reslice_format = itk::IOComponentEnum::CHAR;
+    else
+      std::cerr << "Unknown save format" << mode << std::endl;
+    }
   else if(cmd == "-rb")
     {
     this->current_interp.outside_value = cl.read_double();
@@ -691,6 +715,37 @@ std::string GreedyParameters::GenerateCommandLine()
         }
       if(rs.interp.outside_value != 0)
         oss << " -rb " << rs.interp.outside_value;
+      if(rs.save_format != itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE)
+        {
+        switch(rs.save_format)
+          {
+          case itk::IOComponentEnum::DOUBLE:
+            oss << " -rt double";
+            break;
+          case itk::IOComponentEnum::FLOAT:
+            oss << " -rt float";
+            break;
+          case itk::IOComponentEnum::UINT:
+            oss << " -rt uint";
+            break;
+          case itk::IOComponentEnum::INT:
+            oss << " -rt int";
+            break;
+          case itk::IOComponentEnum::USHORT:
+            oss << " -rt ushort";
+            break;
+          case itk::IOComponentEnum::SHORT:
+            oss << " -rt short";
+            break;
+          case itk::IOComponentEnum::UCHAR:
+            oss << " -rt uchar";
+            break;
+          case itk::IOComponentEnum::CHAR:
+            oss << " -rt char";
+            break;
+          default: break;
+          }
+        }
 
       oss << " -rm " << rs.moving << " " << rs.output;
       }

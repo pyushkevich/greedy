@@ -158,6 +158,7 @@ int usage()
   printf("  -rs mov.vtk out.vtk    : moving/output surface pair (vertices are warped from fixed space to moving)\n");
   printf("  -ri interp_mode        : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
   printf("  -rb value              : background (i.e. outside) intensity for the next pair (default 0)\n");
+  printf("  -rt format             : data type for the next pair (auto|double|float|uint|int|ushort|short|uchar|char)\n");
   printf("  -rc outwarp            : write composed transforms to outwarp \n");
   printf("  -rj outjacobian        : write Jacobian determinant image to outjacobian \n");
   printf("Specific to metric computation mode (-metric): \n");
