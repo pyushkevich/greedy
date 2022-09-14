@@ -63,7 +63,15 @@ FIND_PACKAGE(ITK 5.1.2 REQUIRED)
 INCLUDE(${ITK_USE_FILE})
 
 # VTK - required for quality mesh transformations
-FIND_PACKAGE(VTK 9.1.0 REQUIRED COMPONENTS CommonCore IOCore IOLegacy IOPLY IOGeometry)
+FIND_PACKAGE(VTK 9.1.0 REQUIRED COMPONENTS
+  CommonCore
+  IOCore
+  IOLegacy
+  IOPLY
+  IOGeometry
+  IOImage
+  FiltersCore
+  FiltersGeneral)
 SET(GREEDY_VTK_LIBRARIES ${VTK_LIBRARIES})
 
 # Deal with FFTW - only used by experimental LDDMM code
@@ -219,6 +227,24 @@ SET(GREEDY_API_LIBS greedyapi
   ${FFTWF_LIB} ${FFTWF_THREADS_LIB}
   ${SPARSE_LIBRARY})
 
+# propagation api
+SET(PROPAGATION_HDR
+  src/Propagation/PropagationAPI.h
+  src/Propagation/PropagationCommon.h
+  src/Propagation/PropagationTools.h
+  src/Propagation/PropagationData.h
+)
+
+SET(PROPAGATION_SRC
+  src/Propagation/PropagationAPI.cxx
+  src/Propagation/PropagationData.txx
+  src/Propagation/PropagationTools.txx
+)
+
+ADD_LIBRARY(PropagationAPI ${PROPAGATION_SRC})
+TARGET_INCLUDE_DIRECTORIES(PropagationAPI PUBLIC ${GREEDY_INCLUDE_DIRS})
+TARGET_LINK_LIBRARIES(PropagationAPI ${GREEDY_API_LIBS})
+
 # List of installable targets
 SET(GREEDY_INSTALL_TARGETS greedy greedy_template_average multi_chunk_greedy)
 
@@ -245,7 +271,8 @@ IF(BUILD_CLI)
   ENDIF()
 
   ADD_EXECUTABLE(greedy ${GREEDY_SRC})
-  TARGET_LINK_LIBRARIES(greedy ${GREEDY_API_LIBS} ${FFTWF_LIB} ${FFTWF_THREADS_LIB} ${SPARSE_LIBRARY})
+  TARGET_LINK_LIBRARIES(greedy ${GREEDY_API_LIBS} ${FFTWF_LIB} ${FFTWF_THREADS_LIB} ${SPARSE_LIBRARY} PropagationAPI)
+  TARGET_INCLUDE_DIRECTORIES(greedy PUBLIC ${GREEDY_SOURCE_DIR}/src/propagation)
 
   ADD_EXECUTABLE(greedy_template_average ${TEMPLATE_AVG_SRC})
   TARGET_LINK_LIBRARIES(greedy_template_average ${GREEDY_API_LIBS})

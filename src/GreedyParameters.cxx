@@ -27,6 +27,9 @@
 #include "GreedyParameters.h"
 #include "CommandLineHelper.h"
 
+const SmoothingParameters GreedyParameters::default_sigma_pre = { 1.7320508076, false };
+const SmoothingParameters GreedyParameters::default_sigma_post = { 0.7071067812, false };
+
 GreedyParameters::GreedyParameters()
 {
   input_groups.push_back(GreedyInputGroup());
@@ -420,7 +423,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     int level = cl.read_integer();
     if(level < 0 || level >= VERB_INVALID)
       throw GreedyException("Invalid verbosity level %d", level);
-    
+
     this->verbosity = (Verbosity)(level);
     }
   else if(cmd == "-lbfgs-ftol")
@@ -434,6 +437,82 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
   else if(cmd == "-lbfgs-memory")
     {
     this->lbfgs_param.memory = cl.read_integer();
+    }
+  else if(cmd == "-sp")
+    {
+    // enter the propagation mode
+    this->mode = PROPAGATION;
+    }
+  else if(cmd == "-spi")
+    {
+    // propagation mode: read input 4D image
+    this->propagation_param.img4d = cl.read_existing_filename();
+    }
+  else if(cmd == "-sps")
+    {
+    // propagation mode: add a segmentation pair
+    PropagationSegSpec segspec;
+    segspec.refseg = cl.read_existing_filename();
+    segspec.outsegdir = cl.read_output_dir();
+    this->propagation_param.segpair.push_back(segspec);
+    }
+  else if(cmd == "-spm")
+    {
+    // propagation mode: add mesh pair
+    PropagationMeshSpec meshspec;
+    meshspec.refmesh = cl.read_existing_filename();
+    meshspec.dirmeshout = cl.read_output_dir();
+    this->propagation_param.meshpair.push_back(meshspec);
+    }
+  else if(cmd == "-spr")
+    {
+    // propagation mode: read reference time point number
+    this->propagation_param.refTP = cl.read_integer();
+    }
+  else if(cmd == "-spt")
+    {
+    // propagation mode: read target timepoint number string
+    std::vector<int> result = cl.read_int_vector(',');
+    // eliminate any duplicate input
+    std::set<int> unique(result.begin(), result.end());
+    // validate and push to the parameter
+    for (int n : unique)
+      {
+      if (n <= 0)
+        throw GreedyException("%d is not a valid time point value!", n);
+
+      this->propagation_param.targetTPs.push_back(n);
+      }
+    }
+  else if (cmd == "-sp-interp-spec")
+    {
+    // propagation mode: read sigmas for label reslicing interpolation mode
+    // e.g. -splabel-sigma 0.2vox will use LABEL 0.2vox interpolation mode
+    std::string mode = cl.read_string();
+    if(mode == "nn" || mode == "NN" || mode == "0")
+      {
+      this->propagation_param.reslice_spec.mode = InterpSpec::NEAREST;
+      }
+    else if(mode == "linear" || mode == "LINEAR" || mode == "1")
+      {
+      this->propagation_param.reslice_spec.mode = InterpSpec::LINEAR;
+      }
+    else if(mode == "label" || mode == "LABEL")
+      {
+      this->propagation_param.reslice_spec.mode = InterpSpec::LABELWISE;
+      this->propagation_param.reslice_spec.sigma.sigma =
+          cl.read_scalar_with_units(
+            this->propagation_param.reslice_spec.sigma.physical_units);
+      }
+    else
+      {
+      std::cerr << "Propagation interpolation spec: Unknown interpolation mode" << std::endl;
+      }
+    }
+  else if (cmd == "-sp-debug")
+    {
+    this->propagation_param.debug = true;
+    this->propagation_param.debug_dir = cl.read_output_dir();
     }
   else
     {
@@ -463,6 +542,69 @@ operator << (std::ostream &oss, const SmoothingParameters &sp)
   std::string unit = sp.physical_units ? "mm" : "vox";
   oss << sp.sigma << unit;
   return oss;
+}
+
+// Copy affine registration settings
+void
+GreedyParameters
+::CopyAffineSettings(const GreedyParameters &other)
+{
+  this->affine_dof = other.affine_dof;
+  this->affine_init_mode = other.affine_init_mode;
+  this->rigid_search = other.rigid_search;
+  this->affine_jitter = other.affine_jitter;
+  this->metric = other.metric;
+  this->metric_radius = other.metric_radius;
+  this->iter_per_level = other.iter_per_level;
+}
+
+// Copy deformable registration settings
+void
+GreedyParameters
+::CopyDeformableSettings(const GreedyParameters &other)
+{
+  this->metric = other.metric;
+  this->metric_radius = other.metric_radius;
+  this->iter_per_level = other.iter_per_level;
+  this->epsilon_per_level = other.epsilon_per_level;
+  this->time_step_mode = other.time_step_mode;
+  this->warp_precision = other.warp_precision;
+}
+
+// Copy reslicing settings
+void
+GreedyParameters
+::CopyReslicingSettings(const GreedyParameters &other)
+{
+  this->current_interp = other.current_interp;
+}
+
+// Copy general settings
+void
+GreedyParameters
+::CopyGeneralSettings(const GreedyParameters &other)
+{
+  // Common Debug Settings
+  this->flag_debug_deriv = other.flag_debug_deriv;
+  this->deriv_epsilon = other.deriv_epsilon;
+  this->flag_debug_aff_obj = other.flag_debug_aff_obj;
+  this->flag_dump_pyramid = other.flag_dump_pyramid;
+  this->flag_dump_moving = other.flag_dump_moving;
+  this->dump_frequency = other.dump_frequency;
+  this->dump_prefix = other.dump_prefix;
+  this->flag_powell = other.flag_powell;
+  this->verbosity = other.verbosity;
+  // Propagation Debug Setting
+  this->propagation_param.debug = other.propagation_param.debug;
+  this->propagation_param.debug_dir = other.propagation_param.debug_dir;
+
+
+  // General Settings
+  this->flag_float_math = other.flag_float_math;
+  this->dim = other.dim;
+  this->threads = other.threads;
+  this->sigma_pre = other.sigma_pre;
+  this->sigma_post = other.sigma_post;
 }
 
 std::string GreedyParameters::GenerateCommandLine()
@@ -506,6 +648,9 @@ std::string GreedyParameters::GenerateCommandLine()
       break;
     case GreedyParameters::METRIC:
       oss << " -metric";
+      break;
+    case GreedyParameters::PROPAGATION:
+      oss << " -sp";
       break;
     }
 

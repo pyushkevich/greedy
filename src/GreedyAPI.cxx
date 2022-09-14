@@ -3245,6 +3245,8 @@ int GreedyApproach<VDim, TReal>
       return Self::RunRootWarp(param);
     case GreedyParameters::METRIC:
       return Self::RunMetric(param);
+    case GreedyParameters::PROPAGATION:
+      throw GreedyException("Propagation should be run by a PropagationRunner");
     }
 
   return -1;

@@ -59,6 +59,14 @@ struct SmoothingParameters
   bool operator != (const SmoothingParameters &other) {
     return sigma != other.sigma || physical_units != other.physical_units;
   }
+
+  bool operator == (const SmoothingParameters &other) {
+    return sigma == other.sigma && physical_units == other.physical_units;
+  }
+
+  bool operator == (const SmoothingParameters &other) const {
+    return sigma == other.sigma && physical_units == other.physical_units;
+  }
 };
 
 enum RigidSearchRotationMode
@@ -127,6 +135,7 @@ struct TransformSpec
     : filename(in_filename), exponent(in_exponent) {}
 };
 
+
 enum AffineInitMode
 {
   VOX_IDENTITY = 0, // Identity mapping in voxel space
@@ -182,6 +191,38 @@ struct LBFGSParameters
   int memory = 0;
 };
 
+struct PropagationSegSpec
+{
+  // Input reference segmentation
+  std::string refseg;
+
+  // Output directory for the propagated segmentation images
+  std::string outsegdir;
+};
+
+struct PropagationMeshSpec
+{
+  // Input or generated reference mesh
+  std::string refmesh;
+
+  // Output directory for the propagated meshes
+  std::string dirmeshout;
+};
+
+
+// Parameters for the segmentation propagation
+struct GreedyPropagationParameters
+{
+  std::string img4d;
+  std::vector<PropagationSegSpec> segpair;
+  std::vector<PropagationMeshSpec> meshpair;
+  unsigned int refTP;
+  std::vector<unsigned int> targetTPs;
+  InterpSpec reslice_spec;
+  bool debug = false;
+  std::string debug_dir;
+};
+
 template <class TAtomic>
 class PerLevelSpec
 {
@@ -228,7 +269,7 @@ public:
     else return false;
   }
 
-  void Print(std::ostream &oss) const 
+  void Print(std::ostream &oss) const
     {
     if(m_UseCommon)
       oss << m_CommonValue;
@@ -280,7 +321,7 @@ struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, WNCC, MI, NMI, MAHALANOBIS };
   enum TimeStepMode { CONSTANT=0, SCALE, SCALEDOWN };
-  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, JACOBIAN_WARP, MOMENTS, METRIC };
+  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, JACOBIAN_WARP, MOMENTS, METRIC, PROPAGATION };
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
   enum Verbosity { VERB_NONE=0, VERB_DEFAULT, VERB_VERBOSE, VERB_INVALID };
 
@@ -314,6 +355,9 @@ struct GreedyParameters
   // Root warp parameters
   GreedyWarpRootParameters warproot_param;
 
+  // Propagation parameters
+  GreedyPropagationParameters propagation_param;
+
   // Registration mode
   Mode mode = GREEDY;
 
@@ -331,8 +375,10 @@ struct GreedyParameters
   double background = 0.0;
 
   // Smoothing parameters
-  SmoothingParameters sigma_pre = { 1.7320508076, false };
-  SmoothingParameters sigma_post = { 0.7071067812, false };
+  static const SmoothingParameters default_sigma_pre;
+  static const SmoothingParameters default_sigma_post;
+  SmoothingParameters sigma_pre = default_sigma_pre;
+  SmoothingParameters sigma_post = default_sigma_post;
 
   // Which metric to use
   MetricType metric = SSD;
@@ -427,7 +473,7 @@ struct GreedyParameters
 
   // Save format for new reslice image pairs
   itk::IOComponentEnum current_reslice_format = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE;
-  
+
   // Verbosity flag
   Verbosity verbosity = VERB_DEFAULT;
 
@@ -454,6 +500,18 @@ struct GreedyParameters
 
   // Generate a command line for current parameters
   std::string GenerateCommandLine();
+
+  // Copy affine registration settings
+  void CopyAffineSettings(const GreedyParameters &other);
+
+  // Copy deformable registration settings
+  void CopyDeformableSettings(const GreedyParameters &other);
+
+  // Copy reslicing settings
+  void CopyReslicingSettings(const GreedyParameters &other);
+
+  // Copy general settings including developer settings
+  void CopyGeneralSettings(const GreedyParameters &other);
 };
 
 
