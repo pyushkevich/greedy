@@ -452,16 +452,15 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     // propagation mode: add a segmentation pair
     PropagationSegSpec segspec;
-    segspec.refseg = cl.read_existing_filename();
-    segspec.outsegdir = cl.read_output_dir();
-    this->propagation_param.segpair.push_back(segspec);
+    this->propagation_param.segspec.refseg = cl.read_existing_filename();
+    this->propagation_param.segspec.outsegdir = cl.read_output_dir();
     }
   else if(cmd == "-spm")
     {
     // propagation mode: add mesh pair
     PropagationMeshSpec meshspec;
     meshspec.refmesh = cl.read_existing_filename();
-    meshspec.dirmeshout = cl.read_output_dir();
+    meshspec.outmeshdir = cl.read_output_dir();
     this->propagation_param.meshpair.push_back(meshspec);
     }
   else if(cmd == "-spr")

@@ -206,7 +206,7 @@ struct PropagationMeshSpec
   std::string refmesh;
 
   // Output directory for the propagated meshes
-  std::string dirmeshout;
+  std::string outmeshdir;
 };
 
 
@@ -214,13 +214,17 @@ struct PropagationMeshSpec
 struct GreedyPropagationParameters
 {
   std::string img4d;
-  std::vector<PropagationSegSpec> segpair;
+  PropagationSegSpec segspec;
   std::vector<PropagationMeshSpec> meshpair;
+
   unsigned int refTP;
   std::vector<unsigned int> targetTPs;
+
   InterpSpec reslice_spec;
+
   bool debug = false;
   std::string debug_dir;
+  bool writeOutputToDisk = true; // whether to write final output data to disk
 };
 
 template <class TAtomic>

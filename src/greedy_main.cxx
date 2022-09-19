@@ -27,6 +27,7 @@
 
 #include "GreedyAPI.h"
 #include "PropagationAPI.h"
+#include "PropagationIO.h"
 #include "CommandLineHelper.h"
 
 #include <iostream>
@@ -36,6 +37,7 @@
 #include <string>
 #include <algorithm>
 #include <cerrno>
+#include <memory>
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"
@@ -217,8 +219,12 @@ public:
   {
     using namespace propagation;
 
+    PropagationInputBuilder<TReal> ib;
+    auto pInput = ib.CreateInputFromParameter(param);
+
     // Use the threads parameter
-    return PropagationAPI<TReal>::Run(param);
+    PropagationAPI<TReal> pAPI(pInput);
+    return pAPI.Run();
   }
 };
 

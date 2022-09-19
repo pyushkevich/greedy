@@ -233,12 +233,14 @@ SET(PROPAGATION_HDR
   src/Propagation/PropagationCommon.h
   src/Propagation/PropagationTools.h
   src/Propagation/PropagationData.h
+  src/Propagation/PropagationIO.h
 )
 
 SET(PROPAGATION_SRC
   src/Propagation/PropagationAPI.cxx
   src/Propagation/PropagationData.txx
   src/Propagation/PropagationTools.txx
+  src/Propagation/PropagationIO.cxx
 )
 
 ADD_LIBRARY(PropagationAPI ${PROPAGATION_SRC})

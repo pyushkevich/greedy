@@ -2,18 +2,26 @@
 #define PROPAGATIONAPI_H
 
 #include "GreedyParameters.h"
+#include "lddmm_data.h"
+
+#include <memory>
 #include <itkImage.h>
 #include <itkImageRegionIterator.h>
 #include <vtkSmartPointer.h>
 #include <itkMatrixOffsetTransformBase.h>
 #include <vtkPolyData.h>
-#include "lddmm_data.h"
 
 namespace propagation
 {
 
 template<typename TReal>
 class PropagationData;
+
+template<typename TReal>
+class PropagationInput;
+
+template<typename TReal>
+class PropagationOutput;
 
 template<typename TReal>
 class PropagationAPI
@@ -31,47 +39,51 @@ public:
 
 	enum ResampleInterpolationMode { Linear=0, NearestNeighbor };
 
-	PropagationAPI();
+  PropagationAPI() = delete;
+
+  /** Specialized constructor for api run */
+  PropagationAPI(const std::shared_ptr<PropagationInput<TReal>> input);
+
 	~PropagationAPI();
 	PropagationAPI(const PropagationAPI &other) = delete;
 	PropagationAPI &operator=(const PropagationAPI &other) = delete;
 
-	static int Run(const GreedyParameters &param);
+  /** Initialize the data */
+
+  /** Start the execution of the propagation pipeline */
+  int Run();
 
 private:
-	static void PrepareTimePointData(PropagationData<TReal> &propa_data, const GreedyPropagationParameters &propa_param);
-	static void CreateTimePointLists(const std::vector<unsigned int> &target_list, std::vector<unsigned int> &forward_list,
-														std::vector<unsigned int> &backward_list, unsigned int refTP);
-	static int RunUnidirectionalPropagation(PropagationData<TReal> &propa_data, const GreedyParameters &greedy_param,
-																					const std::vector<unsigned int> &tp_list);
-	static int RunDownSampledPropagation(PropagationData<TReal> &propa_data, const GreedyParameters &greedy_param,
-																			 const std::vector<unsigned int> &tp_list);
-	static void GenerateFullResolutionMasks(PropagationData<TReal> &propa_data, const GreedyParameters &greedy_param,
-																				 const std::vector<unsigned int> &tp_list);
+//  // For native greedy run, we initialize propagation data from parameters passed in
+//  void InitializeFromParameters();
+  void ValidateInputData();
+  void PrepareTimePointData();
+  void ValidateInputOrientation();
+  void CreateReferenceMask();
+  void CreateTimePointLists();
 
-	static void GenerateReferenceSpace(PropagationData<TReal> &propa_data, const GreedyParameters &greedy_param,
-																		 const std::vector<unsigned int> &tp_list);
+  void RunUnidirectionalPropagation(const std::vector<unsigned int> &tp_list);
+  void RunDownSampledPropagation(const std::vector<unsigned int> &tp_list);
+  void GenerateFullResolutionMasks(const std::vector<unsigned int> &tp_list);
+  void GenerateReferenceSpace(const std::vector<unsigned int> &tp_list);
 
-	static int RunFullResolutionPropagation(PropagationData<TReal> &propa_data, const GreedyParameters &greedy_param,
-																					 const unsigned int target_tp);
+  void RunFullResolutionPropagation(const unsigned int target_tp);
 
-	static int RunPropagationAffine(PropagationData<TReal> &propa_data, const GreedyParameters &glparam,
-														unsigned int tp_fix, unsigned int tp_mov);
-	static int RunPropagationDeformable(PropagationData<TReal> &propa_data, const GreedyParameters &glparam,
-																			unsigned int tp_fix, unsigned int tp_mov, bool isFullRes);
-	static int RunPropagationReslice(PropagationData<TReal> &propa_data, const GreedyParameters &glparam,
-																	 unsigned int tp_in, unsigned int tp_out, bool isFullRes);
+  void RunPropagationAffine(unsigned int tp_fix, unsigned int tp_mov);
+  void RunPropagationDeformable(unsigned int tp_fix, unsigned int tp_mov, bool isFullRes);
+  void RunPropagationReslice(unsigned int tp_in, unsigned int tp_out, bool isFullRes);
+  void BuildTransformChainForReslice(unsigned int tp_prev, unsigned int tp_crnt);
 
-	static void BuildTransformChainForReslice(PropagationData<TReal> &propa_data, const GreedyParameters &propa_param,
-																						unsigned int tp_prev, unsigned int tp_crnt);
-
-	static inline std::string GenerateUnaryTPObjectName(const char *base, unsigned int tp,
-																											const char *debug_dir = nullptr, const char *suffix = nullptr,
-																											const char *file_ext = nullptr);
+  static inline std::string GenerateUnaryTPObjectName(const char *base, unsigned int tp,
+      const char *debug_dir = nullptr, const char *suffix = nullptr, const char *file_ext = nullptr);
 
 	static inline std::string GenerateBinaryTPObjectName(const char *base, unsigned int tp1, unsigned int tp2,
-																											 const char *debug_dir = nullptr, const char *suffix = nullptr,
-																											 const char *file_ex = nullptr);
+      const char *debug_dir = nullptr, const char *suffix = nullptr, const char *file_ex = nullptr);
+
+  std::shared_ptr<PropagationData<TReal>> m_Data;
+  GreedyParameters m_Param;
+  std::vector<unsigned int> m_ForwardTPs;
+  std::vector<unsigned int> m_BackwardTPs;
 };
 
 
