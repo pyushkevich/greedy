@@ -71,11 +71,14 @@ public:
 	static typename TOutputImage::Pointer
 	DilateImage(TInputImage *img, size_t radius, typename TInputImage::PixelType value);
 
-	template <class TInputImage, class TIntensityMapping>
+  template<class TInputImage, class TIntensityMapping>
 	static typename TCompositeImage3D::Pointer
 	CastToCompositeImage(TInputImage *img);
 
 	static typename TCompositeImage3D::Pointer CastImageToCompositeImage(TImage3D *img);
+
+  template<class TImage>
+  static typename TImage::Pointer CreateEmptyImage(TImage *sample);
 
 	inline static char GetPathSeparator()
 	{

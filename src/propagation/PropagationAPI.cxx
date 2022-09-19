@@ -9,6 +9,7 @@
 #include <itkResampleImageFilter.h>
 #include <itkLinearInterpolateImageFunction.h>
 #include <itkNearestNeighborInterpolateImageFunction.h>
+#include <itkJoinSeriesImageFilter.h>
 
 
 using namespace propagation;
@@ -88,6 +89,9 @@ PropagationAPI<TReal>
 	// Run backward propagation
   if (m_BackwardTPs.size() > 1)
     RunUnidirectionalPropagation(m_BackwardTPs);
+
+  // Write out a 4D Segmentation
+  Generate4DSegmentation();
 
 	std::cout << "Run Completed" << std::endl;
 
@@ -644,6 +648,42 @@ PropagationAPI<TReal>
 	// Build spec and append to existing list
 	TimePointTransformSpec<TReal> spec(affine, deform, tp_crnt);
 	tpdata_crnt.transform_specs.push_back(spec);
+}
+
+template<typename TReal>
+void
+PropagationAPI<TReal>
+::Generate4DSegmentation()
+{
+  const auto &pParam = m_Param.propagation_param;
+
+  auto fltJoin = itk::JoinSeriesImageFilter<TLabelImage3D, TLabelImage4D>::New();
+
+  for (size_t i = 1; i <= m_Data->GetNumberOfTimePoints(); ++i)
+    {
+    if (m_Data->tp_data.count(i))
+      {
+      // Append slice to the list
+      fltJoin->PushBackInput(m_Data->tp_data[i].seg);
+      }
+    else
+      {
+      // Append an empty image
+      auto refseg = m_Data->tp_data[pParam.refTP].seg;
+      auto emptyImage = PropagationTools<TReal>::template CreateEmptyImage<TLabelImage3D>(refseg);
+      fltJoin->PushBackInput(emptyImage);
+      }
+    }
+  fltJoin->Update();
+  m_Data->seg4d_out = fltJoin->GetOutput();
+
+  if (pParam.writeOutputToDisk)
+  {
+    std::ostringstream fnseg4d;
+    fnseg4d << pParam.segspec.outsegdir << PropagationTools<TReal>::GetPathSeparator()
+            << "seg4d.nii.gz";
+    PropagationTools<TReal>::template WriteImage<TLabelImage4D>(m_Data->seg4d_out, fnseg4d.str());
+  }
 }
 
 template <typename TReal>

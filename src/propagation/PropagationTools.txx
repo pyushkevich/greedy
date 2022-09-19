@@ -12,6 +12,7 @@
 #include <itkBinaryDilateImageFilter.h>
 #include <itkImageLinearIteratorWithIndex.h>
 #include <itkComposeImageFilter.h>
+#include <itkImageDuplicator.h>
 #include <vtkAppendPolyData.h>
 #include <vtkDiscreteMarchingCubes.h>
 #include <vtkShortArray.h>
@@ -547,7 +548,7 @@ PropagationTools<TReal>
 	return imgSource->GetOutput();
 }
 
-template <typename TReal>
+template<typename TReal>
 typename PropagationTools<TReal>::TCompositeImage3D::Pointer
 PropagationTools<TReal>
 ::CastImageToCompositeImage(TImage3D *img)
@@ -557,6 +558,21 @@ PropagationTools<TReal>
 	flt->Update();
 	return flt->GetOutput();
 }
+
+template<typename TReal>
+template<class TImage>
+typename TImage::Pointer
+PropagationTools<TReal>
+::CreateEmptyImage(TImage *sample)
+{
+  auto duplicator = itk::ImageDuplicator<TImage>::New();
+  duplicator->SetInputImage(sample);
+  duplicator->Update();
+  auto imgout = duplicator->GetOutput();
+  imgout->FillBuffer(itk::NumericTraits<typename TImage::PixelType>::Zero);
+  return imgout;
+}
+
 
 template <class TInputImage, class TOutputImage, class TFunctor>
 void

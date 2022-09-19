@@ -61,6 +61,7 @@ private:
   void ValidateInputOrientation();
   void CreateReferenceMask();
   void CreateTimePointLists();
+  void Generate4DSegmentation();
 
   void RunUnidirectionalPropagation(const std::vector<unsigned int> &tp_list);
   void RunDownSampledPropagation(const std::vector<unsigned int> &tp_list);

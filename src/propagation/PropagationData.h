@@ -76,6 +76,8 @@ public:
   std::map<unsigned int, TimePointData<TReal>> tp_data;
 	typename TImage4D::Pointer img4d;
   typename TLabelImage3D::Pointer seg_ref;
+  typename TLabelImage4D::Pointer seg4d_in;
+  typename TLabelImage4D::Pointer seg4d_out;
   std::string outdir;
 	typename TImage3D::Pointer full_res_ref_space;
 };
