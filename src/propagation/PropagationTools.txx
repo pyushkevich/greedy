@@ -215,27 +215,27 @@ PropagationTools<TReal>
 template<typename TReal>
 typename PropagationTools<TReal>::TLabelImage3D::Pointer
 PropagationTools<TReal>
-::TrimLabelImage(TLabelImage3D *input, double vox)
+::TrimLabelImage(TLabelImage3D *input, double vox, typename TLabelImage3D::RegionType &roi)
 {
 	typedef typename TLabelImage3D::RegionType RegionType;
 	typedef itk::ImageRegionIteratorWithIndex<TLabelImage3D> Iterator;
 
 	// Initialize the bounding box
-	RegionType bbox;
+  RegionType bbox;
 
 	// Find the extent of the non-background region of the image
 	Iterator it(input, input->GetBufferedRegion());
 	for( ; !it.IsAtEnd(); ++it)
 		if(it.Value() != 0)
-			ExpandRegion(bbox, it.GetIndex());
+      ExpandRegion(bbox, it.GetIndex());
 
 	typename TLabelImage3D::SizeType radius;
 	for(size_t i = 0; i < 3; i++)
 		radius[i] = (int) ceil(vox);
-	bbox.PadByRadius(radius);
+  bbox.PadByRadius(radius);
 
 	// Make sure the bounding box is within the contents of the image
-	bbox.Crop(input->GetBufferedRegion());
+  bbox.Crop(input->GetBufferedRegion());
 
 	// Chop off the region
 	typedef itk::RegionOfInterestImageFilter<TLabelImage3D, TLabelImage3D> TrimFilter;
@@ -243,6 +243,9 @@ PropagationTools<TReal>
 	fltTrim->SetInput(input);
 	fltTrim->SetRegionOfInterest(bbox);
 	fltTrim->Update();
+
+  // Copy bounding box to output roi
+  roi = bbox;
 
 	return fltTrim->GetOutput();
 }

@@ -278,7 +278,7 @@ int main(int argc, char *argv[])
     if(param.mode == GreedyParameters::PROPAGATION)
       {
       if (param.dim != 3)
-        throw GreedyException("Dim (-d) other than 3 is not supported for propagation mode");
+        throw GreedyException("Dim (-d) other than 3 is not supported in propagation mode");
       if (param.flag_float_math)
         return PropagationRunner<float>::Run(param);
       else

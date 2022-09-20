@@ -30,7 +30,8 @@ public:
 
 	static TMeshPointer GetMeshFromLabelImage(TLabelImage3D *img);
 
-	static typename TLabelImage3D::Pointer TrimLabelImage(TLabelImage3D *input, double vox);
+  static typename TLabelImage3D::Pointer
+  TrimLabelImage(TLabelImage3D *input, double vox, typename TLabelImage3D::RegionType &roi);
 
 	static void ExpandRegion(itk::ImageRegion<3> &region, const itk::Index<3> &idx);
 

@@ -10,6 +10,7 @@
 #include <itkLinearInterpolateImageFunction.h>
 #include <itkNearestNeighborInterpolateImageFunction.h>
 #include <itkJoinSeriesImageFilter.h>
+#include <itkAddImageFilter.h>
 
 
 using namespace propagation;
@@ -267,6 +268,58 @@ void
 PropagationAPI<TReal>
 ::GenerateReferenceSpace(const std::vector<unsigned int> &tp_list)
 {
+  // Add full-resolution masks together for trimming
+  using TAddFilter = itk::AddImageFilter<TLabelImage3D, TLabelImage3D, TLabelImage3D>;
+  auto fltAdd = TAddFilter::New();
+  fltAdd->SetInput1(m_Data->tp_data[tp_list[0]].full_res_mask);
+  fltAdd->SetInput2(m_Data->tp_data[tp_list[1]].full_res_mask);
+  fltAdd->Update();
+  auto img_tail = fltAdd->GetOutput();
+
+  for (size_t i = 2; i < tp_list.size(); ++i)
+    {
+    fltAdd->SetInput1(img_tail);
+    fltAdd->SetInput2(m_Data->tp_data[tp_list[i]].full_res_mask);
+    fltAdd->Update();
+    img_tail = fltAdd->GetOutput();
+    }
+
+  typename TLabelImage3D::RegionType roi;
+  auto trimmed = PropagationTools<TReal>::TrimLabelImage(img_tail, 5, roi);
+
+  // Move trimmed image to the roi region
+  trimmed->SetRegions(roi);
+  typename TLabelImage3D::PointType origin;
+  for (int i = 0; i < 3; ++i)
+    {
+    origin.SetElement(i, roi.GetIndex().GetElement(i));
+    }
+  trimmed->SetOrigin(origin);
+
+  auto ref_space = PropagationTools<TReal>::CastLabelToRealImage(trimmed);
+
+  if (m_Param.propagation_param.debug)
+    {
+    std::cout << "-- [Propagation] Generating reference space..." << std::endl;
+    std::cout << "---- ref space image: " << std::endl;
+    std::cout << ref_space << std::endl;
+
+    std::cout << "---- full res mask: " << std::endl;
+    std::cout << m_Data->tp_data[tp_list[0]].full_res_mask << std::endl;
+
+    std::cout << "---- ROI: " << std::endl;
+    std::cout << roi << std::endl;
+    }
+
+  m_Data->full_res_ref_space = ref_space;
+
+  if (m_Param.propagation_param.debug)
+    {
+    std::ostringstream fnrs;
+    fnrs << m_Param.propagation_param.debug_dir << PropagationTools<TReal>::GetPathSeparator()
+         << "full_res_reference_space.nii.gz";
+    PropagationTools<TReal>::template WriteImage<TImage3D>(ref_space, fnrs.str());
+    }
 }
 
 template <typename TReal>
@@ -295,7 +348,6 @@ PropagationAPI<TReal>
 		tp_data.full_res_mask->SetObjectName(fnmask);
 		}
 }
-
 
 template<typename TReal>
 void
@@ -469,8 +521,8 @@ PropagationAPI<TReal>
 	if (isFullRes)
 		{
 		// Set reference space for full res mode
-		//param.reference_space = glparam.reference_space;
-		//GreedyAPI->AddCachedInputObject(param.reference_space, pData.full_res_ref_space);
+//    param.reference_space = "Full_Resolution_Ref_Space";
+//    GreedyAPI->AddCachedInputObject(param.reference_space, m_Data->full_res_ref_space);
 
 		// Set the transformation chain
 		for (size_t i = 0; i < tpdata_fix.transform_specs.size(); ++i)
