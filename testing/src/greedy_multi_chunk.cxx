@@ -23,6 +23,7 @@ struct ChunkGreedyParameters
   std::string fn_chunk_mask;
   std::string fn_output_pattern, fn_output_inv_pattern, fn_output_root_pattern;
   std::string fn_init_tran_pattern;
+  TransformSpec transforms_pattern;
   double reg_weight = 0.01;
 };
 
@@ -34,13 +35,10 @@ int usage()
   printf("options for chunk_greedy: \n");
   printf("  -cm <file>      : Chunk mask, each chunk assigned a different label\n");
   printf("  -wreg <value>   : Regularization term weight (default: 0.01)\n");
-  printf("  -o <pattern>    : Like -o in greedy, but a printf pattern \n");
-  printf("  -it <pattern>   : Like -it in greedy, but a printf pattern\n");
-  printf("  -oinv <pattern> : Like -oinv in greedy, but a printf pattern\n");
   printf("main greedy options accepted: \n");
   printf("  -d, -i, -m, -n, -a, -dof, -e, -s, -bg, -ia, -wncc-mask-dilate, -search, -ref-pad");
   printf("greedy options modified to accept printf-like pattern (e.g., test%%02d.mat): \n");
-  printf("  -o, -oinv, -oroot, -it");
+  printf("  -o, -oinv, -oroot, -it, -r");
   return -1;
 }
 
@@ -738,6 +736,45 @@ int run_deform(ChunkGreedyParameters cgp, GreedyParameters gp)
 }
 
 
+template <unsigned int VDim, typename TReal=double>
+int run_reslice(ChunkGreedyParameters cgp, GreedyParameters gp)
+{
+  typedef LDDMMData<TReal, VDim> LDDMMType;
+  typedef GreedyApproach<VDim, TReal> GreedyAPI;
+  typedef MultiChunkAffineAssembly<VDim, TReal> Assembly;
+
+  // Perform the common initialization (mask split, etc)
+  std::map<short, Assembly> label_data;
+  std::vector<short> chunk_labels;
+  typename itk::Image<short, VDim>::Pointer chunk_mask;
+  initialize_assemblies(cgp, gp, label_data, chunk_labels, chunk_mask);
+
+  // Combine the transform specs into a single joint warp
+
+
+  // Peform affine-specific initialization for each label
+  for(auto &item : label_data)
+    {
+    // Convert the transforms into
+    // Map accepted patterns to item-specific parameters
+    if(cgp.fn_init_tran_pattern.size())
+      {
+      std::string fn_tran = ssprintf(cgp.fn_init_tran_pattern.c_str(), item.first);
+      item.second.gp.input_groups[0].moving_pre_transforms.push_back(TransformSpec(fn_tran, 1.0));
+      }
+
+    item.second.gp.inverse_warp = ssprintf(cgp.fn_output_inv_pattern.c_str(), item.first);
+    item.second.gp.root_warp = ssprintf(cgp.fn_output_root_pattern.c_str(), item.first);
+
+    // Add random sampling jitter for affine stability at voxel edges
+    item.second.api.RunDeformable(item.second.gp);
+    }
+
+  return 0;
+}
+
+
+
 
 template <unsigned int VDim>
 int run(ChunkGreedyParameters cgp, GreedyParameters gp)
@@ -746,6 +783,8 @@ int run(ChunkGreedyParameters cgp, GreedyParameters gp)
     run_affine<VDim>(cgp, gp);
   else if(gp.mode == GreedyParameters::GREEDY)
     run_deform<VDim>(cgp, gp);
+  else if(gp.mode == GreedyParameters::RESLICE)
+    run_reslice<VDim>(cgp, gp);
   else
     throw GreedyException("Only affine mode is implemented");
   return 0;
@@ -759,7 +798,7 @@ int main(int argc, char *argv[])
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
     "-threads", "-d", "-m", "-i", "-n", "-a", "-dof", "-bg", "-ia", "-wncc-mask-dilate", "-search", "-dump-pyramid", "-dump-metric",
-    "-it", "-sv", "-s", "-ref-pad", "-e"
+    "-it", "-sv", "-s", "-ref-pad", "-e", "-rf", "-rm"
   };
 
   CommandLineHelper cl(argc, argv);
@@ -783,6 +822,10 @@ int main(int argc, char *argv[])
     else if(arg == "-it")
       {
       cg_param.fn_init_tran_pattern = cl.read_string();
+      }
+    else if(arg == "-r")
+      {
+      cg_param.transforms_pattern = cl.read_transform_spec();
       }
     else if(arg == "-cm")
       {
