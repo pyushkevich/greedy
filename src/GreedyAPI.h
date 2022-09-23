@@ -244,6 +244,12 @@ public:
   /** Apply warp to a mesh */
   static void TransformMeshWarp(vtkPointSet *mesh, VectorImageType *warp);
 
+  // Read a chain of transforms into a single warp, optionally applying to a set of meshes
+  void ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
+                          ImageBaseType *ref_space,
+                          VectorImagePointer &out_warp,
+                          MeshArray *meshes = nullptr);
+
 protected:
 
   struct CacheEntry {
@@ -286,11 +292,6 @@ protected:
   // Write a compressed warp via cache (in float format)
   void WriteCompressedWarpInPhysicalSpaceViaCache(
     ImageBaseType *moving_ref_space, VectorImageType *warp, const char *filename, double precision);
-
-  void ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
-                          ImageBaseType *ref_space,
-                          VectorImagePointer &out_warp,
-                          MeshArray *meshes = nullptr);
 
   // Compute the moments of a composite image (mean and covariance matrix of coordinate weighted by intensity)
   void ComputeImageMoments(CompositeImageType *image, const vnl_vector<float> &weights, VecFx &m1, MatFx &m2);

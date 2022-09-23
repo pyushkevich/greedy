@@ -312,6 +312,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->reslice_param.ref_image = cl.read_existing_filename();
     }
+  else if(cmd == "-rk")
+    {
+    this->reslice_param.ref_image_mask = cl.read_existing_filename();
+    }
   else if(cmd == "-rc")
     {
     this->reslice_param.out_composed_warp = cl.read_output_filename();
@@ -693,6 +697,9 @@ std::string GreedyParameters::GenerateCommandLine()
     {
     if(this->reslice_param.ref_image.size())
       oss << " -rf " << this->reslice_param.ref_image;
+
+    if(this->reslice_param.ref_image_mask.size())
+      oss << " -rk " << this->reslice_param.ref_image;
 
     if(this->reslice_param.out_composed_warp.size())
       oss << " -rc " << this->reslice_param.out_composed_warp;

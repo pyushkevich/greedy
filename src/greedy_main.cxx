@@ -161,6 +161,7 @@ int usage()
   printf("  -rt format             : data type for the next pair (auto|double|float|uint|int|ushort|short|uchar|char)\n");
   printf("  -rc outwarp            : write composed transforms to outwarp \n");
   printf("  -rj outjacobian        : write Jacobian determinant image to outjacobian \n");
+  printf("  -rk mask.nii           : a binary mask for the fixed image; zero values will be overwritten with background\n");
   printf("Specific to metric computation mode (-metric): \n");
   printf("  -og out.nii            : write the gradient of the metric to file\n");
   printf("For developers: \n");

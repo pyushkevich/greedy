@@ -147,6 +147,9 @@ struct GreedyResliceParameters
   // Reference image
   std::string ref_image;
 
+  // Reference image mask - everything outside will be set to zero value
+  std::string ref_image_mask;
+
   // Chain of transforms
   std::vector<TransformSpec> transforms;
 
