@@ -24,6 +24,9 @@ template<typename TReal>
 class PropagationOutput;
 
 template<typename TReal>
+class PropagationTools;
+
+template<typename TReal>
 class PropagationAPI
 {
 public:
@@ -38,6 +41,8 @@ public:
 	using TMeshPointer = vtkSmartPointer<vtkPolyData>;
 
 	enum ResampleInterpolationMode { Linear=0, NearestNeighbor };
+
+  using PTools = PropagationTools<TReal>;
 
   PropagationAPI() = delete;
 

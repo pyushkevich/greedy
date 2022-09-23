@@ -127,11 +127,11 @@ PropagationAPI<TReal>
   const auto &pParam = m_Param.propagation_param;
 
   // Threshold, Dilate and Resample
-  auto thr_tail = PropagationTools<TReal>::template ThresholdImage<TLabelImage3D, TLabelImage3D>(
+  auto thr_tail = PTools::template ThresholdImage<TLabelImage3D, TLabelImage3D>(
         m_Data->seg_ref, 1, SHRT_MAX, 1, 0);
-  auto dlt_tail = PropagationTools<TReal>::template DilateImage<TLabelImage3D, TLabelImage3D>(
+  auto dlt_tail = PTools::template DilateImage<TLabelImage3D, TLabelImage3D>(
         thr_tail, 10, 1);
-  m_Data->tp_data[pParam.refTP].seg_srs = PropagationTools<TReal>::
+  m_Data->tp_data[pParam.refTP].seg_srs = PTools::
       template Resample3DImage<TLabelImage3D>(dlt_tail, 0.5, ResampleInterpolationMode::NearestNeighbor);
 
   // Create object name
@@ -160,12 +160,12 @@ PropagationAPI<TReal>
 		TimePointData<TReal>tpData;
 
 		// Extract full res image
-		tpData.img = PropagationTools<TReal>::
+    tpData.img = PTools::
         template ExtractTimePointImage<TImage3D, TImage4D>(m_Data->img4d, tp);
 		tpData.img->SetObjectName(GenerateUnaryTPObjectName("img_", tp));
 
 		// Generate resampled image
-		tpData.img_srs = PropagationTools<TReal>::
+    tpData.img_srs = PTools::
 				template Resample3DImage<TImage3D>(tpData.img, 0.5, ResampleInterpolationMode::Linear, 1);
 
     m_Data->tp_data[tp] = tpData;
@@ -176,6 +176,7 @@ PropagationAPI<TReal>
   m_Data->tp_data[pParam.refTP].seg = m_Data->seg_ref;
   m_Data->tp_data[pParam.refTP].seg->SetObjectName(GenerateUnaryTPObjectName("seg_", pParam.refTP));
 
+
   ValidateInputOrientation();
   CreateReferenceMask();
 
@@ -184,14 +185,14 @@ PropagationAPI<TReal>
 		{
     for (auto &kv : m_Data->tp_data)
 			{
-      PropagationTools<TReal>::template WriteImage<TImage3D>(kv.second.img,
+      PTools::template WriteImage<TImage3D>(kv.second.img,
           GenerateUnaryTPObjectName("img_", kv.first, pParam.debug_dir.c_str(), nullptr, ".nii.gz"));
 
-      PropagationTools<TReal>::template WriteImage<TImage3D>(kv.second.img_srs,
+      PTools::template WriteImage<TImage3D>(kv.second.img_srs,
           GenerateUnaryTPObjectName("img_", kv.first, pParam.debug_dir.c_str(), "_srs", ".nii.gz"));
 			}
 
-		PropagationTools<TReal>::template WriteImage<TLabelImage3D>(m_Data->tp_data[pParam.refTP].seg_srs,
+    PTools::template WriteImage<TLabelImage3D>(m_Data->tp_data[pParam.refTP].seg_srs,
         GenerateUnaryTPObjectName("mask_", pParam.refTP, pParam.debug_dir.c_str(), "_srs", ".nii.gz"));
 		}
 }
@@ -285,7 +286,7 @@ PropagationAPI<TReal>
     }
 
   typename TLabelImage3D::RegionType roi;
-  auto trimmed = PropagationTools<TReal>::TrimLabelImage(img_tail, 5, roi);
+  auto trimmed = PTools::TrimLabelImage(img_tail, 5, roi);
 
   // Move trimmed image to the roi region
   trimmed->SetRegions(roi);
@@ -296,7 +297,7 @@ PropagationAPI<TReal>
     }
   trimmed->SetOrigin(origin);
 
-  auto ref_space = PropagationTools<TReal>::CastLabelToRealImage(trimmed);
+  auto ref_space = PTools::CastLabelToRealImage(trimmed);
 
   if (m_Param.propagation_param.debug)
     {
@@ -309,6 +310,10 @@ PropagationAPI<TReal>
 
     std::cout << "---- ROI: " << std::endl;
     std::cout << roi << std::endl;
+
+    std::ostringstream fnref;
+    fnref << m_Param.propagation_param.debug_dir << PTools::GetPathSeparator() << "Full_Res_Ref_Space.nii.gz";
+    PTools::template WriteImage<TImage3D>(ref_space, fnref.str());
     }
 
   m_Data->full_res_ref_space = ref_space;
@@ -316,9 +321,9 @@ PropagationAPI<TReal>
   if (m_Param.propagation_param.debug)
     {
     std::ostringstream fnrs;
-    fnrs << m_Param.propagation_param.debug_dir << PropagationTools<TReal>::GetPathSeparator()
+    fnrs << m_Param.propagation_param.debug_dir << PTools::GetPathSeparator()
          << "full_res_reference_space.nii.gz";
-    PropagationTools<TReal>::template WriteImage<TImage3D>(ref_space, fnrs.str());
+    PTools::template WriteImage<TImage3D>(ref_space, fnrs.str());
     }
 }
 
@@ -343,7 +348,7 @@ PropagationAPI<TReal>
     if (pParam.debug)
 			{
       fnmask = GenerateUnaryTPObjectName("mask_", tp, pParam.debug_dir.c_str(), nullptr, ".nii.gz");
-			PropagationTools<TReal>::template WriteImage<TLabelImage3D>(tp_data.full_res_mask, fnmask);
+      PTools::template WriteImage<TLabelImage3D>(tp_data.full_res_mask, fnmask);
 			}
 		tp_data.full_res_mask->SetObjectName(fnmask);
 		}
@@ -398,9 +403,9 @@ PropagationAPI<TReal>
 	ip.moving = img_mov->GetObjectName();
 	ig.inputs.push_back(ip);
 
-	typename TCompositeImage3D::Pointer casted_fix = PropagationTools<TReal>::
+  typename TCompositeImage3D::Pointer casted_fix = PTools::
 			CastImageToCompositeImage(img_fix);
-	typename TCompositeImage3D::Pointer casted_mov = PropagationTools<TReal>::
+  typename TCompositeImage3D::Pointer casted_mov = PTools::
 			CastImageToCompositeImage(img_mov);
 
 	GreedyAPI->AddCachedInputObject(ip.fixed, casted_fix);
@@ -409,7 +414,7 @@ PropagationAPI<TReal>
 	// Set dilated fix seg as mask
 	auto mask_fix = df.seg_srs;
 	ig.fixed_mask = mask_fix->GetObjectName();
-	auto casted_mask = PropagationTools<TReal>::CastLabelToRealImage(mask_fix);
+  auto casted_mask = PTools::CastLabelToRealImage(mask_fix);
 	GreedyAPI->AddCachedInputObject(ig.fixed_mask, casted_mask);
 
 	// Configure greedy parameters
@@ -484,8 +489,8 @@ PropagationAPI<TReal>
 	ip.fixed = img_fix->GetObjectName();
 	ip.moving = img_mov->GetObjectName();
 
-	typename TCompositeImage3D::Pointer casted_fix = PropagationTools<TReal>::CastImageToCompositeImage(img_fix);
-	typename TCompositeImage3D::Pointer casted_mov = PropagationTools<TReal>::CastImageToCompositeImage(img_mov);
+  typename TCompositeImage3D::Pointer casted_fix = PTools::CastImageToCompositeImage(img_fix);
+  typename TCompositeImage3D::Pointer casted_mov = PTools::CastImageToCompositeImage(img_mov);
 	GreedyAPI->AddCachedInputObject(ip.fixed, casted_fix);
 	GreedyAPI->AddCachedInputObject(ip.moving, casted_mov);
 	ig.inputs.push_back(ip);
@@ -493,7 +498,7 @@ PropagationAPI<TReal>
 	// Set mask images
 	auto mask_fix = isFullRes ? tpdata_fix.full_res_mask : tpdata_fix.seg_srs;
 	ig.fixed_mask = mask_fix->GetObjectName();
-	auto casted_mask = PropagationTools<TReal>::CastLabelToRealImage(mask_fix);
+  auto casted_mask = PTools::CastLabelToRealImage(mask_fix);
 	GreedyAPI->AddCachedInputObject(ig.fixed_mask, casted_mask);
 
 	// Check smoothing parameters. If greedy default detected, change to propagation default.
@@ -598,7 +603,7 @@ PropagationAPI<TReal>
 	// Set reference image
 	auto img_ref = isFullRes ? tpdata_out.img : tpdata_out.img_srs;
 	param.reslice_param.ref_image = img_ref->GetObjectName();
-	auto casted_ref = PropagationTools<TReal>::CastImageToCompositeImage(img_ref);
+  auto casted_ref = PTools::CastImageToCompositeImage(img_ref);
 	GreedyAPI->AddCachedInputObject(param.reslice_param.ref_image, casted_ref.GetPointer());
 
 	// Set input image
@@ -722,7 +727,7 @@ PropagationAPI<TReal>
       {
       // Append an empty image
       auto refseg = m_Data->tp_data[pParam.refTP].seg;
-      auto emptyImage = PropagationTools<TReal>::template CreateEmptyImage<TLabelImage3D>(refseg);
+      auto emptyImage = PTools::template CreateEmptyImage<TLabelImage3D>(refseg);
       fltJoin->PushBackInput(emptyImage);
       }
     }
@@ -732,9 +737,9 @@ PropagationAPI<TReal>
   if (pParam.writeOutputToDisk)
   {
     std::ostringstream fnseg4d;
-    fnseg4d << pParam.segspec.outsegdir << PropagationTools<TReal>::GetPathSeparator()
+    fnseg4d << pParam.segspec.outsegdir << PTools::GetPathSeparator()
             << "seg4d.nii.gz";
-    PropagationTools<TReal>::template WriteImage<TLabelImage4D>(m_Data->seg4d_out, fnseg4d.str());
+    PTools::template WriteImage<TLabelImage4D>(m_Data->seg4d_out, fnseg4d.str());
   }
 }
 
@@ -746,7 +751,7 @@ PropagationAPI<TReal>
 {
 	std::ostringstream oss;
 	if (debug_dir)
-		oss << debug_dir << PropagationTools<TReal>::GetPathSeparator();
+    oss << debug_dir << PTools::GetPathSeparator();
 	if (base)
 		oss << base;
 
@@ -768,7 +773,7 @@ PropagationAPI<TReal>
 {
 	std::ostringstream oss;
 	if (debug_dir)
-		oss << debug_dir << PropagationTools<TReal>::GetPathSeparator();
+    oss << debug_dir << PTools::GetPathSeparator();
 	if (base)
 		oss << base;
 
