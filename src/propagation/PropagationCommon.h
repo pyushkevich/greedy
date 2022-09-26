@@ -10,7 +10,8 @@
 	using TVectorImage3D = typename PropagationAPI<TReal>::TVectorImage3D; \
 	using TCompositeImage3D = typename PropagationAPI<TReal>::TCompositeImage3D; \
 	using TTransform = typename PropagationAPI<TReal>::TTransform; \
-	using TMeshPointer = typename PropagationAPI<TReal>::TMeshPointer; \
+  using TPropagationMesh = typename PropagationAPI<TReal>::TPropagationMesh; \
+  using TPropagationMeshPointer = typename PropagationAPI<TReal>::TPropagationMeshPointer; \
 	using ResampleInterpolationMode = typename PropagationAPI<TReal>::ResampleInterpolationMode;
 
 #endif // PROPAGATIONCOMMON_H

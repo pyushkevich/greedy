@@ -1,6 +1,7 @@
 #include "PropagationTools.h"
 #include "GreedyException.h"
 #include "ImageRegionConstIteratorWithIndexOverride.h"
+#include "GreedyMeshIO.h"
 #include <itkImageRegionIterator.h>
 #include <itkAffineTransform.h>
 #include <itkResampleImageFilter.h>
@@ -19,8 +20,6 @@
 #include <vtkPointData.h>
 #include <vtkTransformPolyDataFilter.h>
 #include <vtkTransform.h>
-
-
 
 
 namespace propagation
@@ -139,7 +138,7 @@ PropagationTools<TReal>
 }
 
 template<typename TReal>
-typename PropagationTools<TReal>::TMeshPointer
+typename PropagationTools<TReal>::TPropagationMeshPointer
 PropagationTools<TReal>
 ::GetMeshFromLabelImage(TLabelImage3D *img)
 {

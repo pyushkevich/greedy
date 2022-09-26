@@ -3,6 +3,7 @@
 #include "PropagationTools.h"
 #include "PropagationData.h"
 #include "PropagationIO.h"
+#include "GreedyMeshIO.h"
 
 #include <algorithm>
 
@@ -11,7 +12,7 @@
 #include <itkNearestNeighborInterpolateImageFunction.h>
 #include <itkJoinSeriesImageFilter.h>
 #include <itkAddImageFilter.h>
-
+#include <vtkPolyData.h>
 
 using namespace propagation;
 
@@ -127,10 +128,8 @@ PropagationAPI<TReal>
   const auto &pParam = m_Param.propagation_param;
 
   // Threshold, Dilate and Resample
-  auto thr_tail = PTools::template ThresholdImage<TLabelImage3D, TLabelImage3D>(
-        m_Data->seg_ref, 1, SHRT_MAX, 1, 0);
-  auto dlt_tail = PTools::template DilateImage<TLabelImage3D, TLabelImage3D>(
-        thr_tail, 10, 1);
+  auto thr_tail = PTools::template ThresholdImage<TLabelImage3D, TLabelImage3D>(m_Data->seg_ref, 1, SHRT_MAX, 1, 0);
+  auto dlt_tail = PTools::template DilateImage<TLabelImage3D, TLabelImage3D>(thr_tail, 10, 1);
   m_Data->tp_data[pParam.refTP].seg_srs = PTools::
       template Resample3DImage<TLabelImage3D>(dlt_tail, 0.5, ResampleInterpolationMode::NearestNeighbor);
 
@@ -148,26 +147,20 @@ PropagationAPI<TReal>
   if (pParam.debug)
 		std::cout << "[Propagation] PrepareTimePointData" << std::endl;
 
-  std::cout << "[Propagation] Processing Time Point Images" << std::endl;
-
   std::vector<unsigned int> tps(pParam.targetTPs);
   if (std::find(tps.begin(), tps.end(), pParam.refTP) == tps.end())
     tps.push_back(pParam.refTP); // Add refTP to the tps to process
 
   for (size_t tp : tps)
 		{
-		std::cout << "-- Processing tp " << tp << std::endl;
 		TimePointData<TReal>tpData;
 
 		// Extract full res image
-    tpData.img = PTools::
-        template ExtractTimePointImage<TImage3D, TImage4D>(m_Data->img4d, tp);
+    tpData.img = PTools::template ExtractTimePointImage<TImage3D, TImage4D>(m_Data->img4d, tp);
 		tpData.img->SetObjectName(GenerateUnaryTPObjectName("img_", tp));
 
 		// Generate resampled image
-    tpData.img_srs = PTools::
-				template Resample3DImage<TImage3D>(tpData.img, 0.5, ResampleInterpolationMode::Linear, 1);
-
+    tpData.img_srs = PTools::template Resample3DImage<TImage3D>(tpData.img, 0.5, ResampleInterpolationMode::Linear, 1);
     m_Data->tp_data[tp] = tpData;
 		tpData.img_srs->SetObjectName(GenerateUnaryTPObjectName("img_", tp, nullptr, "_srs"));
 		}
@@ -175,7 +168,12 @@ PropagationAPI<TReal>
   // Reference TP Segmentation
   m_Data->tp_data[pParam.refTP].seg = m_Data->seg_ref;
   m_Data->tp_data[pParam.refTP].seg->SetObjectName(GenerateUnaryTPObjectName("seg_", pParam.refTP));
+  m_Data->tp_data[pParam.refTP].seg_mesh = PTools::GetMeshFromLabelImage(m_Data->seg_ref);
 
+  // Write out the reference mesh
+  WriteMesh(m_Data->tp_data[pParam.refTP].seg_mesh,
+      GenerateUnaryTPObjectName("mesh_", pParam.refTP,
+                                pParam.segspec.outsegdir.c_str(), nullptr, ".vtk").c_str());
 
   ValidateInputOrientation();
   CreateReferenceMask();
@@ -262,6 +260,9 @@ PropagationAPI<TReal>
 
 	// Warp ref segmentation to target
   RunPropagationReslice(pParam.refTP, target_tp, true);
+
+  // Warp ref segmentation mesh to target
+  RunPropagationMeshReslice(pParam.refTP, target_tp);
 }
 
 template <typename TReal>
@@ -298,23 +299,6 @@ PropagationAPI<TReal>
   trimmed->SetOrigin(origin);
 
   auto ref_space = PTools::CastLabelToRealImage(trimmed);
-
-  if (m_Param.propagation_param.debug)
-    {
-    std::cout << "-- [Propagation] Generating reference space..." << std::endl;
-    std::cout << "---- ref space image: " << std::endl;
-    std::cout << ref_space << std::endl;
-
-    std::cout << "---- full res mask: " << std::endl;
-    std::cout << m_Data->tp_data[tp_list[0]].full_res_mask << std::endl;
-
-    std::cout << "---- ROI: " << std::endl;
-    std::cout << roi << std::endl;
-
-    std::ostringstream fnref;
-    fnref << m_Param.propagation_param.debug_dir << PTools::GetPathSeparator() << "Full_Res_Ref_Space.nii.gz";
-    PTools::template WriteImage<TImage3D>(ref_space, fnref.str());
-    }
 
   m_Data->full_res_ref_space = ref_space;
 
@@ -678,6 +662,73 @@ PropagationAPI<TReal>
   if (ret != 0)
     throw GreedyException("GreedyAPI execution failed in Proapgation Reslice Run: tp_in = %d, tp_out = %d, isFulRes = %d",
                           tp_in, tp_out, isFullRes);
+}
+
+template<typename TReal>
+void
+PropagationAPI<TReal>
+::RunPropagationMeshReslice(unsigned int tp_in, unsigned int tp_out)
+{
+
+  const auto &pParam = m_Param.propagation_param;
+
+  if (pParam.debug)
+    {
+    std::cout << "-- [Propagation] Mesh Reslice Run. tp_in=" << tp_in << "; tp_out=" << tp_out << std::endl;
+    }
+
+  TimePointData<TReal> &tpdata_in = m_Data->tp_data[tp_in];
+  TimePointData<TReal> &tpdata_out = m_Data->tp_data[tp_out];
+
+  // API and parameter configuration
+  GreedyApproach<3u, TReal> *GreedyAPI = new GreedyApproach<3u, TReal>();
+  GreedyParameters param;
+  param.mode = GreedyParameters::RESLICE;
+  param.CopyGeneralSettings(m_Param);
+  param.CopyReslicingSettings(m_Param);
+
+  // Set reference image
+  auto img_ref = tpdata_out.img;
+  param.reslice_param.ref_image = img_ref->GetObjectName();
+  auto casted_ref = PTools::CastImageToCompositeImage(img_ref);
+  GreedyAPI->AddCachedInputObject(param.reslice_param.ref_image, casted_ref.GetPointer());
+
+  // Set input mesh
+  auto mesh_in = tpdata_in.seg_mesh;
+  std::string mesh_in_name = GenerateUnaryTPObjectName("mesh_", tp_in, nullptr, nullptr, ".vtk");
+  GreedyAPI->AddCachedInputObject(mesh_in_name, mesh_in);
+
+  // Set output image
+  std::string mesh_out_name
+      = GenerateUnaryTPObjectName("mesh_", tp_out, pParam.segspec.outsegdir.c_str(), "_resliced", ".vtk");
+
+  // Make a reslice spec with input-output pair and push to the parameter
+  ResliceMeshSpec rmspec(mesh_in_name, mesh_out_name);
+  param.reslice_param.meshes.push_back(rmspec);
+
+  // Build transformation chain
+  for (int i = tpdata_out.transform_specs.size() - 1; i >= 0; --i)
+    {
+    auto &trans_spec = tpdata_out.transform_specs[i];
+    std::string affine_id = trans_spec.affine->GetObjectName();
+    param.reslice_param.transforms.push_back(TransformSpec(affine_id));
+    GreedyAPI->AddCachedInputObject(affine_id, trans_spec.affine.GetPointer());
+    }
+
+  std::string deform_id = tpdata_out.deform_to_ref->GetObjectName();
+  param.reslice_param.transforms.push_back(TransformSpec(deform_id));
+  GreedyAPI->AddCachedInputObject(deform_id, tpdata_out.deform_to_ref.GetPointer());
+
+  if (param.propagation_param.debug)
+    {
+    std::cout << "-- [Propagation] Mesh Reslice Command:" << param.GenerateCommandLine() << std::endl;
+    }
+
+  int ret = GreedyAPI->RunReslice(param);
+
+  if (ret != 0)
+    throw GreedyException("GreedyAPI execution failed in Proapgation Mesh Reslice Run: tp_in = %d, tp_out = %d",
+                          tp_in, tp_out);
 }
 
 template<typename TReal>

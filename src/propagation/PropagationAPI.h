@@ -8,8 +8,8 @@
 #include <itkImage.h>
 #include <itkImageRegionIterator.h>
 #include <vtkSmartPointer.h>
-#include <itkMatrixOffsetTransformBase.h>
 #include <vtkPolyData.h>
+#include <itkMatrixOffsetTransformBase.h>
 
 namespace propagation
 {
@@ -38,11 +38,11 @@ public:
 	using TVectorImage3D = typename TLDDMM3D::VectorImageType;
 	using TCompositeImage3D = typename TLDDMM3D::CompositeImageType;
 	using TTransform = itk::MatrixOffsetTransformBase<TReal, 3, 3>;
-	using TMeshPointer = vtkSmartPointer<vtkPolyData>;
+  using TPropagationMesh = vtkPolyData;
+  using TPropagationMeshPointer = vtkSmartPointer<vtkPolyData>;
+  using PTools = PropagationTools<TReal>;
 
 	enum ResampleInterpolationMode { Linear=0, NearestNeighbor };
-
-  using PTools = PropagationTools<TReal>;
 
   PropagationAPI() = delete;
 
@@ -52,15 +52,10 @@ public:
 	~PropagationAPI();
 	PropagationAPI(const PropagationAPI &other) = delete;
 	PropagationAPI &operator=(const PropagationAPI &other) = delete;
-
-  /** Initialize the data */
-
   /** Start the execution of the propagation pipeline */
   int Run();
 
 private:
-//  // For native greedy run, we initialize propagation data from parameters passed in
-//  void InitializeFromParameters();
   void ValidateInputData();
   void PrepareTimePointData();
   void ValidateInputOrientation();
@@ -78,6 +73,7 @@ private:
   void RunPropagationAffine(unsigned int tp_fix, unsigned int tp_mov);
   void RunPropagationDeformable(unsigned int tp_fix, unsigned int tp_mov, bool isFullRes);
   void RunPropagationReslice(unsigned int tp_in, unsigned int tp_out, bool isFullRes);
+  void RunPropagationMeshReslice(unsigned int tp_in, unsigned int tp_out);
   void BuildTransformChainForReslice(unsigned int tp_prev, unsigned int tp_crnt);
 
   static inline std::string GenerateUnaryTPObjectName(const char *base, unsigned int tp,

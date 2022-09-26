@@ -59,6 +59,7 @@ public:
 	typename TVectorImage3D::Pointer deform_to_ref;
 	typename TVectorImage3D::Pointer deform_from_prev;
 	typename TVectorImage3D::Pointer deform_from_ref;
+  TPropagationMeshPointer seg_mesh; // mesh warped from reference tp
 	std::vector<TimePointTransformSpec<TReal>> transform_specs;
 	std::vector<TimePointTransformSpec<TReal>> full_res_label_trans_specs;
 };

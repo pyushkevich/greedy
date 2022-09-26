@@ -28,7 +28,7 @@ public:
 	static typename TLabelImage3D::Pointer ResliceLabelImageWithIdentityMatrix(
 			TImage3D *ref, TLabelImage3D *src);
 
-	static TMeshPointer GetMeshFromLabelImage(TLabelImage3D *img);
+  static TPropagationMeshPointer GetMeshFromLabelImage(TLabelImage3D *img);
 
   static typename TLabelImage3D::Pointer
   TrimLabelImage(TLabelImage3D *input, double vox, typename TLabelImage3D::RegionType &roi);

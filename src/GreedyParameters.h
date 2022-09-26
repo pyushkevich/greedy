@@ -118,6 +118,9 @@ struct ResliceSpec
 
 struct ResliceMeshSpec
 {
+  ResliceMeshSpec() {}
+  ResliceMeshSpec(const std::string &_fixed, const std::string &_output)
+    :fixed(_fixed), output(_output) {}
   std::string fixed;
   std::string output;
 };
