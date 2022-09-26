@@ -171,9 +171,12 @@ PropagationAPI<TReal>
   m_Data->tp_data[pParam.refTP].seg_mesh = PTools::GetMeshFromLabelImage(m_Data->seg_ref);
 
   // Write out the reference mesh
-  WriteMesh(m_Data->tp_data[pParam.refTP].seg_mesh,
-      GenerateUnaryTPObjectName("mesh_", pParam.refTP,
-                                pParam.segspec.outsegdir.c_str(), nullptr, ".vtk").c_str());
+  if (pParam.writeOutputToDisk)
+    {
+    WriteMesh(m_Data->tp_data[pParam.refTP].seg_mesh,
+        GenerateUnaryTPObjectName("mesh_", pParam.refTP,
+                                  pParam.segspec.outsegdir.c_str(), nullptr, ".vtk").c_str());
+    }
 
   ValidateInputOrientation();
   CreateReferenceMask();
@@ -699,12 +702,21 @@ PropagationAPI<TReal>
   GreedyAPI->AddCachedInputObject(mesh_in_name, mesh_in);
 
   // Set output image
-  std::string mesh_out_name
-      = GenerateUnaryTPObjectName("mesh_", tp_out, pParam.segspec.outsegdir.c_str(), "_resliced", ".vtk");
+  std::string mesh_out_name =
+      GenerateUnaryTPObjectName("mesh_", tp_out, pParam.segspec.outsegdir.c_str(), "_resliced", ".vtk");
 
   // Make a reslice spec with input-output pair and push to the parameter
   ResliceMeshSpec rmspec(mesh_in_name, mesh_out_name);
   param.reslice_param.meshes.push_back(rmspec);
+
+  // Add extra meshes to warp
+  for (auto &mesh_spec : pParam.extra_mesh_list)
+    {
+    ResliceMeshSpec rms;
+    rms.fixed = mesh_spec.refmesh;
+    rms.output = GenerateUnaryTPObjectName("extra_mesh_", tp_out, mesh_spec.outmeshdir.c_str(), nullptr, ".vtk");
+    param.reslice_param.meshes.push_back(rms);
+    }
 
   // Build transformation chain
   for (int i = tpdata_out.transform_specs.size() - 1; i >= 0; --i)

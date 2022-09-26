@@ -218,7 +218,7 @@ struct GreedyPropagationParameters
 {
   std::string img4d;
   PropagationSegSpec segspec;
-  std::vector<PropagationMeshSpec> meshpair;
+  std::vector<PropagationMeshSpec> extra_mesh_list;
 
   unsigned int refTP;
   std::vector<unsigned int> targetTPs;

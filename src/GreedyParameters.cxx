@@ -461,7 +461,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     PropagationMeshSpec meshspec;
     meshspec.refmesh = cl.read_existing_filename();
     meshspec.outmeshdir = cl.read_output_dir();
-    this->propagation_param.meshpair.push_back(meshspec);
+    this->propagation_param.extra_mesh_list.push_back(meshspec);
     }
   else if(cmd == "-spr")
     {
@@ -486,7 +486,6 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
   else if (cmd == "-sp-interp-spec")
     {
     // propagation mode: read sigmas for label reslicing interpolation mode
-    // e.g. -splabel-sigma 0.2vox will use LABEL 0.2vox interpolation mode
     std::string mode = cl.read_string();
     if(mode == "nn" || mode == "NN" || mode == "0")
       {
