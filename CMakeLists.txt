@@ -229,18 +229,18 @@ SET(GREEDY_API_LIBS greedyapi
 
 # propagation api
 SET(PROPAGATION_HDR
-  src/Propagation/PropagationAPI.h
-  src/Propagation/PropagationCommon.h
-  src/Propagation/PropagationTools.h
-  src/Propagation/PropagationData.h
-  src/Propagation/PropagationIO.h
+  src/propagation/PropagationAPI.h
+  src/propagation/PropagationCommon.h
+  src/propagation/PropagationTools.h
+  src/propagation/PropagationData.h
+  src/propagation/PropagationIO.h
 )
 
 SET(PROPAGATION_SRC
-  src/Propagation/PropagationAPI.cxx
-  src/Propagation/PropagationData.txx
-  src/Propagation/PropagationTools.txx
-  src/Propagation/PropagationIO.cxx
+  src/propagation/PropagationAPI.cxx
+  src/propagation/PropagationData.txx
+  src/propagation/PropagationTools.txx
+  src/propagation/PropagationIO.cxx
 )
 
 ADD_LIBRARY(PropagationAPI ${PROPAGATION_SRC})
