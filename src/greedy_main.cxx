@@ -175,8 +175,6 @@ int usage()
   printf("                           target time point number as suffix. \n");
   printf("  -spm mesh.vtk outdir   : Segmentation mesh for the reference time point of the 4D base image \n");
   printf("                           Specify an outdir to save the propagated output meshes \n");
-  printf("                           The output file will have same filename of the reference file, with \n");
-  printf("                           target time point number as suffix. \n");
   printf("  -spr timepoint         : The reference time point of the given segmentation image \n");
   printf("  -spt <target tp str>   : A comma separated string of target time points for the propagation \n");
   printf("  -sp-debug <outdir>     : Enable debugging mode for propagation: Dump intermediary files to outdir\n");
