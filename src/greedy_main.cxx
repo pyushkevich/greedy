@@ -145,7 +145,7 @@ int usage()
   printf("  -ia-image-side CODE    : initialize affine matrix based on matching center of one image side \n");
   printf("  -ia-moments <1|2>      : initialize affine matrix based on matching moments of inertia\n");
   printf("Specific to affine mode (-a):\n");
-  printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 12=affine\n");
+  printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 7=similarity, 12=affine\n");
   printf("  -jitter sigma          : Jitter (in voxel units) applied to sample points (def: 0.5)\n");
   printf("  -search N <rot> <tran> : Random search over rigid transforms (N iter) before starting optimization\n");
   printf("                           'rot' may be the standard deviation of the random rotation angle (degrees) or \n");
