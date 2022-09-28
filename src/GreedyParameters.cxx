@@ -135,9 +135,11 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     int dof = cl.read_integer();
     if(dof == 6)
       this->affine_dof = GreedyParameters::DOF_RIGID;
+    else if(dof == 7)
+      this->affine_dof = GreedyParameters::DOF_SIMILARITY;
     else if(dof == 12)
         this->affine_dof = GreedyParameters::DOF_AFFINE;
-    else throw GreedyException("DOF parameter only accepts 6 and 12 as values");
+    else throw GreedyException("DOF parameter only accepts 6, 7 and 12 as values");
     }
   else if(cmd == "-jitter")
     {

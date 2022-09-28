@@ -99,7 +99,9 @@ int usage()
   printf("                           up to the edge of the tissue and you want the tissue/background edge to count\n");
   printf("                           towards the metric.\n");
   printf("Defining a reference space for registration (primarily in deformable mode): \n");
-  printf("  -ref <image>           : Use supplied image, rather than fixed image to define the reference space\n");
+  printf("  -ref <image>           : Use supplied image, rather than fixed image to define the reference space.\n");
+  printf("                           Note: in affine registration this will cause the moving image to be resliced\n");
+  printf("                           into the moving image space before registration, this is not recommended.\n");
   printf("  -ref-pad <radius>      : Define the reference space by padding the fixed image by radius. Useful when\n");
   printf("                           the stuff you want to register is at the border of the fixed image.\n");
   printf("  -bg <float|NaN>        : When mapping fixed and moving images to reference space, fill missing values\n");

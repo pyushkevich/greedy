@@ -601,12 +601,13 @@ RigidCostFunctionImpl<3, TReal>
 template<typename TReal>
 vnl_vector<double>
 RigidCostFunctionImpl<3, TReal>
-::forward(const vnl_vector<double> &x, Mat &flip, bool need_backward)
+::forward(const vnl_vector<double> &x, Mat &flip, bool need_backward, bool uniform_scaling)
 {
   // Place parameters into q and b
   Vec q, b;
-  q[0] = x[0]; q[1] = x[1]; q[2] = x[2];
-  b[0] = x[3]; b[1] = x[4]; b[2] = x[5];
+  double scale = uniform_scaling ? x[0] : 1.0;
+  q[0] = x[1]; q[1] = x[2]; q[2] = x[3];
+  b[0] = x[4]; b[1] = x[5]; b[2] = x[6];
 
   // Compute the rotation parameters
   double theta, a1, a2;
@@ -615,7 +616,7 @@ RigidCostFunctionImpl<3, TReal>
 
   // Now we have a rotation and a translation, convert to parameters for the affine function
   vnl_vector<double> x_affine(12);
-  flatten_affine_transform(flip * R, b, x_affine.data_block());
+  flatten_affine_transform(scale * flip * R, b, x_affine.data_block());
 
   // If backward run will be requested, compute the needed data
   if(need_backward)
@@ -652,7 +653,7 @@ RigidCostFunctionImpl<3, TReal>
       }
 
     // Create a matrix to hold the jacobian
-    jac.set_size(12, 6);
+    jac.set_size(12, 7);
     jac.fill(0.0);
 
     // Zero vector
@@ -665,13 +666,21 @@ RigidCostFunctionImpl<3, TReal>
       // Fill the corresponding column
       vnl_vector<double> jac_col_q(12);
       flatten_affine_transform(flip * d_R[p], zero_vec, jac_col_q.data_block());
-      jac.set_column(p, jac_col_q);
+      jac.set_column(p+1, jac_col_q);
 
       // Also set column on the right (wrt translation)
       vnl_vector<double> jac_col_b(12);
       Vec ep; ep.fill(0.0); ep[p] = 1;
       flatten_affine_transform(zero_mat, ep, jac_col_b.data_block());
-      jac.set_column(p+3, jac_col_b);
+      jac.set_column(p+4, jac_col_b);
+      }
+
+    // Set the Jacobian column for scaling
+    if(uniform_scaling)
+      {
+      vnl_vector<double> jac_col_s(12);
+      flatten_affine_transform(flip * R, zero_vec, jac_col_s.data_block());
+      jac.set_column(0, jac_col_s);
       }
     }
 
@@ -722,18 +731,19 @@ RigidCostFunctionImpl<2, TReal>
 template<typename TReal>
 vnl_vector<double>
 RigidCostFunctionImpl<2, TReal>
-::forward(const vnl_vector<double> &x, Mat &flip, bool need_backward)
+::forward(const vnl_vector<double> &x, Mat &flip, bool need_backward, bool uniform_scaling)
 {
   // Place parameters into theta and b
-  double theta = x[0];
-  Vec b(x[1], x[2]);
+  double scale = uniform_scaling ? x[0] : 1.0;
+  double theta = x[1];
+  Vec b(x[2], x[3]);
 
   // Compute the rotation matrix
   Mat R = this->GetRotationMatrix(theta);
 
   // Now we have a rotation and a translation, convert to parameters for the affine function
   vnl_vector<double> x_affine(6);
-  flatten_affine_transform(flip * R, b, x_affine.data_block());
+  flatten_affine_transform(scale * flip * R, b, x_affine.data_block());
 
   // If gradients requested, do the math for the jacobians
   if(need_backward)
@@ -744,7 +754,7 @@ RigidCostFunctionImpl<2, TReal>
     d_R(1,0) = -cos(theta); d_R(1,1) = -sin(theta);
 
     // Create a matrix to hold the jacobian
-    jac.set_size(6, 3);
+    jac.set_size(6, 4);
     jac.fill(0.0);
 
     // Zero vector
@@ -754,7 +764,15 @@ RigidCostFunctionImpl<2, TReal>
     // Fill out the rotation column
     vnl_vector<double> jac_col_theta(6);
     flatten_affine_transform(flip * d_R, zero_vec, jac_col_theta.data_block());
-    jac.set_column(0, jac_col_theta);
+    jac.set_column(1, jac_col_theta);
+
+    // Fill out the scaling column
+    if(uniform_scaling)
+      {
+      vnl_vector<double> jac_col_s(6);
+      flatten_affine_transform(flip * R, zero_vec, jac_col_s.data_block());
+      jac.set_column(0, jac_col_s);
+      }
 
     // Fill out the translation columns
     for(int p = 0; p < 2; p++)
@@ -763,7 +781,7 @@ RigidCostFunctionImpl<2, TReal>
       vnl_vector<double> jac_col_b(6);
       Vec ep; ep.fill(0.0); ep[p] = 1;
       flatten_affine_transform(zero_mat, ep, jac_col_b.data_block());
-      jac.set_column(p+1, jac_col_b);
+      jac.set_column(p+2, jac_col_b);
       }
     }
 
@@ -785,11 +803,14 @@ RigidCostFunctionImpl<2, TReal>
 template <unsigned int VDim, typename TReal>
 RigidCostFunction<VDim, TReal>
 ::RigidCostFunction(GreedyParameters *param, ParentType *parent,
-                    unsigned int group, unsigned int level, OFHelperType *helper)
-  : Superclass(Impl::GetNumberOfParameters()), m_AffineFn(param, parent, group, level, helper)
+                    unsigned int group, unsigned int level, OFHelperType *helper,
+                    bool uniform_scale)
+  : Superclass(Impl::GetNumberOfParameters()),
+    m_AffineFn(param, parent, group, level, helper)
 {
   // Store the flipped status of the matrix
   this->flip.set_identity();
+  this->uniform_scale = uniform_scale;
 }
 
 template <unsigned int VDim, typename TReal>
@@ -800,7 +821,7 @@ RigidCostFunction<VDim, TReal>
                   double *f_mask, vnl_vector<double>* g_mask)
 {
   // Now we have a rotation and a translation, convert to parameters for the affine function
-  vnl_vector<double> x_affine = forward(x, g_metric || g_mask);
+  vnl_vector<double> x_affine = this->forward(x, g_metric || g_mask);
 
   // Compute the affine metric
   vnl_vector<double> g_metric_affine(m_AffineFn.get_number_of_unknowns());
@@ -864,23 +885,27 @@ RigidCostFunction<VDim, TReal>
   // Compute polar decomposition of the affine matrix
   vnl_svd<double> svd(this->flip.as_matrix() * A);
   Mat R = svd.U() * svd.V().transpose();
+  double scale = svd.W().data_block()[0];
   vnl_vector<double> q = impl.GetAxisAngle(R);
 
   // Make result
   vnl_vector<double> x(this->get_number_of_unknowns());
-  x.update(q.as_ref(), 0);
-  x.update(b.as_ref(), q.size());
+  if(this->uniform_scale)
+    x[0] = scale;
+  else
+    x[0] = 1.0;
+
+  x.update(q.as_ref(), 1);
+  x.update(b.as_ref(), 1+q.size());
   return x;
 }
-
-
 
 template <unsigned int VDim, typename TReal>
 vnl_vector<double>
 RigidCostFunction<VDim, TReal>
 ::forward(const vnl_vector<double> &x, bool need_backward)
 {
-  return impl.forward(x, flip, need_backward);
+  return impl.forward(x, flip, need_backward, this->uniform_scale);
 }
 
 template <unsigned int VDim, typename TReal>

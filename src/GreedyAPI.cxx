@@ -942,10 +942,11 @@ GreedyApproach<VDim, TReal>
   for(unsigned int g = 0; g < of_helper.GetNumberOfInputGroups(); g++)
     {
     // Define the affine cost function
-    if(param.affine_dof == GreedyParameters::DOF_RIGID)
+    if(param.affine_dof == GreedyParameters::DOF_RIGID || param.affine_dof == GreedyParameters::DOF_SIMILARITY)
       {
       RigidCostFunction *rigid_acf =
-          new RigidCostFunction(&param, this, g, level, &of_helper);
+          new RigidCostFunction(&param, this, g, level, &of_helper,
+                                param.affine_dof == GreedyParameters::DOF_SIMILARITY);
       components.push_back(
             new ScalingCostFunction(
               rigid_acf,
