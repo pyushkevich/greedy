@@ -6,7 +6,9 @@
 #include "PropagationCommon.h"
 #include "PropagationAPI.h"
 #include "PropagationData.h"
+#include "PropagationParameters.h"
 #include "GreedyParameters.h"
+
 
 namespace propagation
 {
@@ -30,7 +32,8 @@ public:
 
 private:
   std::shared_ptr<PropagationData<TReal>> m_Data;
-  GreedyParameters m_Param;
+  GreedyParameters m_GreedyParam;
+  PropagationParameters m_PropagationParam;
 
   friend class PropagationInputBuilder<TReal>;
   friend class PropagationAPI<TReal>;
@@ -68,29 +71,57 @@ public:
   PropagationInputBuilder(const PropagationInputBuilder &other) = delete;
   PropagationInputBuilder &operator=(const PropagationInputBuilder &other) = delete;
 
-  static std::shared_ptr<PropagationInput<TReal>> CreateInputFromParameter(const GreedyParameters &param);
+  static std::shared_ptr<PropagationInput<TReal>> CreateInputForCommandLineRun(
+      const PropagationParameters &pParam, const GreedyParameters &gParam);
 
   void Reset();
 
   std::shared_ptr<PropagationInput<TReal>> Create();
 
+  /** Set Reference 4D Image */
   void SetImage4D(TImage4D *img4d);
 
+  /** Set 3D Segmentation Image for the reference time point.*/
   void SetReferenceSegmentationIn3D(TLabelImage3D *seg3d);
 
+  /** Set 4D Segmentation Image with reference time segmentation. This will override
+   *  3D segmentation image input */
   void SetReferenceSegmentationIn4D(TLabelImage4D *seg4d);
 
+  /** Set reference time point */
   void SetReferenceTimePoint(unsigned int refTP);
 
+  /** Set target time point list. Reference time point is ignored */
   void SetTargetTimePoints(const std::vector<unsigned int> &targetTPs);
 
+  // General greedy setting
+  /** Get current greedy parameters for advanced configuration */
+  GreedyParameters GetGreedyParameters()
+  { return m_Input->m_GreedyParam; }
+
+  /** Set the metric for greedy run */
+  void SetMetric(GreedyParameters::MetricType metric);
+
+  /** Set metric radius if needed */
+  void SetMetricRadius(std::vector<int> metric_radius);
+
+  /** Set multi-resolution schedule (-n) default is 100x100 */
+  void SetMultiResolutionSchedule(std::vector<int> iter_per_level);
+
+  /** Turn on the debug mode for propagation. A debugging output directory is needed for
+   *  dumping out intermediary files */
   void SetDebugOn(std::string &debug_dir);
 
+  /** Turn off the debug mode for propagation */
   void SetDebugOff();
+
+  /** Get propagation input object to pass to the Propagation API */
+  std::shared_ptr<PropagationInput<TReal>> GetPropagationInput()
+  { return m_Input; }
 
 
 private:
-  std::shared_ptr<GreedyParameters> m_CurrentParam;
+  std::shared_ptr<PropagationInput<TReal>> m_Input;
 };
 
 

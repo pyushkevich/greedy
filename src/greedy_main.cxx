@@ -26,8 +26,6 @@
 =========================================================================*/
 
 #include "GreedyAPI.h"
-#include "PropagationAPI.h"
-#include "PropagationIO.h"
 #include "CommandLineHelper.h"
 
 #include <iostream>
@@ -79,7 +77,6 @@ int usage()
   printf("  -root inwarp outwarp N : Convert 2^N-th root of a warp \n");
   printf("  -jac inwarp outjac     : Compute the Jacobian determinant of the warp \n");
   printf("  -metric                : Compute metric between images\n");
-  printf("  -sp segmentation propagation: Propagate a 3D segmentation to other time points in a 4D image\n");
   printf("Options in deformable / affine mode: \n");
   printf("  -w weight              : weight of the next -i pair\n");
   printf("  -m metric              : metric for the entire registration\n");
@@ -167,17 +164,6 @@ int usage()
   printf("  -rj outjacobian        : write Jacobian determinant image to outjacobian \n");
   printf("Specific to metric computation mode (-metric): \n");
   printf("  -og out.nii            : write the gradient of the metric to file\n");
-  printf("Specific to segmentation propagation mode (-sp): \n");
-  printf("  -spi img4d.nii         : 4D image that is the base of the segmentation \n");
-  printf("  -sps seg.nii outdir    : 3D segmentation for the reference time point of the 4D base image. \n");
-  printf("                           Specify an outdir to save the propagated output segmentations \n");
-  printf("                           The output file will have same filename of the reference file, with \n");
-  printf("                           target time point number as suffix. \n");
-  printf("  -spm mesh.vtk outdir   : Segmentation mesh for the reference time point of the 4D base image \n");
-  printf("                           Specify an outdir to save the propagated output meshes \n");
-  printf("  -spr timepoint         : The reference time point of the given segmentation image \n");
-  printf("  -spt <target tp str>   : A comma separated string of target time points for the propagation \n");
-  printf("  -sp-debug <outdir>     : Enable debugging mode for propagation: Dump intermediary files to outdir\n");
   printf("For developers: \n");
   printf("  -debug-deriv           : enable periodic checks of derivatives (debug) \n");
   printf("  -debug-deriv-eps       : epsilon for derivative debugging \n");
@@ -208,25 +194,6 @@ public:
     return greedy.Run(param);
   }
 };
-
-template <typename TReal>
-class PropagationRunner
-{
-public:
-  static int Run(const GreedyParameters &param)
-  {
-    using namespace propagation;
-
-    PropagationInputBuilder<TReal> ib;
-    auto pInput = ib.CreateInputFromParameter(param);
-
-    // Use the threads parameter
-    PropagationAPI<TReal> pAPI(pInput);
-    return pAPI.Run();
-  }
-};
-
-
 
 int main(int argc, char *argv[])
 {
@@ -272,16 +239,6 @@ int main(int argc, char *argv[])
     // Some parameters may be specified as either vector or scalar, and need to be verified
     if(!param.epsilon_per_level.CheckSize(param.iter_per_level.size()))
        throw GreedyException("Mismatch in size of vectors supplied with -n and -e options");
-
-    if(param.mode == GreedyParameters::PROPAGATION)
-      {
-      if (param.dim != 3)
-        throw GreedyException("Dim (-d) other than 3 is not supported in propagation mode");
-      if (param.flag_float_math)
-        return PropagationRunner<float>::Run(param);
-      else
-        return PropagationRunner<double>::Run(param);
-      }
 
     // Run the main code
     if(param.flag_float_math)

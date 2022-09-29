@@ -228,24 +228,30 @@ SET(GREEDY_API_LIBS greedyapi
   ${SPARSE_LIBRARY})
 
 # propagation api
-SET(PROPAGATION_HDR
+SET(PROPAGATION_LIB_HDR
   src/propagation/PropagationAPI.h
   src/propagation/PropagationCommon.h
   src/propagation/PropagationTools.h
   src/propagation/PropagationData.h
-  src/propagation/PropagationIO.h
-)
-
-SET(PROPAGATION_SRC
-  src/propagation/PropagationAPI.cxx
   src/propagation/PropagationData.txx
   src/propagation/PropagationTools.txx
-  src/propagation/PropagationIO.cxx
+  src/propagation/PropagationIO.h
+  src/propagation/PropagationParameters.h
 )
 
-ADD_LIBRARY(PropagationAPI ${PROPAGATION_SRC})
-TARGET_INCLUDE_DIRECTORIES(PropagationAPI PUBLIC ${GREEDY_INCLUDE_DIRS})
-TARGET_LINK_LIBRARIES(PropagationAPI ${GREEDY_API_LIBS})
+SET(PROPAGATION_LIB_SRC
+  src/propagation/PropagationAPI.cxx
+  src/propagation/PropagationIO.cxx
+  src/propagation/PropagationParameters.cxx
+)
+
+ADD_LIBRARY(propagationapi ${PROPAGATION_LIB_SRC} ${PROPAGATION_LIB_HDR})
+TARGET_INCLUDE_DIRECTORIES(propagationapi PUBLIC ${GREEDY_INCLUDE_DIRS})
+TARGET_LINK_LIBRARIES(propagationapi ${GREEDY_API_LIBS})
+
+SET(PROPAGATION_SRC
+  src/propagation/greedy_propagation.cxx
+)
 
 # List of installable targets
 SET(GREEDY_INSTALL_TARGETS greedy greedy_template_average multi_chunk_greedy)
@@ -273,8 +279,7 @@ IF(BUILD_CLI)
   ENDIF()
 
   ADD_EXECUTABLE(greedy ${GREEDY_SRC})
-  TARGET_LINK_LIBRARIES(greedy ${GREEDY_API_LIBS} ${FFTWF_LIB} ${FFTWF_THREADS_LIB} ${SPARSE_LIBRARY} PropagationAPI)
-  TARGET_INCLUDE_DIRECTORIES(greedy PUBLIC ${GREEDY_SOURCE_DIR}/src/propagation)
+  TARGET_LINK_LIBRARIES(greedy ${GREEDY_API_LIBS} ${FFTWF_LIB} ${FFTWF_THREADS_LIB} ${SPARSE_LIBRARY})
 
   ADD_EXECUTABLE(greedy_template_average ${TEMPLATE_AVG_SRC})
   TARGET_LINK_LIBRARIES(greedy_template_average ${GREEDY_API_LIBS})
@@ -287,6 +292,11 @@ IF(BUILD_CLI)
 
   ADD_EXECUTABLE(multi_chunk_greedy ${CHUNK_GREEDY_SRC})
   TARGET_LINK_LIBRARIES(multi_chunk_greedy ${GREEDY_API_LIBS})
+
+  ADD_EXECUTABLE(greedy_propagation ${PROPAGATION_SRC})
+  TARGET_LINK_LIBRARIES(greedy_propagation PUBLIC propagationapi)
+  TARGET_INCLUDE_DIRECTORIES(greedy_propagation PUBLIC ${GREEDY_SOURCE_DIR}/src/propagation)
+
 ENDIF(BUILD_CLI)
 
 # Install command-line executables

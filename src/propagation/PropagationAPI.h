@@ -1,8 +1,9 @@
 #ifndef PROPAGATIONAPI_H
 #define PROPAGATIONAPI_H
 
-#include "GreedyParameters.h"
 #include "lddmm_data.h"
+#include "GreedyParameters.h"
+#include "PropagationParameters.h"
 
 #include <memory>
 #include <itkImage.h>
@@ -13,7 +14,6 @@
 
 namespace propagation
 {
-
 template<typename TReal>
 class PropagationData;
 
@@ -83,11 +83,11 @@ private:
       const char *debug_dir = nullptr, const char *suffix = nullptr, const char *file_ex = nullptr);
 
   std::shared_ptr<PropagationData<TReal>> m_Data;
-  GreedyParameters m_Param;
+  GreedyParameters m_GParam;
+  PropagationParameters m_PParam;
   std::vector<unsigned int> m_ForwardTPs;
   std::vector<unsigned int> m_BackwardTPs;
 };
-
 
 }
 #endif // PROPAGATIONAPI_H

@@ -438,80 +438,6 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->lbfgs_param.memory = cl.read_integer();
     }
-  else if(cmd == "-sp")
-    {
-    // enter the propagation mode
-    this->mode = PROPAGATION;
-    }
-  else if(cmd == "-spi")
-    {
-    // propagation mode: read input 4D image
-    this->propagation_param.img4d = cl.read_existing_filename();
-    }
-  else if(cmd == "-sps")
-    {
-    // propagation mode: add a segmentation pair
-    PropagationSegSpec segspec;
-    this->propagation_param.segspec.refseg = cl.read_existing_filename();
-    this->propagation_param.segspec.outsegdir = cl.read_output_dir();
-    }
-  else if(cmd == "-spm")
-    {
-    // propagation mode: add mesh pair
-    PropagationMeshSpec meshspec;
-    meshspec.refmesh = cl.read_existing_filename();
-    meshspec.outmeshdir = cl.read_output_dir();
-    this->propagation_param.extra_mesh_list.push_back(meshspec);
-    }
-  else if(cmd == "-spr")
-    {
-    // propagation mode: read reference time point number
-    this->propagation_param.refTP = cl.read_integer();
-    }
-  else if(cmd == "-spt")
-    {
-    // propagation mode: read target timepoint number string
-    std::vector<int> result = cl.read_int_vector(',');
-    // eliminate any duplicate input
-    std::set<int> unique(result.begin(), result.end());
-    // validate and push to the parameter
-    for (int n : unique)
-      {
-      if (n <= 0)
-        throw GreedyException("%d is not a valid time point value!", n);
-
-      this->propagation_param.targetTPs.push_back(n);
-      }
-    }
-  else if (cmd == "-sp-interp-spec")
-    {
-    // propagation mode: read sigmas for label reslicing interpolation mode
-    std::string mode = cl.read_string();
-    if(mode == "nn" || mode == "NN" || mode == "0")
-      {
-      this->propagation_param.reslice_spec.mode = InterpSpec::NEAREST;
-      }
-    else if(mode == "linear" || mode == "LINEAR" || mode == "1")
-      {
-      this->propagation_param.reslice_spec.mode = InterpSpec::LINEAR;
-      }
-    else if(mode == "label" || mode == "LABEL")
-      {
-      this->propagation_param.reslice_spec.mode = InterpSpec::LABELWISE;
-      this->propagation_param.reslice_spec.sigma.sigma =
-          cl.read_scalar_with_units(
-            this->propagation_param.reslice_spec.sigma.physical_units);
-      }
-    else
-      {
-      std::cerr << "Propagation interpolation spec: Unknown interpolation mode" << std::endl;
-      }
-    }
-  else if (cmd == "-sp-debug")
-    {
-    this->propagation_param.debug = true;
-    this->propagation_param.debug_dir = cl.read_output_dir();
-    }
   else
     {
     return false;
@@ -592,10 +518,6 @@ GreedyParameters
   this->dump_prefix = other.dump_prefix;
   this->flag_powell = other.flag_powell;
   this->verbosity = other.verbosity;
-  // Propagation Debug Setting
-  this->propagation_param.debug = other.propagation_param.debug;
-  this->propagation_param.debug_dir = other.propagation_param.debug_dir;
-
 
   // General Settings
   this->flag_float_math = other.flag_float_math;
@@ -646,9 +568,6 @@ std::string GreedyParameters::GenerateCommandLine()
       break;
     case GreedyParameters::METRIC:
       oss << " -metric";
-      break;
-    case GreedyParameters::PROPAGATION:
-      oss << " -sp";
       break;
     }
 

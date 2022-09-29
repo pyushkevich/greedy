@@ -194,42 +194,6 @@ struct LBFGSParameters
   int memory = 0;
 };
 
-struct PropagationSegSpec
-{
-  // Input reference segmentation
-  std::string refseg;
-
-  // Output directory for the propagated segmentation images
-  std::string outsegdir;
-};
-
-struct PropagationMeshSpec
-{
-  // Input or generated reference mesh
-  std::string refmesh;
-
-  // Output directory for the propagated meshes
-  std::string outmeshdir;
-};
-
-
-// Parameters for the segmentation propagation
-struct GreedyPropagationParameters
-{
-  std::string img4d;
-  PropagationSegSpec segspec;
-  std::vector<PropagationMeshSpec> extra_mesh_list;
-
-  unsigned int refTP;
-  std::vector<unsigned int> targetTPs;
-
-  InterpSpec reslice_spec;
-
-  bool debug = false;
-  std::string debug_dir;
-  bool writeOutputToDisk = true; // whether to write final output data to disk
-};
-
 template <class TAtomic>
 class PerLevelSpec
 {
@@ -328,7 +292,7 @@ struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, WNCC, MI, NMI, MAHALANOBIS };
   enum TimeStepMode { CONSTANT=0, SCALE, SCALEDOWN };
-  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, JACOBIAN_WARP, MOMENTS, METRIC, PROPAGATION };
+  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, JACOBIAN_WARP, MOMENTS, METRIC };
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
   enum Verbosity { VERB_NONE=0, VERB_DEFAULT, VERB_VERBOSE, VERB_INVALID };
 
@@ -361,9 +325,6 @@ struct GreedyParameters
 
   // Root warp parameters
   GreedyWarpRootParameters warproot_param;
-
-  // Propagation parameters
-  GreedyPropagationParameters propagation_param;
 
   // Registration mode
   Mode mode = GREEDY;

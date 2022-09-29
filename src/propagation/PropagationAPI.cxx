@@ -20,7 +20,7 @@ template<typename TReal>
 PropagationAPI<TReal>
 ::PropagationAPI(const std::shared_ptr<PropagationInput<TReal>> input)
 {
-  m_Param = input->m_Param;
+  m_PParam = input->m_PropagationParam;
   m_Data = input->m_Data;
   ValidateInputData();
 }
@@ -39,11 +39,11 @@ PropagationAPI<TReal>
   const size_t nt  = m_Data->GetNumberOfTimePoints();
 
   // Validate inputs
-  if (m_Param.propagation_param.refTP < 0 || m_Param.propagation_param.refTP > nt)
+  if (m_PParam.refTP < 0 || m_PParam.refTP > nt)
     throw GreedyException("Reference tp %d cannot be greater than total number of tps %d",
-                          m_Param.propagation_param.refTP, nt);
+                          m_PParam.refTP, nt);
 
-  for (size_t tp : m_Param.propagation_param.targetTPs)
+  for (size_t tp : m_PParam.targetTPs)
     if (tp > nt) throw GreedyException("Target tp %d cannot be greater than total number tps %d",tp, nt);
 }
 
@@ -51,7 +51,6 @@ template<typename TReal>
 PropagationAPI<TReal>
 ::~PropagationAPI()
 {
-
 }
 
 template<typename TReal>
@@ -59,21 +58,18 @@ int
 PropagationAPI<TReal>
 ::Run()
 {
-	std::cout << "Run Started" << std::endl;
-
-  const auto &pParam = m_Param.propagation_param;
 	PropagationData<TReal> pData;
 
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		std::cout << "-- [Propagation] Debug Mode is ON" << std::endl;
-    std::cout << "-- [Propagation] Debug Output Dir: " << pParam.debug_dir << std::endl;
+    std::cout << "-- [Propagation] Debug Output Dir: " << m_PParam.debug_dir << std::endl;
 		}
 
   PrepareTimePointData(); // Prepare initial timepoint data for propagation
   CreateTimePointLists();
 
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		std::cout << "-- [Propagation] forward list: ";
     for (auto tp : m_ForwardTPs)
@@ -105,10 +101,9 @@ void
 PropagationAPI<TReal>
 ::ValidateInputOrientation()
 {
-  const auto &pParam = m_Param.propagation_param;
   typename TImage3D::DirectionType img_direction, seg_direction;
 
-  img_direction = m_Data->tp_data[pParam.refTP].img->GetDirection();
+  img_direction = m_Data->tp_data[m_PParam.refTP].img->GetDirection();
   seg_direction = m_Data->seg_ref->GetDirection();
 
   if (img_direction != seg_direction)
@@ -116,7 +111,7 @@ PropagationAPI<TReal>
     std::cerr << "Image Direction: " << std::endl << img_direction << std::endl;
     std::cerr << "Segmentation Direction: " << std::endl << seg_direction << std::endl;
     throw GreedyException("Image and Segmentation orientations do not match. Segmentation file %s\n",
-                          pParam.segspec.refseg.c_str());
+                          m_PParam.segspec.refseg.c_str());
     }
 }
 
@@ -125,17 +120,15 @@ void
 PropagationAPI<TReal>
 ::CreateReferenceMask()
 {
-  const auto &pParam = m_Param.propagation_param;
-
   // Threshold, Dilate and Resample
   auto thr_tail = PTools::template ThresholdImage<TLabelImage3D, TLabelImage3D>(m_Data->seg_ref, 1, SHRT_MAX, 1, 0);
   auto dlt_tail = PTools::template DilateImage<TLabelImage3D, TLabelImage3D>(thr_tail, 10, 1);
-  m_Data->tp_data[pParam.refTP].seg_srs = PTools::
+  m_Data->tp_data[m_PParam.refTP].seg_srs = PTools::
       template Resample3DImage<TLabelImage3D>(dlt_tail, 0.5, ResampleInterpolationMode::NearestNeighbor);
 
   // Create object name
-  m_Data->tp_data[pParam.refTP].seg_srs->
-      SetObjectName(GenerateUnaryTPObjectName("mask_", pParam.refTP, nullptr, "_srs"));
+  m_Data->tp_data[m_PParam.refTP].seg_srs->
+      SetObjectName(GenerateUnaryTPObjectName("mask_", m_PParam.refTP, nullptr, "_srs"));
 }
 
 template<typename TReal>
@@ -143,13 +136,12 @@ void
 PropagationAPI<TReal>
 ::PrepareTimePointData()
 {
-  const auto &pParam = m_Param.propagation_param;
-  if (pParam.debug)
+  if (m_PParam.debug)
 		std::cout << "[Propagation] PrepareTimePointData" << std::endl;
 
-  std::vector<unsigned int> tps(pParam.targetTPs);
-  if (std::find(tps.begin(), tps.end(), pParam.refTP) == tps.end())
-    tps.push_back(pParam.refTP); // Add refTP to the tps to process
+  std::vector<unsigned int> tps(m_PParam.targetTPs);
+  if (std::find(tps.begin(), tps.end(), m_PParam.refTP) == tps.end())
+    tps.push_back(m_PParam.refTP); // Add refTP to the tps to process
 
   for (size_t tp : tps)
 		{
@@ -166,35 +158,35 @@ PropagationAPI<TReal>
 		}
 
   // Reference TP Segmentation
-  m_Data->tp_data[pParam.refTP].seg = m_Data->seg_ref;
-  m_Data->tp_data[pParam.refTP].seg->SetObjectName(GenerateUnaryTPObjectName("seg_", pParam.refTP));
-  m_Data->tp_data[pParam.refTP].seg_mesh = PTools::GetMeshFromLabelImage(m_Data->seg_ref);
+  m_Data->tp_data[m_PParam.refTP].seg = m_Data->seg_ref;
+  m_Data->tp_data[m_PParam.refTP].seg->SetObjectName(GenerateUnaryTPObjectName("seg_", m_PParam.refTP));
+  m_Data->tp_data[m_PParam.refTP].seg_mesh = PTools::GetMeshFromLabelImage(m_Data->seg_ref);
 
   // Write out the reference mesh
-  if (pParam.writeOutputToDisk)
+  if (m_PParam.writeOutputToDisk)
     {
-    WriteMesh(m_Data->tp_data[pParam.refTP].seg_mesh,
-        GenerateUnaryTPObjectName("mesh_", pParam.refTP,
-                                  pParam.segspec.outsegdir.c_str(), nullptr, ".vtk").c_str());
+    WriteMesh(m_Data->tp_data[m_PParam.refTP].seg_mesh,
+        GenerateUnaryTPObjectName("mesh_", m_PParam.refTP,
+                                  m_PParam.segspec.outsegdir.c_str(), nullptr, ".vtk").c_str());
     }
 
   ValidateInputOrientation();
   CreateReferenceMask();
 
 	// Debug: write out extracted tp images
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
     for (auto &kv : m_Data->tp_data)
 			{
       PTools::template WriteImage<TImage3D>(kv.second.img,
-          GenerateUnaryTPObjectName("img_", kv.first, pParam.debug_dir.c_str(), nullptr, ".nii.gz"));
+          GenerateUnaryTPObjectName("img_", kv.first, m_PParam.debug_dir.c_str(), nullptr, ".nii.gz"));
 
       PTools::template WriteImage<TImage3D>(kv.second.img_srs,
-          GenerateUnaryTPObjectName("img_", kv.first, pParam.debug_dir.c_str(), "_srs", ".nii.gz"));
+          GenerateUnaryTPObjectName("img_", kv.first, m_PParam.debug_dir.c_str(), "_srs", ".nii.gz"));
 			}
 
-    PTools::template WriteImage<TLabelImage3D>(m_Data->tp_data[pParam.refTP].seg_srs,
-        GenerateUnaryTPObjectName("mask_", pParam.refTP, pParam.debug_dir.c_str(), "_srs", ".nii.gz"));
+    PTools::template WriteImage<TLabelImage3D>(m_Data->tp_data[m_PParam.refTP].seg_srs,
+        GenerateUnaryTPObjectName("mask_", m_PParam.refTP, m_PParam.debug_dir.c_str(), "_srs", ".nii.gz"));
 		}
 }
 
@@ -203,15 +195,14 @@ void
 PropagationAPI<TReal>
 ::CreateTimePointLists()
 {
-  const auto &pParam = m_Param.propagation_param;
-  m_ForwardTPs.push_back(pParam.refTP);
-  m_BackwardTPs.push_back(pParam.refTP);
+  m_ForwardTPs.push_back(m_PParam.refTP);
+  m_BackwardTPs.push_back(m_PParam.refTP);
 
-  for (unsigned int tp : pParam.targetTPs)
+  for (unsigned int tp : m_PParam.targetTPs)
 		{
-    if (tp < pParam.refTP)
+    if (tp < m_PParam.refTP)
       m_BackwardTPs.push_back(tp);
-    else if (tp == pParam.refTP)
+    else if (tp == m_PParam.refTP)
 			continue; // ignore reference tp in the target list
 		else
       m_ForwardTPs.push_back(tp);
@@ -226,8 +217,7 @@ void
 PropagationAPI<TReal>
 ::RunUnidirectionalPropagation(const std::vector<unsigned int> &tp_list)
 {
-  const auto &pParam = m_Param.propagation_param;
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		std::cout << "-- [Propagation] Unidirectional Propagation for tp_list: ";
 		for (auto tp : tp_list)
@@ -251,21 +241,20 @@ void
 PropagationAPI<TReal>
 ::RunFullResolutionPropagation(const unsigned int target_tp)
 {
-  const auto &pParam = m_Param.propagation_param;
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		std::cout << "-- [Propagation] Running Full Resolution Propagation from "
-              << "reference tp: " << pParam.refTP << " to target tp: " << target_tp << std::endl;
+              << "reference tp: " << m_PParam.refTP << " to target tp: " << target_tp << std::endl;
 		}
 
 	// Run Deformable Reg from target to ref
-  RunPropagationDeformable(target_tp, pParam.refTP, true);
+  RunPropagationDeformable(target_tp, m_PParam.refTP, true);
 
 	// Warp ref segmentation to target
-  RunPropagationReslice(pParam.refTP, target_tp, true);
+  RunPropagationReslice(m_PParam.refTP, target_tp, true);
 
   // Warp ref segmentation mesh to target
-  RunPropagationMeshReslice(pParam.refTP, target_tp);
+  RunPropagationMeshReslice(m_PParam.refTP, target_tp);
 }
 
 template <typename TReal>
@@ -305,10 +294,10 @@ PropagationAPI<TReal>
 
   m_Data->full_res_ref_space = ref_space;
 
-  if (m_Param.propagation_param.debug)
+  if (m_PParam.debug)
     {
     std::ostringstream fnrs;
-    fnrs << m_Param.propagation_param.debug_dir << PTools::GetPathSeparator()
+    fnrs << m_PParam.debug_dir << PTools::GetPathSeparator()
          << "full_res_reference_space.nii.gz";
     PTools::template WriteImage<TImage3D>(ref_space, fnrs.str());
     }
@@ -319,8 +308,7 @@ void
 PropagationAPI<TReal>
 ::GenerateFullResolutionMasks(const std::vector<unsigned int> &tp_list)
 {
-  const auto &pParam = m_Param.propagation_param;
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		std::cout << "-- [Propagation] Generating Full Resolution Masks " << std::endl;
 		}
@@ -332,9 +320,9 @@ PropagationAPI<TReal>
 		tp_data.full_res_mask = PropagationTools<TReal>
 				::ResliceLabelImageWithIdentityMatrix(tp_data.img, tp_data.seg_srs);
 		std::string fnmask = GenerateUnaryTPObjectName("mask_", tp);
-    if (pParam.debug)
+    if (m_PParam.debug)
 			{
-      fnmask = GenerateUnaryTPObjectName("mask_", tp, pParam.debug_dir.c_str(), nullptr, ".nii.gz");
+      fnmask = GenerateUnaryTPObjectName("mask_", tp, m_PParam.debug_dir.c_str(), nullptr, ".nii.gz");
       PTools::template WriteImage<TLabelImage3D>(tp_data.full_res_mask, fnmask);
 			}
 		tp_data.full_res_mask->SetObjectName(fnmask);
@@ -346,8 +334,7 @@ void
 PropagationAPI<TReal>
 ::RunDownSampledPropagation(const std::vector<unsigned int> &tp_list)
 {
-  const auto &pParam = m_Param.propagation_param;
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		std::cout << "-- [Propagation] Down Sampled Propagation started " << std::endl;
 		}
@@ -358,7 +345,7 @@ PropagationAPI<TReal>
     RunPropagationAffine(p, c); // affine reg current to prev
     RunPropagationDeformable(p, c, false); // deformable reg current to prev
     BuildTransformChainForReslice(p, c); // build transformation chain for current tp
-    RunPropagationReslice(pParam.refTP, c, false); // warp ref mask to current
+    RunPropagationReslice(m_PParam.refTP, c, false); // warp ref mask to current
 		}
 }
 
@@ -367,8 +354,7 @@ void
 PropagationAPI<TReal>
 ::RunPropagationAffine(unsigned int tp_fix, unsigned int tp_mov)
 {
-  const auto &pParam = m_Param.propagation_param;
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		std::cout << "-- [Propagation] Running Propagation Affine Started tp_fix=" << tp_fix
 							<< "; tp_mov=" << tp_mov << std::endl;
@@ -407,16 +393,16 @@ PropagationAPI<TReal>
 	// Configure greedy parameters
 	GreedyParameters param;
 	param.mode = GreedyParameters::AFFINE;
-  param.CopyGeneralSettings(m_Param); // copy general settings from user input
-  param.CopyAffineSettings(m_Param); // copy affine settings from user input
+  param.CopyGeneralSettings(m_GParam); // copy general settings from user input
+  param.CopyAffineSettings(m_GParam); // copy affine settings from user input
 	// Override global default settings with propagation specific setting
 	param.affine_init_mode = AffineInitMode::RAS_IDENTITY;
 	param.affine_dof = GreedyParameters::DOF_RIGID;
 
 	// Check smoothing parameters. If greedy default detected, change to propagation default.
 	const SmoothingParameters prop_default_pre = { 3.0, true }, prop_default_post = { 1.5, true };
-  param.sigma_pre = (m_Param.sigma_pre == GreedyParameters::default_sigma_pre) ? prop_default_pre : m_Param.sigma_pre;
-  param.sigma_post = (m_Param.sigma_post == GreedyParameters::default_sigma_post) ? prop_default_post : m_Param.sigma_post;
+  param.sigma_pre = (m_GParam.sigma_pre == GreedyParameters::default_sigma_pre) ? prop_default_pre : m_GParam.sigma_pre;
+  param.sigma_post = (m_GParam.sigma_post == GreedyParameters::default_sigma_post) ? prop_default_post : m_GParam.sigma_post;
 
 	// Add the input group to the parameters
 	param.input_groups.clear();
@@ -426,11 +412,11 @@ PropagationAPI<TReal>
 	bool force_write = false;
 	param.output = GenerateBinaryTPObjectName("affine_", tp_mov, tp_fix);
 
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		force_write = true;
 		param.output = GenerateBinaryTPObjectName("affine_", tp_mov, tp_fix,
-                                              pParam.debug_dir.c_str(), ".mat");
+                                              m_PParam.debug_dir.c_str(), ".mat");
 		std::cout << "-- [Propagation] Affine Command: " << param.GenerateCommandLine() << std::endl;
 		}
 
@@ -449,8 +435,7 @@ void
 PropagationAPI<TReal>
 ::RunPropagationDeformable(unsigned int tp_fix, unsigned int tp_mov, bool isFullRes)
 {
-  const auto &pParam = m_Param.propagation_param;
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		std::cout << "-- [Propagation] Deformable Run: tp_fix=" << tp_fix
 							<< "; tp_mov = " << tp_mov << "; isFullRes=" << isFullRes << std::endl;
@@ -464,8 +449,8 @@ PropagationAPI<TReal>
   std::shared_ptr<GreedyApproach<3u, TReal>> GreedyAPI = std::make_shared<GreedyApproach<3u, TReal>>();
 	GreedyParameters param;
 	param.mode = GreedyParameters::GREEDY;
-  param.CopyDeformableSettings(m_Param);
-  param.CopyGeneralSettings(m_Param);
+  param.CopyDeformableSettings(m_GParam);
+  param.CopyGeneralSettings(m_GParam);
 
 	// Set input images
 	GreedyInputGroup ig;
@@ -490,8 +475,8 @@ PropagationAPI<TReal>
 
 	// Check smoothing parameters. If greedy default detected, change to propagation default.
 	const SmoothingParameters prop_default_pre = { 3.0, true }, prop_default_post = { 1.5, true };
-  param.sigma_pre = (m_Param.sigma_pre == GreedyParameters::default_sigma_pre) ? prop_default_pre : m_Param.sigma_pre;
-  param.sigma_post = (m_Param.sigma_post == GreedyParameters::default_sigma_post) ? prop_default_post : m_Param.sigma_post;
+  param.sigma_pre = (m_GParam.sigma_pre == GreedyParameters::default_sigma_pre) ? prop_default_pre : m_GParam.sigma_pre;
+  param.sigma_post = (m_GParam.sigma_post == GreedyParameters::default_sigma_post) ? prop_default_post : m_GParam.sigma_post;
 
 	// Configure output
 	bool force_write = false; // Write out images for debugging
@@ -499,13 +484,13 @@ PropagationAPI<TReal>
 	param.output = GenerateBinaryTPObjectName("warp_", tp_mov, tp_fix, nullptr, suffix);
 	param.inverse_warp = GenerateBinaryTPObjectName("warp_", tp_fix, tp_mov, nullptr, suffix);
 
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		force_write = true;
 		param.output = GenerateBinaryTPObjectName("warp_", tp_mov, tp_fix,
-        pParam.debug_dir.c_str(), suffix, ".nii.gz");
+        m_PParam.debug_dir.c_str(), suffix, ".nii.gz");
 		param.inverse_warp = GenerateBinaryTPObjectName("warp_", tp_fix, tp_mov,
-        pParam.debug_dir.c_str(), suffix, ".nii.gz");
+        m_PParam.debug_dir.c_str(), suffix, ".nii.gz");
 		}
 
 	using LDDMM3DType = LDDMMData<TReal, 3>;
@@ -555,7 +540,7 @@ PropagationAPI<TReal>
 	param.input_groups.clear();
 	param.input_groups.push_back(ig);
 
-  if (pParam.debug)
+  if (m_PParam.debug)
 		std::cout << "-- [Propagation] Deformable Command: " <<  param.GenerateCommandLine() << std::endl;
 
 	int ret = GreedyAPI->RunDeformable(param);
@@ -570,8 +555,7 @@ void
 PropagationAPI<TReal>
 ::RunPropagationReslice(unsigned int tp_in, unsigned int tp_out, bool isFullRes)
 {
-  const auto &pParam = m_Param.propagation_param;
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		std::cout << "-- [Propagation] Reslice Run. tp_in=" << tp_in << "; tp_out="
 							<< tp_out << "; isFullRes=" << isFullRes << std::endl;
@@ -584,8 +568,8 @@ PropagationAPI<TReal>
 	GreedyApproach<3u, TReal> *GreedyAPI = new GreedyApproach<3u, TReal>();
 	GreedyParameters param;
 	param.mode = GreedyParameters::RESLICE;
-  param.CopyGeneralSettings(m_Param);
-  param.CopyReslicingSettings(m_Param);
+  param.CopyGeneralSettings(m_GParam);
+  param.CopyReslicingSettings(m_GParam);
 
 	// Set reference image
 	auto img_ref = isFullRes ? tpdata_out.img : tpdata_out.img_srs;
@@ -605,13 +589,13 @@ PropagationAPI<TReal>
 	bool force_write = false;
 	if (isFullRes)
 		{
-    force_write = pParam.writeOutputToDisk;
+    force_write = m_PParam.writeOutputToDisk;
     imgout_name = GenerateUnaryTPObjectName("seg_", tp_out, m_Data->outdir.c_str(), "_resliced", ".nii.gz");
 		}
-  else if (pParam.debug)
+  else if (m_PParam.debug)
 		{
 		force_write = true;
-    imgout_name = GenerateUnaryTPObjectName("mask_", tp_out, pParam.debug_dir.c_str(), "_srs", ".nii.gz");
+    imgout_name = GenerateUnaryTPObjectName("mask_", tp_out, m_PParam.debug_dir.c_str(), "_srs", ".nii.gz");
 		}
 	else // non debug, non full-res
 		{
@@ -627,7 +611,7 @@ PropagationAPI<TReal>
 	GreedyAPI->AddCachedOutputObject(imgout_name, img_out.GetPointer(), force_write);
 
 	// Make a reslice spec with input-output pair and push to the parameter
-  ResliceSpec rspec(imgin_name, imgout_name, pParam.reslice_spec);
+  ResliceSpec rspec(imgin_name, imgout_name, m_PParam.reslice_spec);
 	param.reslice_param.images.push_back(rspec);
 
 	// Build transformation chain
@@ -655,7 +639,7 @@ PropagationAPI<TReal>
 			}
 		}
 
-	if (param.propagation_param.debug)
+  if (m_PParam.debug)
 		{
 		std::cout << "-- [Propagation] Reslice Command:" << param.GenerateCommandLine() << std::endl;
 		}
@@ -672,10 +656,7 @@ void
 PropagationAPI<TReal>
 ::RunPropagationMeshReslice(unsigned int tp_in, unsigned int tp_out)
 {
-
-  const auto &pParam = m_Param.propagation_param;
-
-  if (pParam.debug)
+  if (m_PParam.debug)
     {
     std::cout << "-- [Propagation] Mesh Reslice Run. tp_in=" << tp_in << "; tp_out=" << tp_out << std::endl;
     }
@@ -687,8 +668,8 @@ PropagationAPI<TReal>
   GreedyApproach<3u, TReal> *GreedyAPI = new GreedyApproach<3u, TReal>();
   GreedyParameters param;
   param.mode = GreedyParameters::RESLICE;
-  param.CopyGeneralSettings(m_Param);
-  param.CopyReslicingSettings(m_Param);
+  param.CopyGeneralSettings(m_GParam);
+  param.CopyReslicingSettings(m_GParam);
 
   // Set reference image
   auto img_ref = tpdata_out.img;
@@ -703,14 +684,14 @@ PropagationAPI<TReal>
 
   // Set output image
   std::string mesh_out_name =
-      GenerateUnaryTPObjectName("mesh_", tp_out, pParam.segspec.outsegdir.c_str(), "_resliced", ".vtk");
+      GenerateUnaryTPObjectName("mesh_", tp_out, m_PParam.segspec.outsegdir.c_str(), "_resliced", ".vtk");
 
   // Make a reslice spec with input-output pair and push to the parameter
   ResliceMeshSpec rmspec(mesh_in_name, mesh_out_name);
   param.reslice_param.meshes.push_back(rmspec);
 
   // Add extra meshes to warp
-  for (auto &mesh_spec : pParam.extra_mesh_list)
+  for (auto &mesh_spec : m_PParam.extra_mesh_list)
     {
     ResliceMeshSpec rms;
     rms.fixed = mesh_spec.refmesh;
@@ -731,7 +712,7 @@ PropagationAPI<TReal>
   param.reslice_param.transforms.push_back(TransformSpec(deform_id));
   GreedyAPI->AddCachedInputObject(deform_id, tpdata_out.deform_to_ref.GetPointer());
 
-  if (param.propagation_param.debug)
+  if (m_PParam.debug)
     {
     std::cout << "-- [Propagation] Mesh Reslice Command:" << param.GenerateCommandLine() << std::endl;
     }
@@ -748,8 +729,7 @@ void
 PropagationAPI<TReal>
 ::BuildTransformChainForReslice(unsigned int tp_prev, unsigned int tp_crnt)
 {
-  const auto &pParam = m_Param.propagation_param;
-  if (pParam.debug)
+  if (m_PParam.debug)
 		{
 		std::cout << "-- [Propagation] Building reslicing trans chain for tp: " << tp_crnt << std::endl;
 		}
@@ -775,8 +755,6 @@ void
 PropagationAPI<TReal>
 ::Generate4DSegmentation()
 {
-  const auto &pParam = m_Param.propagation_param;
-
   auto fltJoin = itk::JoinSeriesImageFilter<TLabelImage3D, TLabelImage4D>::New();
 
   for (size_t i = 1; i <= m_Data->GetNumberOfTimePoints(); ++i)
@@ -789,7 +767,7 @@ PropagationAPI<TReal>
     else
       {
       // Append an empty image
-      auto refseg = m_Data->tp_data[pParam.refTP].seg;
+      auto refseg = m_Data->tp_data[m_PParam.refTP].seg;
       auto emptyImage = PTools::template CreateEmptyImage<TLabelImage3D>(refseg);
       fltJoin->PushBackInput(emptyImage);
       }
@@ -797,10 +775,10 @@ PropagationAPI<TReal>
   fltJoin->Update();
   m_Data->seg4d_out = fltJoin->GetOutput();
 
-  if (pParam.writeOutputToDisk)
+  if (m_PParam.writeOutputToDisk)
   {
     std::ostringstream fnseg4d;
-    fnseg4d << pParam.segspec.outsegdir << PTools::GetPathSeparator()
+    fnseg4d << m_PParam.segspec.outsegdir << PTools::GetPathSeparator()
             << "seg4d.nii.gz";
     PTools::template WriteImage<TLabelImage4D>(m_Data->seg4d_out, fnseg4d.str());
   }
