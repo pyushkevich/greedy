@@ -9,29 +9,34 @@ using namespace propagation;
 
 // List of greedy commands that are recognized by this mode
 const std::set<std::string> greedy_cmd {
-  "-threads", "-d", "-m", "-n", "-dump-pyramid", "-dump-metric",
-  "-float", "-V"
+  "-threads", "-m", "-n", "-s", "-dof", "-dump-pyramid", "-dump-metric", "-float", "-V"
 };
 
 int usage()
 {
   printf("greedy_propagation: Segmentation Propagation with Greedy Registration\n");
+  printf("description: \n");
+  printf("  greedy_propagation warps a 3d segmentation from one time point to the specified target \n");
+  printf("  timepoints in a 4d image by using greedy registrations. \n");
   printf("usage: \n");
   printf("  greedy_propagation <options> <greedy_options> \n");
   printf("options for propagation: \n");
-  printf("  -spi img4d.nii         : 4D image that is the base of the segmentation \n");
-  printf("  -sps seg.nii outdir    : 3D segmentation for the reference time point of the 4D base image. \n");
-  printf("                           Specify an outdir to save the propagated output segmentations \n");
-  printf("                           The output file will have same filename of the reference file, with \n");
-  printf("                           target time point number as suffix. \n");
-  printf("  -spm mesh.vtk outdir   : Segmentation mesh for the reference time point of the 4D base image \n");
-  printf("                           Specify an outdir to save the propagated output meshes \n");
-  printf("  -spr timepoint         : The reference time point of the given segmentation image \n");
-  printf("  -spt <target tp str>   : A comma separated string of target time points for the propagation \n");
-  printf("  -sp-debug <outdir>     : Enable debugging mode for propagation: Dump intermediary files to outdir\n");
+  printf("  -spi img4d.nii        : 4D image that is the base of the segmentation \n");
+  printf("  -sps seg.nii          : 3D segmentation for the reference time point of the 4D base image. \n");
+  printf("                          Only one reference segmentation input is allowed per run.\n");
+  printf("  -spo outdir           : Output directory to store propagated segmentations and meshes\n");
+  printf("  -sps-op pattern       : Segmentation output filename pattern \n");
+  printf("                          The output filenames can be configured using a c-style pattern string, with a timepoint number embedded.\n");
+  printf("                          For example: \"Seg_%%02d_resliced.nii.gz\" will generate \"Seg_05_resliced.nii.gz\" \n");
+  printf("                          for timepoint 5. Filename pattern without %%format will have timepoint append at the end \n");
+  printf("  -sps-mop pattern      : Segmentation Mesh output filename pattern. \n");
+  printf("  -spm mesh.vtk pattern : Segmentation mesh for the reference time point of the 4D base image \n");
+  printf("  -spr timepoint        : The reference time point of the given segmentation image \n");
+  printf("  -spt <target tp str>  : A comma separated string of target time points for the propagation \n");
+  printf("  -sp-debug <outdir>    : Enable debugging mode for propagation: Dump intermediary files to outdir\n");
   printf("main greedy options accepted: \n");
   printf("  ");
-  for (auto cit = greedy_cmd.cbegin(); cit != greedy_cmd.cend(); ++cit)
+  for (auto cit = greedy_cmd.crbegin(); cit != greedy_cmd.crend(); ++cit)
     printf("%s ", cit->c_str());
   printf("\n");
   return -1;
@@ -41,48 +46,50 @@ void parse_command_line(int argc, char *argv[],
                         PropagationParameters &pParam, GreedyParameters &gParam)
 {
   CommandLineHelper cl(argc, argv);
-
   std::string arg;
 
   while (cl.read_command(arg))
     {
-    if(arg == "-spi")
+    if (arg == "-spi")
       {
-      // propagation mode: read input 4D image
-      pParam.img4d = cl.read_existing_filename();
+      pParam.fn_img4d = cl.read_existing_filename();
       }
-    else if(arg == "-sps")
+    else if (arg == "-spo")
       {
-      // propagation mode: add a segmentation pair
+      pParam.outdir = cl.read_output_dir();
+      }
+    else if (arg == "-sps")
+      {
       SegmentationSpec segspec;
-      pParam.segspec.refseg = cl.read_existing_filename();
-      pParam.segspec.outsegdir = cl.read_output_dir();
+      pParam.segspec.fn_seg = cl.read_existing_filename();
       }
-    else if(arg == "-spm")
+    else if (arg == "-sps-op")
       {
-      // propagation mode: add mesh pair
+      pParam.fnsegout_pattern = cl.read_string();
+      }
+    else if (arg == "-sps-mop")
+      {
+      pParam.fnmeshout_pattern = cl.read_string();
+      }
+    else if (arg == "-spm")
+      {
       MeshSpec meshspec;
-      meshspec.refmesh = cl.read_existing_filename();
-      meshspec.outmeshdir = cl.read_output_dir();
+      meshspec.fn_mesh = cl.read_existing_filename();
+      meshspec.fnout_pattern = cl.read_string();
       pParam.extra_mesh_list.push_back(meshspec);
       }
-    else if(arg == "-spr")
+    else if (arg == "-spr")
       {
-      // propagation mode: read reference time point number
       pParam.refTP = cl.read_integer();
       }
-    else if(arg == "-spt")
+    else if (arg == "-spt")
       {
-      // propagation mode: read target timepoint number string
       std::vector<int> result = cl.read_int_vector(',');
-      // eliminate any duplicate input
-      std::set<int> unique(result.begin(), result.end());
-      // validate and push to the parameter
+      std::set<int> unique(result.begin(), result.end()); // remove duplicates
       for (int n : unique)
         {
         if (n <= 0)
           throw GreedyException("%d is not a valid time point value!", n);
-
         pParam.targetTPs.push_back(n);
         }
       }
@@ -90,15 +97,15 @@ void parse_command_line(int argc, char *argv[],
       {
       // propagation mode: read sigmas for label reslicing interpolation mode
       std::string mode = cl.read_string();
-      if(mode == "nn" || mode == "NN" || mode == "0")
+      if (mode == "nn" || mode == "NN" || mode == "0")
         {
         pParam.reslice_spec.mode = InterpSpec::NEAREST;
         }
-      else if(mode == "linear" || mode == "LINEAR" || mode == "1")
+      else if (mode == "linear" || mode == "LINEAR" || mode == "1")
         {
         pParam.reslice_spec.mode = InterpSpec::LINEAR;
         }
-      else if(mode == "label" || mode == "LABEL")
+      else if (mode == "label" || mode == "LABEL")
         {
         pParam.reslice_spec.mode = InterpSpec::LABELWISE;
         pParam.reslice_spec.sigma.sigma = cl.read_scalar_with_units(
@@ -114,7 +121,7 @@ void parse_command_line(int argc, char *argv[],
       pParam.debug = true;
       pParam.debug_dir = cl.read_output_dir();
       }
-    else if(greedy_cmd.find(arg) != greedy_cmd.end())
+    else if (greedy_cmd.count(arg))
       {
       gParam.ParseCommandLine(arg, cl);
       }
@@ -124,7 +131,7 @@ void parse_command_line(int argc, char *argv[],
 }
 
 template<typename TReal>
-int run(PropagationParameters &pParam, GreedyParameters &gParam)
+int run (PropagationParameters &pParam, GreedyParameters &gParam)
 {
   std::cout << "-- [Propagation] Run started" << std::endl;
   auto pInput = PropagationInputBuilder<TReal>::CreateInputForCommandLineRun(pParam, gParam);
@@ -139,16 +146,22 @@ int main (int argc, char *argv[])
 
   PropagationParameters pParam;
   GreedyParameters gParam;
-  parse_command_line(argc, argv, pParam, gParam);
 
-  if (gParam.dim != 3)
-    throw GreedyException("Invalid dimension %d. Propagation currently only support -d 3", gParam.dim);
+  try
+    {
+    parse_command_line(argc, argv, pParam, gParam);
 
-  // Run the propagation based on real type
-  if (gParam.flag_float_math)
-    return run<float>(pParam, gParam);
-  else
-    return run<double>(pParam, gParam);
+    // Run the propagation based on real type
+    if (gParam.flag_float_math)
+      return run<float>(pParam, gParam);
+    else
+      return run<double>(pParam, gParam);
+    }
+  catch (std::exception &ex)
+    {
+      std::cerr << "ABORTING PROGRAM DUE TO RUNTIME EXCEPTION -- " << ex.what() << std::endl;
+      return EXIT_FAILURE;
+    }
 
   return EXIT_SUCCESS;
 }

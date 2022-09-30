@@ -67,7 +67,6 @@ private:
   void RunDownSampledPropagation(const std::vector<unsigned int> &tp_list);
   void GenerateFullResolutionMasks(const std::vector<unsigned int> &tp_list);
   void GenerateReferenceSpace(const std::vector<unsigned int> &tp_list);
-
   void RunFullResolutionPropagation(const unsigned int target_tp);
 
   void RunPropagationAffine(unsigned int tp_fix, unsigned int tp_mov);
@@ -80,7 +79,10 @@ private:
       const char *debug_dir = nullptr, const char *suffix = nullptr, const char *file_ext = nullptr);
 
 	static inline std::string GenerateBinaryTPObjectName(const char *base, unsigned int tp1, unsigned int tp2,
-      const char *debug_dir = nullptr, const char *suffix = nullptr, const char *file_ex = nullptr);
+      const char *debug_dir = nullptr, const char *suffix = nullptr, const char *file_ext = nullptr);
+
+  static inline std::string GenerateUnaryTPFileName(const char *pattern, unsigned int tp,
+      const char *output_dir = nullptr, const char *file_ext = nullptr);
 
   std::shared_ptr<PropagationData<TReal>> m_Data;
   GreedyParameters m_GParam;

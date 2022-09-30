@@ -30,13 +30,27 @@ public:
   PropagationInput(const PropagationInput &other) = default;
   PropagationInput &operator=(const PropagationInput &other) = default;
 
-private:
-  std::shared_ptr<PropagationData<TReal>> m_Data;
-  GreedyParameters m_GreedyParam;
-  PropagationParameters m_PropagationParam;
+  void SetGreedyParameters(const GreedyParameters &gParam);
+  const GreedyParameters &GetConstGreedyParameters() const
+  { return m_GreedyParam; }
+
+  void SetPropagationParameters(const PropagationParameters &pParam);
+  const PropagationParameters &GetConstPropagationParameters() const
+  { return m_PropagationParam; }
 
   friend class PropagationInputBuilder<TReal>;
   friend class PropagationAPI<TReal>;
+
+private:
+  void SetDefaultGreedyParameters();
+  void SetDefaultPropagationParameters();
+
+  void ValidateGreedyParameters() const;
+  void ValidatePropagationParameters() const;
+
+  std::shared_ptr<PropagationData<TReal>> m_Data;
+  GreedyParameters m_GreedyParam;
+  PropagationParameters m_PropagationParam;
 };
 
 template<typename TReal>

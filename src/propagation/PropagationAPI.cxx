@@ -6,6 +6,7 @@
 #include "GreedyMeshIO.h"
 
 #include <algorithm>
+#include <string>
 
 #include <itkResampleImageFilter.h>
 #include <itkLinearInterpolateImageFunction.h>
@@ -21,6 +22,7 @@ PropagationAPI<TReal>
 ::PropagationAPI(const std::shared_ptr<PropagationInput<TReal>> input)
 {
   m_PParam = input->m_PropagationParam;
+  m_GParam = input->m_GreedyParam;
   m_Data = input->m_Data;
   ValidateInputData();
 }
@@ -102,7 +104,6 @@ PropagationAPI<TReal>
 ::ValidateInputOrientation()
 {
   typename TImage3D::DirectionType img_direction, seg_direction;
-
   img_direction = m_Data->tp_data[m_PParam.refTP].img->GetDirection();
   seg_direction = m_Data->seg_ref->GetDirection();
 
@@ -111,7 +112,7 @@ PropagationAPI<TReal>
     std::cerr << "Image Direction: " << std::endl << img_direction << std::endl;
     std::cerr << "Segmentation Direction: " << std::endl << seg_direction << std::endl;
     throw GreedyException("Image and Segmentation orientations do not match. Segmentation file %s\n",
-                          m_PParam.segspec.refseg.c_str());
+                          m_PParam.segspec.fn_seg.c_str());
     }
 }
 
@@ -137,7 +138,7 @@ PropagationAPI<TReal>
 ::PrepareTimePointData()
 {
   if (m_PParam.debug)
-		std::cout << "[Propagation] PrepareTimePointData" << std::endl;
+    std::cout << "-- [Propagation] PrepareTimePointData" << std::endl;
 
   std::vector<unsigned int> tps(m_PParam.targetTPs);
   if (std::find(tps.begin(), tps.end(), m_PParam.refTP) == tps.end())
@@ -166,8 +167,8 @@ PropagationAPI<TReal>
   if (m_PParam.writeOutputToDisk)
     {
     WriteMesh(m_Data->tp_data[m_PParam.refTP].seg_mesh,
-        GenerateUnaryTPObjectName("mesh_", m_PParam.refTP,
-                                  m_PParam.segspec.outsegdir.c_str(), nullptr, ".vtk").c_str());
+        GenerateUnaryTPFileName(m_PParam.fnmeshout_pattern.c_str(), m_PParam.refTP,
+                                  m_PParam.outdir.c_str(), ".vtk").c_str());
     }
 
   ValidateInputOrientation();
@@ -590,7 +591,8 @@ PropagationAPI<TReal>
 	if (isFullRes)
 		{
     force_write = m_PParam.writeOutputToDisk;
-    imgout_name = GenerateUnaryTPObjectName("seg_", tp_out, m_Data->outdir.c_str(), "_resliced", ".nii.gz");
+    imgout_name = GenerateUnaryTPFileName(m_PParam.fnsegout_pattern.c_str(),
+                                          tp_out, m_Data->outdir.c_str(), ".nii.gz");
 		}
   else if (m_PParam.debug)
 		{
@@ -684,7 +686,7 @@ PropagationAPI<TReal>
 
   // Set output image
   std::string mesh_out_name =
-      GenerateUnaryTPObjectName("mesh_", tp_out, m_PParam.segspec.outsegdir.c_str(), "_resliced", ".vtk");
+      GenerateUnaryTPFileName(m_PParam.fnmeshout_pattern.c_str(), tp_out, m_PParam.outdir.c_str(), ".vtk");
 
   // Make a reslice spec with input-output pair and push to the parameter
   ResliceMeshSpec rmspec(mesh_in_name, mesh_out_name);
@@ -694,8 +696,11 @@ PropagationAPI<TReal>
   for (auto &mesh_spec : m_PParam.extra_mesh_list)
     {
     ResliceMeshSpec rms;
-    rms.fixed = mesh_spec.refmesh;
-    rms.output = GenerateUnaryTPObjectName("extra_mesh_", tp_out, mesh_spec.outmeshdir.c_str(), nullptr, ".vtk");
+    rms.fixed = mesh_spec.fn_mesh;
+    std::string fn_mesh_ref = GenerateUnaryTPFileName(mesh_spec.fnout_pattern.c_str(), m_PParam.refTP,
+                                                      m_PParam.outdir.c_str(), ".vtk");
+    itksys::SystemTools::CopyAFile(mesh_spec.fn_mesh, fn_mesh_ref);
+    rms.output = GenerateUnaryTPFileName(mesh_spec.fnout_pattern.c_str(), tp_out, m_PParam.outdir.c_str(), ".vtk");
     param.reslice_param.meshes.push_back(rms);
     }
 
@@ -778,7 +783,7 @@ PropagationAPI<TReal>
   if (m_PParam.writeOutputToDisk)
   {
     std::ostringstream fnseg4d;
-    fnseg4d << m_PParam.segspec.outsegdir << PTools::GetPathSeparator()
+    fnseg4d << m_PParam.outdir<< PTools::GetPathSeparator()
             << "seg4d.nii.gz";
     PTools::template WriteImage<TLabelImage4D>(m_Data->seg4d_out, fnseg4d.str());
   }
@@ -826,6 +831,32 @@ PropagationAPI<TReal>
 		oss << file_ext;
 
 	return oss.str();
+}
+
+template<typename TReal>
+inline std::string
+PropagationAPI<TReal>
+::GenerateUnaryTPFileName(const char *pattern, unsigned int tp,
+                          const char *output_dir, const char *file_ext)
+{
+  std::ostringstream oss;
+  if (output_dir)
+    oss << output_dir << PTools::GetPathSeparator();
+
+  if (strchr(pattern, '%') == NULL)
+    {
+    // % pattern not found, append tp after the pattern
+    oss << pattern << "_" << setfill('0') << setw(2) << tp;
+    if (file_ext)
+      oss << file_ext;
+    }
+  else
+    {
+    // use pattern specified by user
+    oss << PTools::ssprintf(pattern, tp);
+    }
+
+  return oss.str();
 }
 
 namespace propagation

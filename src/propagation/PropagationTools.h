@@ -90,6 +90,21 @@ public:
 	#endif
 	}
 
+  inline static std::string ssprintf(const char *format, ...)
+  {
+    if(format && strlen(format))
+      {
+      char buffer[4096];
+      va_list args;
+      va_start (args, format);
+      vsprintf (buffer, format, args);
+      va_end (args);
+      return std::string(buffer);
+      }
+    else
+      return std::string();
+  }
+
 };
 
 template <class TInputImage, class TOutputImage, class TFunctor>
