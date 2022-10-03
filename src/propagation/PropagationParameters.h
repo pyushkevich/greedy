@@ -9,10 +9,6 @@
 namespace propagation
 {
 
-struct SegmentationSpec
-{
-  std::string fn_seg;
-};
 
 struct MeshSpec
 {
@@ -24,7 +20,8 @@ struct MeshSpec
 struct PropagationParameters
 {
   std::string fn_img4d;
-  SegmentationSpec segspec;
+  std::string fn_seg3d;
+  std::string fn_seg4d;
   std::vector<MeshSpec> extra_mesh_list;
   std::string fnsegout_pattern;
   std::string fnmeshout_pattern;
@@ -36,6 +33,7 @@ struct PropagationParameters
   bool debug = false;
   std::string debug_dir;
   bool writeOutputToDisk = true; // whether to write final output data to disk
+  bool use4DSegInput = false; // whether to use 4d segmentation input as reference
 };
 
 } // End of namespace propagation

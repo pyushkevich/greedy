@@ -60,8 +60,13 @@ void parse_command_line(int argc, char *argv[],
       }
     else if (arg == "-sps")
       {
-      SegmentationSpec segspec;
-      pParam.segspec.fn_seg = cl.read_existing_filename();
+      pParam.fn_seg3d = cl.read_existing_filename();
+      pParam.use4DSegInput = false;
+      }
+    else if (arg == "-sps-4d")
+      {
+      pParam.fn_seg4d = cl.read_existing_filename();
+      pParam.use4DSegInput = true;
       }
     else if (arg == "-sps-op")
       {
@@ -134,7 +139,7 @@ template<typename TReal>
 int run (PropagationParameters &pParam, GreedyParameters &gParam)
 {
   std::cout << "-- [Propagation] Run started" << std::endl;
-  auto pInput = PropagationInputBuilder<TReal>::CreateInputForCommandLineRun(pParam, gParam);
+  auto pInput = PropagationInputBuilder<TReal>::BuildInputForCommandLineRun(pParam, gParam);
   PropagationAPI<TReal> api(pInput);
   return api.Run();
 }

@@ -111,8 +111,9 @@ PropagationAPI<TReal>
     {
     std::cerr << "Image Direction: " << std::endl << img_direction << std::endl;
     std::cerr << "Segmentation Direction: " << std::endl << seg_direction << std::endl;
+    std::string fn_seg = m_PParam.use4DSegInput ? m_PParam.fn_seg4d : m_PParam.fn_seg3d;
     throw GreedyException("Image and Segmentation orientations do not match. Segmentation file %s\n",
-                          m_PParam.segspec.fn_seg.c_str());
+                          fn_seg.c_str());
     }
 }
 

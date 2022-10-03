@@ -12,6 +12,6 @@
 	using TTransform = typename PropagationAPI<TReal>::TTransform; \
   using TPropagationMesh = typename PropagationAPI<TReal>::TPropagationMesh; \
   using TPropagationMeshPointer = typename PropagationAPI<TReal>::TPropagationMeshPointer; \
-	using ResampleInterpolationMode = typename PropagationAPI<TReal>::ResampleInterpolationMode;
+  using ResampleInterpolationMode = typename PropagationAPI<TReal>::ResampleInterpolationMode;
 
 #endif // PROPAGATIONCOMMON_H
