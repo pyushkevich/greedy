@@ -1,6 +1,6 @@
 #include "PropagationAPI.h"
-#include "GreedyAPI.h"
 #include "PropagationTools.h"
+#include "GreedyAPI.h"
 #include "PropagationData.h"
 #include "PropagationIO.h"
 #include "GreedyMeshIO.h"
@@ -24,6 +24,7 @@ PropagationAPI<TReal>
   m_PParam = input->m_PropagationParam;
   m_GParam = input->m_GreedyParam;
   m_Data = input->m_Data;
+  m_StdOut = std::make_shared<PropagationStdOut>(m_PParam.verbosity);
   ValidateInputData();
 }
 
@@ -64,23 +65,22 @@ PropagationAPI<TReal>
 
   if (m_PParam.debug)
 		{
-		std::cout << "-- [Propagation] Debug Mode is ON" << std::endl;
-    std::cout << "-- [Propagation] Debug Output Dir: " << m_PParam.debug_dir << std::endl;
+    m_StdOut->printf("-- [Propagation] Debug Mode is ON \n");
+    m_StdOut->printf("-- [Propagation] Debug Output Dir: %s \n", m_PParam.debug_dir.c_str());
 		}
 
   PrepareTimePointData(); // Prepare initial timepoint data for propagation
   CreateTimePointLists();
 
-  if (m_PParam.debug)
-		{
-		std::cout << "-- [Propagation] forward list: ";
-    for (auto tp : m_ForwardTPs)
-			std::cout << " " << tp;
-		std::cout << std::endl << "-- [Propagation] backward list: ";
-    for (auto tp : m_BackwardTPs)
-			std::cout << " " << tp;
-		std::cout << std::endl;
-		}
+  m_StdOut->printf("-- [Propagation] forward list: ");
+  for (auto tp : m_ForwardTPs)
+    m_StdOut->printf(" %d", tp);
+  m_StdOut->printf("\n");
+
+  m_StdOut->printf("-- [Propagation] backward list: ");
+  for (auto tp : m_BackwardTPs)
+    m_StdOut->printf(" %d", tp);
+  m_StdOut->printf("\n");
 
 	// Run forward propagation
   if (m_ForwardTPs.size() > 1)
@@ -93,8 +93,7 @@ PropagationAPI<TReal>
   // Write out a 4D Segmentation
   Generate4DSegmentation();
 
-	std::cout << "Run Completed" << std::endl;
-
+  m_StdOut->printf("Run Completed! \n");
   return EXIT_SUCCESS;
 }
 
@@ -138,8 +137,7 @@ void
 PropagationAPI<TReal>
 ::PrepareTimePointData()
 {
-  if (m_PParam.debug)
-    std::cout << "-- [Propagation] PrepareTimePointData" << std::endl;
+  m_StdOut->printf("-- [Propagation] Preparing Time Point Data \n");
 
   std::vector<unsigned int> tps(m_PParam.targetTPs);
   if (std::find(tps.begin(), tps.end(), m_PParam.refTP) == tps.end())
@@ -219,13 +217,11 @@ void
 PropagationAPI<TReal>
 ::RunUnidirectionalPropagation(const std::vector<unsigned int> &tp_list)
 {
-  if (m_PParam.debug)
-		{
-		std::cout << "-- [Propagation] Unidirectional Propagation for tp_list: ";
-		for (auto tp : tp_list)
-			std::cout << " " << tp;
-		std::cout << std::endl;
-		}
+
+  m_StdOut->printf("-- [Propagation] Unidirectional Propagation for tp_list: ");
+  for (auto tp : tp_list)
+    m_StdOut->printf(" %d", tp);
+  m_StdOut->printf("\n");
 
   RunDownSampledPropagation(tp_list); // Generate affine matrices and masks
   GenerateFullResolutionMasks(tp_list); // Reslice downsampled masks to full-res
@@ -243,11 +239,8 @@ void
 PropagationAPI<TReal>
 ::RunFullResolutionPropagation(const unsigned int target_tp)
 {
-  if (m_PParam.debug)
-		{
-		std::cout << "-- [Propagation] Running Full Resolution Propagation from "
-              << "reference tp: " << m_PParam.refTP << " to target tp: " << target_tp << std::endl;
-		}
+  m_StdOut->printf("-- [Propagation] Running Full Resolution Propagation from %02d to %02d\n",
+                   m_PParam.refTP, target_tp);
 
 	// Run Deformable Reg from target to ref
   RunPropagationDeformable(target_tp, m_PParam.refTP, true);
@@ -692,6 +685,8 @@ PropagationAPI<TReal>
   // Make a reslice spec with input-output pair and push to the parameter
   ResliceMeshSpec rmspec(mesh_in_name, mesh_out_name);
   param.reslice_param.meshes.push_back(rmspec);
+  tpdata_out.seg_mesh = vtkPolyData::New();
+  GreedyAPI->AddCachedOutputObject(mesh_out_name, tpdata_out.seg_mesh, m_PParam.writeOutputToDisk);
 
   // Add extra meshes to warp
   for (auto &mesh_spec : m_PParam.extra_mesh_list)
@@ -858,6 +853,70 @@ PropagationAPI<TReal>
     }
 
   return oss.str();
+}
+
+template<typename TReal>
+std::shared_ptr<PropagationOutput<TReal>>
+PropagationAPI<TReal>
+::GetOutput()
+{
+  std::shared_ptr<PropagationOutput<TReal>> ret =
+      std::make_shared<PropagationOutput<TReal>>();
+
+  ret->Initialize(m_Data);
+  return ret;
+}
+
+//=================================================
+// PropagationStdOut Definition
+//=================================================
+
+PropagationStdOut
+::PropagationStdOut(PropagationParameters::Verbosity verbosity, FILE *f_out)
+: m_Verbosity(verbosity), m_Output(f_out ? f_out : stdout)
+{
+
+}
+
+PropagationStdOut
+::~PropagationStdOut()
+{
+
+}
+
+void
+PropagationStdOut
+::printf(const char *format, ...)
+{
+  if(m_Verbosity > PropagationParameters::VERB_NONE)
+    {
+    char buffer[4096];
+    va_list args;
+    va_start (args, format);
+    vsprintf (buffer,format, args);
+    va_end (args);
+
+    fprintf(m_Output, "%s", buffer);
+    }
+}
+
+void
+PropagationStdOut
+::print_verbose(const char *format, ...)
+{
+  if (m_Verbosity == PropagationParameters::VERB_VERBOSE)
+    {
+    va_list args;
+    va_start (args, format);
+    this->printf(format, args);
+    }
+}
+
+void
+PropagationStdOut
+::flush()
+{
+  fflush(m_Output);
 }
 
 namespace propagation

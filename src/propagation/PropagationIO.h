@@ -129,6 +129,10 @@ public:
   void SetResliceMetricToLabel(double sigma, bool is_physical_unit);
   InterpSpec GetResliceMetric() const;
 
+  /** Set Propagation Verbosity */
+  void SetPropagationVerbosity(PropagationParameters::Verbosity v);
+  PropagationParameters::Verbosity GetPropagationVerbosity() const;
+
   /** Turn on the debug mode (-sp-debug) for propagation. A debugging output directory is needed for
    *  dumping out intermediary files */
   void SetDebugOn(std::string &debug_dir);
@@ -152,8 +156,9 @@ public:
   void SetAffineDOF(GreedyParameters::AffineDOF dof);
   GreedyParameters::AffineDOF GetAffineDOF() const;
 
-  /** Advanced Configuration using a greedy parameter */
-  void ConfigureUsingGreedyParameters(GreedyParameters &param);
+  /** Set Verbose Level */
+  void SetGreedyVerbosity(GreedyParameters::Verbosity v);
+  GreedyParameters::Verbosity GetGreedyVerbosity() const;
 
   /** Build a propagation input object to pass to the Propagation API */
   std::shared_ptr<PropagationInput<TReal>> BuildPropagationInput();

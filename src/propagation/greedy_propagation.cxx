@@ -33,7 +33,8 @@ int usage()
   printf("  -spm mesh.vtk pattern : Segmentation mesh for the reference time point of the 4D base image \n");
   printf("  -spr timepoint        : The reference time point of the given segmentation image \n");
   printf("  -spt <target tp str>  : A comma separated string of target time points for the propagation \n");
-  printf("  -sp-debug <outdir>    : Enable debugging mode for propagation: Dump intermediary files to outdir\n");
+  printf("  -sp-debug <outdir>    : Enable debugging mode for propagation: Dump intermediary files to outdir \n");
+  printf("  -sp-verbose <value>   : Set propagation verbosity level (0: none, 1: default, 2: verbose) \n");
   printf("main greedy options accepted: \n");
   printf("  ");
   for (auto cit = greedy_cmd.crbegin(); cit != greedy_cmd.crend(); ++cit)
@@ -125,6 +126,14 @@ void parse_command_line(int argc, char *argv[],
       {
       pParam.debug = true;
       pParam.debug_dir = cl.read_output_dir();
+      }
+    else if (arg == "-sp-verbose")
+      {
+      int level = cl.read_integer();
+      if(level < 0 || level >= PropagationParameters::VERB_INVALID)
+        throw GreedyException("Invalid propagation verbosity level %d", level);
+
+      pParam.verbosity = (PropagationParameters::Verbosity)level;
       }
     else if (greedy_cmd.count(arg))
       {

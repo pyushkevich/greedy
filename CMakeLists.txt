@@ -245,9 +245,13 @@ SET(PROPAGATION_LIB_SRC
   src/propagation/PropagationParameters.cxx
 )
 
+SET(PROPAGATION_INCLUDE_DIRS
+  ${GREEDY_SOURCE_DIR}/src/propagation
+)
+
 ADD_LIBRARY(propagationapi ${PROPAGATION_LIB_SRC} ${PROPAGATION_LIB_HDR})
-TARGET_INCLUDE_DIRECTORIES(propagationapi PUBLIC ${GREEDY_INCLUDE_DIRS})
-TARGET_LINK_LIBRARIES(propagationapi ${GREEDY_API_LIBS})
+#TARGET_INCLUDE_DIRECTORIES(propagationapi PUBLIC ${GREEDY_INCLUDE_DIRS})
+TARGET_LINK_LIBRARIES(propagationapi PUBLIC ${GREEDY_API_LIBS})
 
 SET(PROPAGATION_SRC
   src/propagation/greedy_propagation.cxx
@@ -289,6 +293,10 @@ IF(BUILD_CLI)
 
   ADD_EXECUTABLE(test_greedy testing/src/GreedyTestDriver.cxx)
   TARGET_LINK_LIBRARIES(test_greedy ${GREEDY_API_LIBS})
+
+  ADD_EXECUTABLE(test_propagation testing/src/propagation/propagation_test.cxx)
+  TARGET_LINK_LIBRARIES(test_propagation propagationapi)
+  TARGET_INCLUDE_DIRECTORIES(test_propagation PUBLIC ${PROPAGATION_INCLUDE_DIRS} )
 
   ADD_EXECUTABLE(multi_chunk_greedy ${CHUNK_GREEDY_SRC})
   TARGET_LINK_LIBRARIES(multi_chunk_greedy ${GREEDY_API_LIBS})

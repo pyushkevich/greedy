@@ -28,8 +28,7 @@ void
 PropagationInput<TReal>
 ::SetDefaultGreedyParameters()
 {
-  if (m_GreedyParam.dim != 3)
-    m_GreedyParam.dim = 3;
+
 }
 
 template<typename TReal>
@@ -58,6 +57,11 @@ PropagationInput<TReal>
 ::SetGreedyParameters(const GreedyParameters &gParam)
 {
   this->m_GreedyParam = gParam;
+
+  // dim = 3 is mandatory and is not configured by users
+  if (m_GreedyParam.dim != 3)
+    m_GreedyParam.dim = 3;
+
   SetDefaultGreedyParameters();
   ValidateGreedyParameters();
 }
@@ -77,8 +81,7 @@ void
 PropagationInput<TReal>
 ::ValidateGreedyParameters() const
 {
-  // if fails, check SetDefaultGreedyParameters
-  assert(m_GreedyParam.dim == 3);
+
 }
 
 template<typename TReal>
@@ -86,7 +89,7 @@ void
 PropagationInput<TReal>
 ::ValidatePropagationParameters() const
 {
-  if (m_PropagationParam.outdir.size() == 0)
+  if (m_PropagationParam.writeOutputToDisk && m_PropagationParam.outdir.size() == 0)
     throw GreedyException("Output directory (-spo) not provided!");
 }
 
@@ -368,9 +371,34 @@ PropagationInputBuilder<TReal>
 template<typename TReal>
 void
 PropagationInputBuilder<TReal>
-::ConfigureUsingGreedyParameters(GreedyParameters &param)
+::SetGreedyVerbosity(GreedyParameters::Verbosity v)
 {
-  m_GParam = param;
+  m_GParam.verbosity = v;
+}
+
+template<typename TReal>
+GreedyParameters::Verbosity
+PropagationInputBuilder<TReal>
+::GetGreedyVerbosity() const
+{
+  return m_GParam.verbosity;
+}
+
+template<typename TReal>
+void
+PropagationInputBuilder<TReal>
+::SetPropagationVerbosity(PropagationParameters::Verbosity v)
+{
+  m_PParam.verbosity = v;
+}
+
+
+template<typename TReal>
+PropagationParameters::Verbosity
+PropagationInputBuilder<TReal>
+::GetPropagationVerbosity() const
+{
+  return m_PParam.verbosity;
 }
 
 template<typename TReal>
@@ -384,6 +412,8 @@ PropagationInputBuilder<TReal>
   pInput->SetDataForAPIRun(m_Data);
   return pInput;
 }
+
+
 
 namespace propagation
 {

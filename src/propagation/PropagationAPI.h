@@ -26,6 +26,22 @@ class PropagationOutput;
 template<typename TReal>
 class PropagationTools;
 
+class PropagationStdOut
+{
+public:
+
+  PropagationStdOut(PropagationParameters::Verbosity verbosity, FILE *f_out = NULL);
+  ~PropagationStdOut();
+
+  void printf(const char *format, ...);
+  void print_verbose(const char *format, ...);
+  void flush();
+
+private:
+  PropagationParameters::Verbosity m_Verbosity;
+  FILE *m_Output;
+};
+
 template<typename TReal>
 class PropagationAPI
 {
@@ -54,6 +70,9 @@ public:
 	PropagationAPI &operator=(const PropagationAPI &other) = delete;
   /** Start the execution of the propagation pipeline */
   int Run();
+
+  /** Build an output obejct for API run */
+  std::shared_ptr<PropagationOutput<TReal>> GetOutput();
 
 private:
   void ValidateInputData();
@@ -89,6 +108,7 @@ private:
   PropagationParameters m_PParam;
   std::vector<unsigned int> m_ForwardTPs;
   std::vector<unsigned int> m_BackwardTPs;
+  std::shared_ptr<PropagationStdOut> m_StdOut;
 };
 
 }
