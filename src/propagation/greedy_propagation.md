@@ -7,12 +7,12 @@ Greedy Segmentation Propagation Tool applys greedy registration to warp a 3D seg
 ```
 greedy_propagation \
 -spi img4d.nii.gz \
--sps /Users/jileihao/dev/greedy-dev/greedy/testing/data/propagation/seg05.nii.gz \
+-sps seg05.nii.gz \
 -spr 5 \
 -spt 1,2,3,4,6,7 \
--spo /Users/jileihao/playground/pg_propagation/p-40_test/out \
+-spo /your/output/directory \
 -sp-interp-spec label 0.2vox \
--sp-debug /Users/jileihao/playground/pg_propagation/p-40_test/debug \
+-sp-debug /your/debug/output/directory \
 -n 100x100 -m SSD -s 3mm 1.5mm -threads 10 -V 1
 ```
 
