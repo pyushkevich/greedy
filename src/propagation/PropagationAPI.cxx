@@ -303,10 +303,8 @@ void
 PropagationAPI<TReal>
 ::GenerateFullResolutionMasks(const std::vector<unsigned int> &tp_list)
 {
-  if (m_PParam.debug)
-		{
-		std::cout << "-- [Propagation] Generating Full Resolution Masks " << std::endl;
-		}
+
+  m_StdOut->printf("-- [Propagation] Generating Full Resolution Masks \n");
 
 	for (size_t i = 0; i < tp_list.size(); ++i)
 		{
@@ -329,10 +327,7 @@ void
 PropagationAPI<TReal>
 ::RunDownSampledPropagation(const std::vector<unsigned int> &tp_list)
 {
-  if (m_PParam.debug)
-		{
-		std::cout << "-- [Propagation] Down Sampled Propagation started " << std::endl;
-		}
+  m_StdOut->printf("-- [Propagation] Down Sampled Propagation started  \n");
 
 	for (size_t i = 1; i < tp_list.size(); ++i)
 		{
@@ -349,12 +344,7 @@ void
 PropagationAPI<TReal>
 ::RunPropagationAffine(unsigned int tp_fix, unsigned int tp_mov)
 {
-  if (m_PParam.debug)
-		{
-		std::cout << "-- [Propagation] Running Propagation Affine Started tp_fix=" << tp_fix
-							<< "; tp_mov=" << tp_mov << std::endl;
-		}
-
+  m_StdOut->printf("-- [Propagation] Running Affine %02d to %02d  \n", tp_mov, tp_fix);
   TimePointData<TReal> &df = m_Data->tp_data[tp_fix], &dm = m_Data->tp_data[tp_mov];
 
 	// Create a new GreedyAPI for affine run and configure
@@ -412,8 +402,9 @@ PropagationAPI<TReal>
 		force_write = true;
 		param.output = GenerateBinaryTPObjectName("affine_", tp_mov, tp_fix,
                                               m_PParam.debug_dir.c_str(), ".mat");
-		std::cout << "-- [Propagation] Affine Command: " << param.GenerateCommandLine() << std::endl;
 		}
+
+  m_StdOut->printf("-- [Propagation] Affine Command: %s \n",  param.GenerateCommandLine().c_str());
 
 	dm.affine_to_prev->SetObjectName(param.output);
 	GreedyAPI->AddCachedOutputObject(param.output, dm.affine_to_prev, force_write);
@@ -430,11 +421,8 @@ void
 PropagationAPI<TReal>
 ::RunPropagationDeformable(unsigned int tp_fix, unsigned int tp_mov, bool isFullRes)
 {
-  if (m_PParam.debug)
-		{
-		std::cout << "-- [Propagation] Deformable Run: tp_fix=" << tp_fix
-							<< "; tp_mov = " << tp_mov << "; isFullRes=" << isFullRes << std::endl;
-		}
+  m_StdOut->printf("-- [Propagation] Running %s Deformable %02d to %02d \n",
+                   isFullRes ? "Full-resolution" : "Down-sampled", tp_mov, tp_fix);
 
 	// Get relevant tp data
   TimePointData<TReal> &tpdata_fix = m_Data->tp_data[tp_fix];
@@ -535,8 +523,7 @@ PropagationAPI<TReal>
 	param.input_groups.clear();
 	param.input_groups.push_back(ig);
 
-  if (m_PParam.debug)
-		std::cout << "-- [Propagation] Deformable Command: " <<  param.GenerateCommandLine() << std::endl;
+  m_StdOut->printf("-- [Propagation] Deformable Command: %s \n", param.GenerateCommandLine().c_str());
 
 	int ret = GreedyAPI->RunDeformable(param);
 
@@ -550,11 +537,8 @@ void
 PropagationAPI<TReal>
 ::RunPropagationReslice(unsigned int tp_in, unsigned int tp_out, bool isFullRes)
 {
-  if (m_PParam.debug)
-		{
-		std::cout << "-- [Propagation] Reslice Run. tp_in=" << tp_in << "; tp_out="
-							<< tp_out << "; isFullRes=" << isFullRes << std::endl;
-		}
+  m_StdOut->printf("-- [Propagation] Running %s Reslice %02d to %02d \n",
+                   isFullRes ? "Full-resolution" : "Down-sampled", tp_in, tp_out);
 
   TimePointData<TReal> &tpdata_in = m_Data->tp_data[tp_in];
   TimePointData<TReal> &tpdata_out = m_Data->tp_data[tp_out];
@@ -635,10 +619,7 @@ PropagationAPI<TReal>
 			}
 		}
 
-  if (m_PParam.debug)
-		{
-		std::cout << "-- [Propagation] Reslice Command:" << param.GenerateCommandLine() << std::endl;
-		}
+  m_StdOut->printf("-- [Propagation] Reslice Command: %s \n", param.GenerateCommandLine().c_str());
 
 	int ret = GreedyAPI->RunReslice(param);
 
@@ -652,10 +633,7 @@ void
 PropagationAPI<TReal>
 ::RunPropagationMeshReslice(unsigned int tp_in, unsigned int tp_out)
 {
-  if (m_PParam.debug)
-    {
-    std::cout << "-- [Propagation] Mesh Reslice Run. tp_in=" << tp_in << "; tp_out=" << tp_out << std::endl;
-    }
+  m_StdOut->printf("-- [Propagation] Running Mesh Reslice %02d to %02d \n", tp_in, tp_out);
 
   TimePointData<TReal> &tpdata_in = m_Data->tp_data[tp_in];
   TimePointData<TReal> &tpdata_out = m_Data->tp_data[tp_out];
@@ -713,10 +691,7 @@ PropagationAPI<TReal>
   param.reslice_param.transforms.push_back(TransformSpec(deform_id));
   GreedyAPI->AddCachedInputObject(deform_id, tpdata_out.deform_to_ref.GetPointer());
 
-  if (m_PParam.debug)
-    {
-    std::cout << "-- [Propagation] Mesh Reslice Command:" << param.GenerateCommandLine() << std::endl;
-    }
+  m_StdOut->printf("-- [Propagation] Mesh Reslice Command: %s \n", param.GenerateCommandLine().c_str());
 
   int ret = GreedyAPI->RunReslice(param);
 
@@ -730,10 +705,7 @@ void
 PropagationAPI<TReal>
 ::BuildTransformChainForReslice(unsigned int tp_prev, unsigned int tp_crnt)
 {
-  if (m_PParam.debug)
-		{
-		std::cout << "-- [Propagation] Building reslicing trans chain for tp: " << tp_crnt << std::endl;
-		}
+  m_StdOut->printf("-- [Propagation] Building reslicing transformation chain for tp: %02d\n", tp_crnt);
 
   TimePointData<TReal> &tpdata_crnt = m_Data->tp_data[tp_crnt];
   TimePointData<TReal> &tpdata_prev = m_Data->tp_data[tp_prev];

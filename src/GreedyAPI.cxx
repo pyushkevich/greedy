@@ -1875,8 +1875,9 @@ int GreedyApproach<VDim, TReal>
       tm_Gradient.Stop();
 
       // Print a report for this iteration
-      std::cout << this->PrintIter(level, iter, metric_report) << std::endl;
-      fflush(stdout);
+      std::string iter_line = this->PrintIter(level, iter, metric_report);
+      gout.printf("%s\n", iter_line.c_str());
+      gout.flush();
 
       // Record the metric value in the log
       this->RecordMetricValue(metric_report);
