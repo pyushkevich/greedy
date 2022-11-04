@@ -179,6 +179,7 @@ SET(GREEDY_LIB_SRC
   src/GreedyParameters.cxx
   src/MultiImageRegistrationHelper.cxx
   src/AffineCostFunctions.cxx
+  src/TetraMeshConstraints.cxx
 )
 
 SET(LDDMM_SRC src/lddmm_main.cxx)
