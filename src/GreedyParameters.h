@@ -279,6 +279,18 @@ struct GreedyInputGroup
   std::vector<TransformSpec> moving_pre_transforms;
 };
 
+/**
+ * Parameters involving tetrahedral jacobian regularization
+ */
+struct GreedyTJRSpec
+{
+  // Tetrahedral mesh
+  std::string tetra_mesh;
+
+  // Weight of the regularization term
+  double weight = 0.0;
+};
+
 struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, WNCC, MI, NMI, MAHALANOBIS };
@@ -316,6 +328,9 @@ struct GreedyParameters
 
   // Root warp parameters
   GreedyWarpRootParameters warproot_param;
+
+  // Tetrahedral mesh jacobian regularization parameters
+  GreedyTJRSpec tjr_param;
 
   // Registration mode
   Mode mode = GREEDY;

@@ -325,9 +325,9 @@ public:
    */
   InOut InterpolateWithGradient(RealType *cix, OutputComponentType *out, OutputComponentType **grad)
   {
-    RealType dx00, dx01, dx10, dx11, dxy0, dxy1;
-    RealType dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
-    RealType dxy0_y, dxy1_y;
+    OutputComponentType dx00, dx01, dx10, dx11, dxy0, dxy1;
+    OutputComponentType dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
+    OutputComponentType dxy0_y, dxy1_y;
 
     // Compute the corners
     this->ComputeCorners(cix);
@@ -426,7 +426,7 @@ public:
     this->ComputeCorners(cix);
 
     // When inside, no checks are required
-    if(this->status == Superclass::INSIDE)
+    if(this->status != Superclass::OUTSIDE)
       {
       // Compute the corner weights using 4 multiplications (not 16)
       RealType fxy = fx * fy, fyz = fy * fz, fxz = fx * fz, fxyz = fxy * fz;
@@ -441,20 +441,43 @@ public:
       RealType w000 = 1.0 - fx - fy + fxy - w001;
 
       // Loop over the components
-      for(int iComp = 0; iComp < this->nComp; iComp++,
-          d000++, d001++, d010++, d011++,
-          d100++, d101++, d110++, d111++, value++)
+      if(this->status == Superclass::INSIDE)
         {
-        // Assign the appropriate weight to each part of the histogram
-        InputComponentType val = *value;
-        *const_cast<InputComponentType *>(d000) += w000 * val;
-        *const_cast<InputComponentType *>(d001) += w001 * val;
-        *const_cast<InputComponentType *>(d010) += w010 * val;
-        *const_cast<InputComponentType *>(d011) += w011 * val;
-        *const_cast<InputComponentType *>(d100) += w100 * val;
-        *const_cast<InputComponentType *>(d101) += w101 * val;
-        *const_cast<InputComponentType *>(d110) += w110 * val;
-        *const_cast<InputComponentType *>(d111) += w111 * val;
+        for(int iComp = 0; iComp < this->nComp; iComp++,
+            d000++, d001++, d010++, d011++,
+            d100++, d101++, d110++, d111++, value++)
+          {
+          // Assign the appropriate weight to each part of the histogram
+          InputComponentType val = *value;
+          *const_cast<InputComponentType *>(d000) += w000 * val;
+          *const_cast<InputComponentType *>(d001) += w001 * val;
+          *const_cast<InputComponentType *>(d010) += w010 * val;
+          *const_cast<InputComponentType *>(d011) += w011 * val;
+          *const_cast<InputComponentType *>(d100) += w100 * val;
+          *const_cast<InputComponentType *>(d101) += w101 * val;
+          *const_cast<InputComponentType *>(d110) += w110 * val;
+          *const_cast<InputComponentType *>(d111) += w111 * val;
+          }
+        }
+      else
+        {
+        // Border case - special checks
+        auto *dv = this->def_value;
+        for(int iComp = 0; iComp < this->nComp; iComp++,
+            d000++, d001++, d010++, d011++,
+            d100++, d101++, d110++, d111++, value++, dv++)
+          {
+          // Assign the appropriate weight to each part of the histogram
+          InputComponentType val = *value;
+          if(d000 != dv) *const_cast<InputComponentType *>(d000) += w000 * val;
+          if(d001 != dv) *const_cast<InputComponentType *>(d001) += w001 * val;
+          if(d010 != dv) *const_cast<InputComponentType *>(d010) += w010 * val;
+          if(d011 != dv) *const_cast<InputComponentType *>(d011) += w011 * val;
+          if(d100 != dv) *const_cast<InputComponentType *>(d100) += w100 * val;
+          if(d101 != dv) *const_cast<InputComponentType *>(d101) += w101 * val;
+          if(d110 != dv) *const_cast<InputComponentType *>(d110) += w110 * val;
+          if(d111 != dv) *const_cast<InputComponentType *>(d111) += w111 * val;
+          }
         }
       }
   }
@@ -769,7 +792,7 @@ public:
    */
   InOut InterpolateWithGradient(RealType *cix, OutputComponentType *out, OutputComponentType **grad)
   {
-    RealType dx0, dx1;
+    OutputComponentType dx0, dx1;
 
     // Compute the corners
     this->ComputeCorners(cix);
@@ -843,7 +866,7 @@ public:
     this->ComputeCorners(cix);
 
     // When inside, no checks are required
-    if(this->status == Superclass::INSIDE)
+    if(this->status != Superclass::OUTSIDE)
       {
       // Compute the corner weights using 4 multiplications (not 16)
       RealType fxy = fx * fy;
@@ -854,16 +877,34 @@ public:
       RealType w00 = 1.0 - fx - fy + fxy;
 
       // Loop over the components
-      for(int iComp = 0; iComp < this->nComp; iComp++,
-          d00++, d01++, d10++, d11++, value++)
+      if(this->status == Superclass::INSIDE)
         {
-        // Assign the appropriate weight to each part of the histogram
-        InputComponentType val = *value;
+        for(int iComp = 0; iComp < this->nComp; iComp++,
+            d00++, d01++, d10++, d11++, value++)
+          {
+          // Assign the appropriate weight to each part of the histogram
+          InputComponentType val = *value;
 
-        *const_cast<InputComponentType *>(d00) += w00 * val;
-        *const_cast<InputComponentType *>(d01) += w01 * val;
-        *const_cast<InputComponentType *>(d10) += w10 * val;
-        *const_cast<InputComponentType *>(d11) += w11 * val;
+          *const_cast<InputComponentType *>(d00) += w00 * val;
+          *const_cast<InputComponentType *>(d01) += w01 * val;
+          *const_cast<InputComponentType *>(d10) += w10 * val;
+          *const_cast<InputComponentType *>(d11) += w11 * val;
+          }
+        }
+      else
+        {
+        auto *dv = this->def_value;
+        for(int iComp = 0; iComp < this->nComp; iComp++,
+            d00++, d01++, d10++, d11++, value++, ++dv)
+          {
+          // Assign the appropriate weight to each part of the histogram
+          InputComponentType val = *value;
+
+          if(d00 != dv) *const_cast<InputComponentType *>(d00) += w00 * val;
+          if(d01 != dv) *const_cast<InputComponentType *>(d01) += w01 * val;
+          if(d10 != dv) *const_cast<InputComponentType *>(d10) += w10 * val;
+          if(d11 != dv) *const_cast<InputComponentType *>(d11) += w11 * val;
+          }
         }
       }
   }

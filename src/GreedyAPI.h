@@ -71,6 +71,7 @@ public:
   typedef vnl_matrix_fixed<TReal, VDim, VDim> MatFx;
 
   typedef std::vector< std::vector<MultiComponentMetricReport> > MetricLogType;
+  typedef std::vector< std::vector<GreedyRegularizationReport> > RegularizationLogType;
 
   typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
 
@@ -190,7 +191,9 @@ public:
   void RecordMetricValue(const MultiComponentMetricReport &metric);
 
   // Helper method to print iteration reports
-  std::string PrintIter(int level, int iter, const MultiComponentMetricReport &metric) const;
+  std::string PrintIter(int level, int iter,
+                        const MultiComponentMetricReport &metric,
+                        const GreedyRegularizationReport &reg) const;
 
   /**
    * Read images specified in parameters into a helper data structure and initialize
@@ -264,6 +267,9 @@ protected:
   // in the callbacks to RunAffine, etc.
   MetricLogType m_MetricLog;
 
+  // Also a log of regularization values
+  RegularizationLogType m_RegularizationLog;
+
   // This function reads the image from disk, or from a memory location mapped to a
   // string. The first approach is used by the command-line interface, and the second
   // approach is used by the API, allowing images to be passed from other software.
@@ -304,6 +310,33 @@ protected:
       ImageType *mask, ImageBaseType *ref_space, VectorImageType *resample_warp);
 
   // friend class PureAffineCostFunction<VDim, TReal>;
+
+};
+
+
+/**
+ * An experimental scaling and squaring layer that can be
+ * backpropagated, allowing the use of scaling and squaring
+ * for direct optimization
+ */
+template <unsigned int VDim, typename TReal>
+class DisplacementSelfCompositionLayer
+{
+public:
+  typedef LDDMMData<TReal, VDim> LDDMMType;
+  typedef typename LDDMMType::VectorImageType VectorImageType;
+
+  // Forward pass - compute the composition of u with itself
+  void Forward(VectorImageType *u, VectorImageType *v);
+
+  // Backward pass - Given u and the partial derivative of some objective function f,
+  // with respect to v, D_v f, compute D_u f = (D_u v)(D_v f)
+  void Backward(VectorImageType *u, VectorImageType *Dv_f, VectorImageType *Du_f);
+
+  // Test
+  static bool TestDerivatives();
+
+protected:
 
 };
 

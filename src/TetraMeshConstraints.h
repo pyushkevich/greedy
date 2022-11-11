@@ -29,8 +29,35 @@
 =========================================================================*/
 
 class vtkUnstructuredGrid;
-#include <vnl_matrix.h>
+#include <vnl/vnl_matrix.h>
+#include <vnl/vnl_matrix_fixed.h>
+#include <vnl/vnl_vector_fixed.h>
 #include <vector>
+#include "lddmm_data.h"
+#include <vtkSmartPointer.h>
+
+/**
+ * A 'network' layer that takes as input the coordinates of tetraheadron and returns as output
+ * the volume of this tetrahedron, with option to backpropagate.
+ */
+template <unsigned int VDim>
+class TetraVolumeLayer
+{
+public:
+
+  // Set the index of the vertex
+  void SetIndex(const vnl_vector<int> v_index);
+
+  // Forward pass, computes volume and the partial derivatives at each vertex
+  double Forward(const vnl_matrix<double> &x, bool need_grad);
+
+  // Backward pass
+  void Backward(double d_tetra_vol, vnl_matrix<double> &d_x);
+
+protected:
+  vnl_vector<int> v_index;
+  vnl_matrix_fixed<double, VDim+1, VDim> dv_dx;
+};
 
 /**
  * This class enables regularization terms based on tetrahedral (3D) or triangular (2D)
@@ -41,15 +68,38 @@ template <class TFloat, unsigned int VDim>
 class TetraMeshConstraints
 {
 public:
+  typedef LDDMMData<TFloat, VDim> LDDMMType;
+  typedef typename LDDMMType::VectorImageType VectorImageType;
+  typedef typename LDDMMType::ImageBaseType ImageBaseType;
+
+  // Fixed size matrices
+  typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
+  typedef vnl_vector_fixed<double, VDim> Vec;
 
   TetraMeshConstraints();
 
   // Initialize the mesh
   void SetMesh(vtkUnstructuredGrid *mesh);
 
+  // Set the reference image
+  void SetReferenceImage(ImageBaseType *ref_space);
+
+  // Compute initial quantities - should be run after changing mesh or ref space
+  void Initialize();
+
+  // Compute the regularization term and its gradient with respect to the voxel-space
+  // displacement field phi
+  double ComputeObjectiveAndGradientPhi(VectorImageType *phi_vox, VectorImageType *grad, double weight = 1.0);
+
+  // A function to test derivatives on dummy data
+  static bool TestDerivatives();
+
 protected:
   // The mesh object
-  vtkUnstructuredGrid *m_MeshVTK;
+  vtkSmartPointer<vtkUnstructuredGrid> m_MeshVTK;
+
+  // The reference space
+  typename ImageBaseType::Pointer m_Reference;
 
   // List of tetrahedral vertex indices extracted from the mesh, N x (VDim+1) array
   vnl_matrix<int> m_TetraVI;
@@ -58,7 +108,17 @@ protected:
   std::vector< std::pair<int, int> > m_TetraNbr;
 
   // List of all tetrahedral vertex coordinates
-  vnl_matrix<double> m_TetraX;
+  vnl_matrix<double> m_TetraX_Vox, m_TetraX_RAS, m_TetraX_RAS_Warped, m_D_TetraX_RAS_Warped;
+
+  // Network layer used for volume computation and backprop
+  std::vector< TetraVolumeLayer<VDim> > m_TetraVolumeLayer;
+
+  // Volumes of tetrahedra in fixed image
+  vnl_vector<double> m_TetraVol, m_TetraVol_Warped, m_D_TetraVol_Warped;
+
+  // Transform between RAS to voxel space
+  Mat A_vox_to_ras, A_ras_to_vox;
+  Vec b_vox_to_ras, b_ras_to_vox;
 };
 
 #endif // TETRAMESHCONSTRAINTS_H

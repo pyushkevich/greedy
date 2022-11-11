@@ -441,6 +441,11 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->lbfgs_param.memory = cl.read_integer();
     }
+  else if(cmd == "-tjr")
+    {
+    this->tjr_param.tetra_mesh = cl.read_existing_filename();
+    this->tjr_param.weight = cl.read_double();
+    }
   else
     {
     return false;
@@ -829,6 +834,9 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->lbfgs_param.memory != def.lbfgs_param.memory)
     oss << "-lbfgs-memory " << this->lbfgs_param.memory;
+
+  if(this->tjr_param.weight > 0.0)
+    oss << "-tjr " << this->tjr_param.tetra_mesh << " " << this->tjr_param.weight;
 
   return oss.str();
 }

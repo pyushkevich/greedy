@@ -48,6 +48,7 @@
 #include "FastWarpCompositeImageFilter.h"
 #include "MultiComponentImageMetricBase.h"
 #include "WarpFunctors.h"
+#include "TetraMeshConstraints.h"
 
 #include <vtkPolyData.h>
 #include <vtkUnstructuredGrid.h>
@@ -1446,9 +1447,6 @@ int GreedyApproach<VDim, TReal>
 }
 
 
-
-
-
 #include "itkStatisticsImageFilter.h"
 
 /** My own time probe because itk's use of fork is messing up my debugging */
@@ -1503,7 +1501,7 @@ double GreedyTimeProbe::GetTotal() const
 template <unsigned int VDim, typename TReal>
 std::string
 GreedyApproach<VDim, TReal>
-::PrintIter(int level, int iter, const MultiComponentMetricReport &metric) const
+::PrintIter(int level, int iter, const MultiComponentMetricReport &metric, const GreedyRegularizationReport &reg) const
 {
   // Start with a buffer
   char b_level[64], b_iter[64], b_metrics[512], b_line[1024];
@@ -1518,16 +1516,26 @@ GreedyApproach<VDim, TReal>
   else
     sprintf(b_iter, "Iter %05d", iter);
 
-  if(metric.ComponentPerPixelMetrics.size() > 1)
+  // Accumulate the metrics
+  int pos = 0;
+  double total = metric.TotalPerPixelMetric;
+  if(metric.ComponentPerPixelMetrics.size() + reg.terms.size() > 1)
     {
-    int pos = sprintf(b_metrics, "Metrics");
+    pos = sprintf(b_metrics, "Metrics");
     for (unsigned i = 0; i < metric.ComponentPerPixelMetrics.size(); i++)
       pos += sprintf(b_metrics + pos, "  %8.6f", metric.ComponentPerPixelMetrics[i]);
     }
   else
     sprintf(b_metrics, "");
 
-  sprintf(b_line, "%s  %s  %s  Energy = %8.6f", b_level, b_iter, b_metrics, metric.TotalPerPixelMetric);
+  // Accumulate the regularization terms
+  for(const auto &it : reg.terms)
+    {
+    pos += sprintf(b_metrics + pos, "  %s  %8.6f", it.first.c_str(), it.second.second);
+    total += it.second.first * it.second.second;
+    }
+
+  sprintf(b_line, "%s  %s  %s  Energy = %8.6f", b_level, b_iter, b_metrics, total);
   std::string result = b_line;
 
   return b_line;
@@ -1685,6 +1693,22 @@ int GreedyApproach<VDim, TReal>
   // In deformable mode, we force resampling of moving image to fixed image space
   ReadImages(param, of_helper, true);
 
+  // Read the tetrahedral regularization mesh, if specified
+  typedef TetraMeshConstraints<TReal, VDim> TetraMeshConstraintsType;
+  TetraMeshConstraintsType *tmc = nullptr;
+  if(param.tjr_param.weight > 0.0)
+    {
+    // Read the mesh
+    vtkSmartPointer<vtkPointSet> point_set = ReadMesh(param.tjr_param.tetra_mesh.c_str());
+    vtkSmartPointer<vtkUnstructuredGrid> tetra = dynamic_cast<vtkUnstructuredGrid *>(point_set.GetPointer());
+    if(!tetra)
+      throw GreedyException("Mesh %s is not an UnstructuredGrid!", param.tjr_param.tetra_mesh.c_str());
+
+    // Initialize the regularization term
+    tmc = new TetraMeshConstraintsType();
+    tmc->SetMesh(tetra);
+    }
+
   // An image pointer desribing the current estimate of the deformation
   VectorImagePointer uLevel = nullptr;
 
@@ -1693,15 +1717,21 @@ int GreedyApproach<VDim, TReal>
 
   // Clear the metric log
   m_MetricLog.clear();
+  m_RegularizationLog.clear();
 
   // Iterate over the resolution levels
   for(unsigned int level = 0; level < nlevels; ++level)
     {
-    // Add stage to metric log
+    // Add stage to metric log and regularization log
     m_MetricLog.push_back(std::vector<MultiComponentMetricReport>());
+    m_RegularizationLog.push_back(std::vector<GreedyRegularizationReport>());
 
     // Reference space
     ImageBaseType *refspace = of_helper.GetReferenceSpace(level);
+
+    // Pass reference space to the mesh regularizer if present
+    if(tmc)
+      tmc->SetReferenceImage(refspace);
 
     // Smoothing factors for this level, in physical units
     typename LDDMMType::Vec sigma_pre_phys =
@@ -1822,6 +1852,7 @@ int GreedyApproach<VDim, TReal>
 
       // Create a metric report that will be returned by all metrics
       MultiComponentMetricReport metric_report;
+      GreedyRegularizationReport reg_report;
 
       // Begin gradient computation
       tm_Gradient.Start();
@@ -1829,15 +1860,27 @@ int GreedyApproach<VDim, TReal>
       // Evaluate the correct metric
       this->EvaluateMetricForDeformableRegistration(param, of_helper, level, uFull, metric_report, iTemp, uk1, eps);
 
+      // If regularization present, compute the regularization penalty and add its gradient to uk
+      if(tmc)
+        {
+        typename LDDMMType::VectorImagePointer reg = LDDMMType::new_vimg(uk1, 0.0);
+        double obj_reg = tmc->ComputeObjectiveAndGradientPhi(uFull, reg, param.tjr_param.weight);
+        reg_report.terms["MeshTetJac"] = std::make_pair(param.tjr_param.weight, obj_reg / param.tjr_param.weight);
+        LDDMMType::vimg_add_in_place(uk1, reg);
+        if(flag_dump)
+          WriteImageViaCache(reg.GetPointer(), GetDumpFile(param, "dump_jacreg_lev%02d_iter%04d.nii.gz", level, iter));
+        }
+
       // End gradient computation
       tm_Gradient.Stop();
 
       // Print a report for this iteration
-      std::cout << this->PrintIter(level, iter, metric_report) << std::endl;
+      std::cout << this->PrintIter(level, iter, metric_report, reg_report) << std::endl;
       fflush(stdout);
 
       // Record the metric value in the log
       this->RecordMetricValue(metric_report);
+      m_RegularizationLog.back().push_back(reg_report);
 
       // Dump the gradient image if requested
       if(flag_dump)
@@ -1972,7 +2015,8 @@ int GreedyApproach<VDim, TReal>
 
       // Print final metric report
       MultiComponentMetricReport metric_report = this->GetMetricLog()[level].back();
-      std::string iter_line = this->PrintIter(level, -1, metric_report);
+      GreedyRegularizationReport reg_report = m_RegularizationLog[level].back();
+      std::string iter_line = this->PrintIter(level, -1, metric_report, reg_report);
       gout.printf("%s\n", iter_line.c_str());
       gout.flush();
       
@@ -1998,6 +2042,10 @@ int GreedyApproach<VDim, TReal>
         LDDMMType::poisson_pde_zero_boundary_dealloc(incompressibility_solver);
 
     }
+
+  // Delete the regularization object
+  if(tmc)
+    delete tmc;
 
   // The transformation field is in voxel units. To work with ANTS, it must be mapped
   // into physical offset units - just scaled by the spacing?
@@ -3264,12 +3312,220 @@ int GreedyApproach<VDim, TReal>
   return -1;
 }
 
-
-
-
 template class GreedyApproach<2, float>;
 template class GreedyApproach<3, float>;
 template class GreedyApproach<4, float>;
 template class GreedyApproach<2, double>;
 template class GreedyApproach<3, double>;
 template class GreedyApproach<4, double>;
+
+template<unsigned int VDim, typename TReal>
+void DisplacementSelfCompositionLayer<VDim, TReal>::Forward(VectorImageType *u, VectorImageType *v)
+{
+  // Create an iterator over the deformation field
+  typedef itk::ImageLinearIteratorWithIndex<VectorImageType> IterBase;
+  typedef IteratorExtender<IterBase> IterType;
+  typedef FastLinearInterpolator<VectorImageType, TReal, VDim> InterpType;
+
+  InterpType fi(u);
+
+  // Loop over the lines in the image
+  int line_len = v->GetBufferedRegion().GetSize(0);
+  for(IterType it(v, v->GetBufferedRegion()); !it.IsAtEnd(); it.NextLine())
+    {
+    // Get the pointer to the u line and the output line
+    const auto *u_line = it.GetPixelPointer(u);
+    auto *v_line = it.GetPixelPointer(v);
+
+    // Voxel index
+    auto idx = it.GetIndex();
+
+    // The current sample position
+    itk::ContinuousIndex<TReal, VDim> cix;
+
+    // Loop over the line
+    for(int i = 0; i < line_len; i++, u_line++, v_line++)
+      {
+      for(unsigned int j = 0; j < VDim; j++)
+        cix[j] = idx[j] + (*u_line)[j];
+      idx[0]++;
+
+      // Perform the interpolation
+      auto status = fi.Interpolate(cix.GetDataPointer(), v_line);
+      if(status == InterpType::OUTSIDE)
+        v_line->Fill(0.0);
+
+      // Add u to v
+      (*v_line) += (*u_line);
+      }
+    }
+}
+
+template<unsigned int VDim, typename TReal>
+void DisplacementSelfCompositionLayer<VDim, TReal>
+::Backward(VectorImageType *u, VectorImageType *Dv_f, VectorImageType *Du_f)
+{
+  // Create an iterator over the deformation field
+  typedef itk::ImageLinearIteratorWithIndex<VectorImageType> IterBase;
+  typedef IteratorExtender<IterBase> IterType;
+  typedef typename VectorImageType::PixelType VectorType;
+  typedef FastLinearInterpolator<VectorImageType, TReal, VDim> InterpType;
+
+  InterpType fi(u);
+  InterpType fi_splat(Du_f);
+
+  // Storage for the gradient
+  VectorType v, *Dx_v = new VectorType[VDim];
+
+  // Loop over the lines in the image
+  int line_len = Du_f->GetBufferedRegion().GetSize(0);
+  for(IterType it(Du_f, Du_f->GetBufferedRegion()); !it.IsAtEnd(); it.NextLine())
+    {
+    // Get the pointer to the u line and the output line
+    const auto *u_line = it.GetPixelPointer(u);
+    const auto *Dv_f_line = it.GetPixelPointer(Dv_f);
+    auto *Du_f_line = it.GetPixelPointer(Du_f);
+
+    // Voxel index
+    auto idx = it.GetIndex();
+
+    // The current sample position
+    itk::ContinuousIndex<TReal, VDim> cix;
+
+    // Loop over the line
+    for(int i = 0; i < line_len; i++, u_line++, Dv_f_line++, Du_f_line++)
+      {
+      for(unsigned int j = 0; j < VDim; j++)
+        cix[j] = idx[j] + (*u_line)[j];
+      idx[0]++;
+
+      // The expression is v = u + interp(u, x+u)
+      // The backprop is Du_f = Dv_f + D1_interp(u, x+u) Du_f + D2_interp(u, x+u) Du_f
+
+      // First term
+      (*Du_f_line) += (*Dv_f_line);
+
+      // Second term
+      auto status = fi.InterpolateWithGradient(cix.GetDataPointer(), &v, &Dx_v);
+      if(status != InterpType::OUTSIDE)
+        {
+        // for(unsigned int d = 0; d < VDim; d++)
+        //  (*Du_f_line) += Dx_v[d] * (*Dv_f_line)[d];
+        for(unsigned int a = 0; a < VDim; a++)
+          for(unsigned int b = 0; b < VDim; b++)
+            (*Du_f_line)[a] += Dx_v[a][b] * (*Dv_f_line)[b];
+        }
+
+      // Third term
+      fi_splat.Splat(cix.GetDataPointer(), Dv_f_line);
+      }
+    }
+
+  // Cleanup
+  delete [] Dx_v;
+}
+
+template<unsigned int VDim, typename TReal>
+bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives()
+{
+  // Create a dummy image
+  typename VectorImageType::Pointer phi = VectorImageType::New();
+  typename VectorImageType::SizeType sz_phi;
+  typename VectorImageType::RegionType region;
+  double origin_phi[VDim], spacing_phi[VDim];
+  for(unsigned int d = 0; d < VDim; d++)
+    {
+    sz_phi[d] = 32;
+    spacing_phi[d] = 1.0 / sz_phi[d];
+    origin_phi[d] = 0.5 * spacing_phi[d];
+    }
+
+  region.SetSize(sz_phi);
+  phi->SetOrigin(origin_phi);
+  phi->SetSpacing(spacing_phi);
+  phi->SetRegions(region);
+  phi->Allocate();
+
+  // Fill image with random noise
+  vnl_random randy;
+  for(itk::ImageRegionIteratorWithIndex<VectorImageType> it(phi, region); !it.IsAtEnd(); ++it)
+    for(unsigned int d = 0; d < VDim; d++)
+      it.Value()[d] = randy.normal() * 8.0;
+  LDDMMType::vimg_smooth(phi, phi, 1.0);
+
+  // Create the self-composition image
+  typename VectorImageType::Pointer phi_comp_phi_1 = LDDMMType::new_vimg(phi);
+  typename VectorImageType::Pointer phi_comp_phi_2 = LDDMMType::new_vimg(phi);
+
+  // Compute the composition the normal way
+  LDDMMType::interp_vimg(phi, phi, 1.0, phi_comp_phi_1);
+  LDDMMType::vimg_add_in_place(phi_comp_phi_1, phi);
+  LDDMMType::vimg_write(phi_comp_phi_1, "/tmp/phi_comp_phi_1.nii.gz");
+
+  // Compute the composition the way this class does
+  DisplacementSelfCompositionLayer<VDim, TReal> self;
+  self.Forward(phi, phi_comp_phi_2);
+  LDDMMType::vimg_write(phi_comp_phi_2, "/tmp/phi_comp_phi_2.nii.gz");
+
+  // Compare the two results
+  LDDMMType::vimg_subtract_in_place(phi_comp_phi_1, phi_comp_phi_2);
+  double err1 = LDDMMType::vimg_euclidean_norm_sq(phi_comp_phi_1);
+  printf("Error 1: %12.8f\n", err1);
+
+  // Let's define the objective function as just the norm of the vector field
+  double nvox = phi_comp_phi_2->GetBufferedRegion().GetNumberOfPixels();
+  double obj = LDDMMType::vimg_euclidean_norm_sq(phi_comp_phi_2) / nvox;
+
+  // Then the derivative of the objective with respect to phi_comp_phi_2 is just 2 * phi_comp_phi_2 / nvox;
+  typename VectorImageType::Pointer D_v_obj = LDDMMType::new_vimg(phi);
+  LDDMMType::vimg_copy(phi_comp_phi_2, D_v_obj);
+  LDDMMType::vimg_scale_in_place(D_v_obj, 2.0 / nvox);
+
+  // Backpropagate this to the derivative with respect to u
+  typename VectorImageType::Pointer D_u_obj = LDDMMType::new_vimg(phi);
+  self.Backward(phi, D_v_obj, D_u_obj);
+
+  // Generate a random variation of phi
+  typename LDDMMType::VectorImagePointer variation = LDDMMType::new_vimg(phi, 0.0);
+  typename VectorImageType::RegionType subregion;
+  for(unsigned int d = 0; d < VDim; d++)
+    {
+    subregion.SetIndex(d, 8);
+    subregion.SetSize(d, 16);
+    }
+  for(itk::ImageRegionIteratorWithIndex<VectorImageType> it(variation, subregion); !it.IsAtEnd(); ++it)
+    for(unsigned int d = 0; d < VDim; d++)
+      it.Value()[d] = randy.normal() * 1.0;
+  LDDMMType::vimg_smooth(variation, variation, 0.2);
+
+  // Compute the analytic derivative with respect to variation
+  typename LDDMMType::ImagePointer idot = LDDMMType::new_img(phi, 0.0);
+  LDDMMType::vimg_euclidean_inner_product(idot, D_u_obj, variation);
+  double ana_deriv = LDDMMType::img_voxel_sum(idot);
+
+  // Compute the numeric derivative with respect to variation
+  double eps = 0.001;
+  typename LDDMMType::VectorImagePointer work = LDDMMType::new_vimg(phi, 0.0);
+  LDDMMType::vimg_add_scaled_in_place(phi, variation, eps);
+  self.Forward(phi, work);
+  double obj_plus = LDDMMType::vimg_euclidean_norm_sq(work) / nvox;
+  LDDMMType::vimg_add_scaled_in_place(phi, variation, -2.0 * eps);
+  self.Forward(phi, work);
+  double obj_minus = LDDMMType::vimg_euclidean_norm_sq(work) / nvox;
+  double num_deriv = (obj_plus - obj_minus) / (2.0 * eps);
+
+  // Compute relative difference
+  double rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / std::fabs(ana_deriv + num_deriv);
+
+  // Compute the difference between the two derivatives
+  printf("Derivatives: ANA: %12.8g  NUM: %12.8g  RELDIF: %12.8f\n", ana_deriv, num_deriv, rel_diff);
+
+  return rel_diff < 1.0e-4;
+}
+
+template class DisplacementSelfCompositionLayer<2, float>;
+template class DisplacementSelfCompositionLayer<3, float>;
+template class DisplacementSelfCompositionLayer<4, float>;
+template class DisplacementSelfCompositionLayer<2, double>;
+template class DisplacementSelfCompositionLayer<3, double>;
+template class DisplacementSelfCompositionLayer<4, double>;

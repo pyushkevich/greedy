@@ -11,6 +11,7 @@
 #include <FastLinearInterpolator.h>
 #include <MultiComponentWeightedNCCImageMetric.h>
 #include <itkMultiThreaderBase.h>
+#include "TetraMeshConstraints.h"
 
 // Global variable storing the test data root
 std::string data_root;
@@ -38,6 +39,10 @@ int usage()
   printf("  reg_2d_3d <aff|def> <metric_value> <tol> <greedy_opts>\n");
   printf("        : Test 2D/3D registration using phantom images\n");
   printf("          Greedy options: -i, -ia, -m, -n \n");
+  printf("  tet_jac_reg <2|3> \n");
+  printf("        : Test derivatives of the tetrahedral jacobian regularization term\n");
+  printf("  comp_layer <2|3> \n");
+  printf("        : Test derivatives of the warp composition layer\n");
   return -1;
 }
 
@@ -896,6 +901,22 @@ int RunReg2D3D(CommandLineHelper &cl)
   return rc;
 }
 
+template <unsigned int VDim>
+int
+RunTetraJacobianRegularizationTest()
+{
+  typedef TetraMeshConstraints<double, VDim> TMC;
+  return TMC::TestDerivatives() ? 0 : -1;
+}
+
+template <unsigned int VDim>
+int
+RunDifferentiableScalingAndSquaringTest()
+{
+  typedef DisplacementSelfCompositionLayer<VDim, double> CompLayer;
+  return CompLayer::TestDerivatives() ? 0 : -1;
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -946,6 +967,24 @@ int main(int argc, char *argv[])
       return RunMaskedInterpolationTest<2>();
     else if(dim == 3)
       return RunMaskedInterpolationTest<3>();
+    else return -1;
+    }
+  else if(cmd == "tet_jac_reg")
+    {
+    int dim = cl.read_integer();
+    if(dim == 2)
+      return RunTetraJacobianRegularizationTest<2>();
+    else if(dim == 3)
+      return RunTetraJacobianRegularizationTest<3>();
+    else return -1;
+    }
+  else if(cmd == "comp_layer")
+    {
+    int dim = cl.read_integer();
+    if(dim == 2)
+      return RunDifferentiableScalingAndSquaringTest<2>();
+    else if(dim == 3)
+      return RunDifferentiableScalingAndSquaringTest<3>();
     else return -1;
     }
   else return usage();
