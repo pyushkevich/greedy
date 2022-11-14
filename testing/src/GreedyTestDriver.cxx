@@ -12,6 +12,7 @@
 #include <MultiComponentWeightedNCCImageMetric.h>
 #include <itkMultiThreaderBase.h>
 #include "TetraMeshConstraints.h"
+#include "DifferentiableScalingAndSquaring.h"
 
 // Global variable storing the test data root
 std::string data_root;
@@ -41,8 +42,8 @@ int usage()
   printf("          Greedy options: -i, -ia, -m, -n \n");
   printf("  tet_jac_reg <2|3> \n");
   printf("        : Test derivatives of the tetrahedral jacobian regularization term\n");
-  printf("  comp_layer <2|3> \n");
-  printf("        : Test derivatives of the warp composition layer\n");
+  printf("  comp_layer <2|3> <0|1> \n");
+  printf("        : Test derivatives of the warp composition layer (0 single-threaded, 1 multi-threaded)\n");
   return -1;
 }
 
@@ -911,10 +912,10 @@ RunTetraJacobianRegularizationTest()
 
 template <unsigned int VDim>
 int
-RunDifferentiableScalingAndSquaringTest()
+RunDifferentiableScalingAndSquaringTest(bool multi_threaded)
 {
   typedef DisplacementSelfCompositionLayer<VDim, double> CompLayer;
-  return CompLayer::TestDerivatives() ? 0 : -1;
+  return CompLayer::TestDerivatives(multi_threaded) ? 0 : -1;
 }
 
 
@@ -981,10 +982,11 @@ int main(int argc, char *argv[])
   else if(cmd == "comp_layer")
     {
     int dim = cl.read_integer();
+    bool multi_threaded = cl.read_integer() == 1;
     if(dim == 2)
-      return RunDifferentiableScalingAndSquaringTest<2>();
+      return RunDifferentiableScalingAndSquaringTest<2>(multi_threaded);
     else if(dim == 3)
-      return RunDifferentiableScalingAndSquaringTest<3>();
+      return RunDifferentiableScalingAndSquaringTest<3>(multi_threaded);
     else return -1;
     }
   else return usage();

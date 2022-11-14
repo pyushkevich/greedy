@@ -314,31 +314,6 @@ protected:
 };
 
 
-/**
- * An experimental scaling and squaring layer that can be
- * backpropagated, allowing the use of scaling and squaring
- * for direct optimization
- */
-template <unsigned int VDim, typename TReal>
-class DisplacementSelfCompositionLayer
-{
-public:
-  typedef LDDMMData<TReal, VDim> LDDMMType;
-  typedef typename LDDMMType::VectorImageType VectorImageType;
-
-  // Forward pass - compute the composition of u with itself
-  void Forward(VectorImageType *u, VectorImageType *v);
-
-  // Backward pass - Given u and the partial derivative of some objective function f,
-  // with respect to v, D_v f, compute D_u f = (D_u v)(D_v f)
-  void Backward(VectorImageType *u, VectorImageType *Dv_f, VectorImageType *Du_f);
-
-  // Test
-  static bool TestDerivatives();
-
-protected:
-
-};
 
 
 #endif // GREEDYAPI_H

@@ -85,6 +85,7 @@ public:
   typedef typename ImageType::InternalPixelType                   InputComponentType;
   typedef FastLinearInterpolatorOutputTraits<TFloat, InputComponentType>  OutputTraits;
   typedef typename OutputTraits::OutputComponentType              OutputComponentType;
+  typedef typename itk::ImageRegion<VDim>                         RegionType;
 
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, ImageType::ImageDimension );
@@ -97,10 +98,11 @@ public:
    */
   int GetPointerIncrement() const { return nComp; }
 
-  FastLinearInterpolatorBase(ImageType *image, MaskImageType *mask = NULL)
+  FastLinearInterpolatorBase(ImageType *image, const RegionType &region, MaskImageType *mask = NULL)
   {
-    buffer = image->GetBufferPointer();
     nComp = FastWarpCompositeImageFilterInputImageTraits<TImage>::GetPointerIncrementSize(image);
+    auto region_offset = nComp * image->ComputeOffset(region.GetIndex());
+    buffer = image->GetBufferPointer() + region_offset;
     def_value_store = new InputComponentType[nComp];
     for(int i = 0; i < nComp; i++)
       def_value_store[i] = itk::NumericTraits<InputComponentType>::ZeroValue();
@@ -158,30 +160,41 @@ public:
   typedef typename Superclass::OutputComponentType     OutputComponentType;
   typedef typename Superclass::RealType                RealType;
   typedef typename Superclass::InOut                   InOut;
+  typedef typename Superclass::RegionType              RegionType;
 
-  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : Superclass(image, mask) {}
+  FastLinearInterpolator(ImageType *image, MaskImageType *mask = nullptr)
+    : FastLinearInterpolator(image, image->GetLargestPossibleRegion(), mask) {}
 
-  InOut InterpolateWithGradient(RealType *cix, OutputComponentType *out, OutputComponentType **grad)
+  FastLinearInterpolator(ImageType *image, const RegionType &region, MaskImageType *mask = nullptr)
+    : Superclass(image, region, mask) {}
+
+  InOut InterpolateWithGradient(RealType *itkNotUsed(cix), OutputComponentType *itkNotUsed(out), OutputComponentType **itkNotUsed(grad))
     { return Superclass::INSIDE; }
 
-  InOut Interpolate(RealType *cix, OutputComponentType *out)
+  InOut Interpolate(RealType *itkNotUsed(cix), OutputComponentType *itkNotUsed(out))
     { return Superclass::INSIDE; }
 
-  InOut InterpolateNearestNeighbor(RealType *cix, OutputComponentType *out)
+  InOut InterpolateNearestNeighbor(RealType *itkNotUsed(cix), OutputComponentType *itkNotUsed(out))
     { return Superclass::INSIDE; }
 
   TFloat GetMask() { return 0.0; }
 
-  TFloat GetMaskAndGradient(RealType *mask_gradient) { return 0.0; }
+  TFloat GetMaskAndGradient(RealType *itkNotUsed(mask_gradient)) { return 0.0; }
 
-  void Splat(RealType *cix, const InputComponentType *value) {}
+  void Splat(RealType *itkNotUsed(cix), const InputComponentType *itkNotUsed(value)) {}
+
+  void GetIndexAndRemainer(int *itkNotUsed(index), RealType *itkNotUsed(remainder)) { }
 
   template <class THistContainer>
-  void PartialVolumeHistogramSample(RealType *cix, const InputComponentType *fixptr, THistContainer &hist) {}
+  void PartialVolumeHistogramSample(RealType *itkNotUsed(cix),
+                                    const InputComponentType *itkNotUsed(fixptr),
+                                    THistContainer &itkNotUsed(hist)) {}
 
   template <class THistContainer>
-  void PartialVolumeHistogramGradientSample(RealType *cix, const InputComponentType *fix_ptr, const THistContainer &hist_w, RealType *out_grad) {}
-
+  void PartialVolumeHistogramGradientSample(RealType *itkNotUsed(cix),
+                                            const InputComponentType *itkNotUsed(fix_ptr),
+                                            const THistContainer &itkNotUsed(hist_w),
+                                            RealType *itkNotUsed(out_grad)) {}
 
 protected:
 };
@@ -202,17 +215,20 @@ public:
   typedef typename Superclass::RealType                                    RealType;
   typedef typename Superclass::InOut                                       InOut;
   typedef typename Superclass::MaskPixelType                               MaskPixelType;
+  typedef typename Superclass::RegionType                                  RegionType;
 
-  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : Superclass(image, mask)
+  FastLinearInterpolator(ImageType *image, const RegionType &region, MaskImageType *mask = nullptr) : Superclass(image, region, mask)
   {
-    xind = image->GetLargestPossibleRegion().GetIndex()[0];
-    yind = image->GetLargestPossibleRegion().GetIndex()[1];
-    zind = image->GetLargestPossibleRegion().GetIndex()[2];
+    xind = region.GetIndex()[0];
+    yind = region.GetIndex()[1];
+    zind = region.GetIndex()[2];
 
-    xsize = image->GetLargestPossibleRegion().GetSize()[0];
-    ysize = image->GetLargestPossibleRegion().GetSize()[1];
-    zsize = image->GetLargestPossibleRegion().GetSize()[2];
+    xsize = region.GetSize()[0];
+    ysize = region.GetSize()[1];
+    zsize = region.GetSize()[2];
   }
+
+  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : FastLinearInterpolator(image, image->GetLargestPossibleRegion(), mask) {}
 
   /**
    * Compute the pointers to the eight corners of the interpolating cube
@@ -317,6 +333,12 @@ public:
       }
 
     return this->status;
+  }
+
+  void GetIndexAndRemainer(int *index, RealType *remainder)
+  {
+    index[0] = this->x0; index[1] = this->y0; index[2] = this->z0;
+    remainder[0] = this->fx; remainder[1] = this->fy; remainder[2] = this->fz;
   }
 
   /**
@@ -694,14 +716,18 @@ public:
   typedef typename Superclass::InOut                                        InOut;
   typedef typename Superclass::MaskPixelType                                MaskPixelType;
 
-  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : Superclass(image, mask)
-  {
-    xind = image->GetLargestPossibleRegion().GetIndex()[0];
-    yind = image->GetLargestPossibleRegion().GetIndex()[1];
+  typedef typename Superclass::RegionType                                  RegionType;
 
-    xsize = image->GetLargestPossibleRegion().GetSize()[0];
-    ysize = image->GetLargestPossibleRegion().GetSize()[1];
+  FastLinearInterpolator(ImageType *image, const RegionType &region, MaskImageType *mask = nullptr) : Superclass(image, region, mask)
+  {
+    xind = region.GetIndex()[0];
+    yind = region.GetIndex()[1];
+
+    xsize = region.GetSize()[0];
+    ysize = region.GetSize()[1];
   }
+
+  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : FastLinearInterpolator(image, image->GetLargestPossibleRegion(), mask) {}
 
   /**
    * Compute the pointers to the eight corners of the interpolating cube
@@ -784,6 +810,12 @@ public:
       }
 
     return this->status;
+  }
+
+  void GetIndexAndRemainer(int *index, RealType *remainder)
+  {
+    index[0] = this->x0; index[1] = this->y0;
+    remainder[0] = this->fx; remainder[1] = this->fy;
   }
 
   /**

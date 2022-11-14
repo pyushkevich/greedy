@@ -167,6 +167,8 @@ SET(HEADERS
   src/GreedyException.h
   src/GreedyParameters.h
   src/MultiImageRegistrationHelper.h
+  src/TetraMeshConstraints.h
+  src/DifferentiableScalingAndSquaring.h
   src/CommandLineHelper.h
 )
 
@@ -180,6 +182,7 @@ SET(GREEDY_LIB_SRC
   src/MultiImageRegistrationHelper.cxx
   src/AffineCostFunctions.cxx
   src/TetraMeshConstraints.cxx
+  src/DifferentiableScalingAndSquaring.cxx
 )
 
 SET(LDDMM_SRC src/lddmm_main.cxx)
