@@ -390,6 +390,18 @@ LDDMMData<TFloat, VDim>
   flt->Update();
 }
 
+template<class TFloat, uint VDim>
+void LDDMMData<TFloat, VDim>::vimg_multiply_in_place(VectorImageType *trg, VectorImageType *s)
+{
+  typedef itk::MultiplyImageFilter<
+    VectorImageType, VectorImageType, VectorImageType> MultiplyFilter;
+  typename MultiplyFilter::Pointer flt = MultiplyFilter::New();
+  flt->SetInput1(trg);
+  flt->SetInput2(s);
+  flt->GraftOutput(trg);
+  flt->Update();
+}
+
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>

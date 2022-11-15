@@ -118,4 +118,20 @@ protected:
 
 };
 
+/**
+ * Adam step implementation
+ */
+template <typename TImage>
+class AdamStep
+{
+public:
+  AdamStep(double alpha = 0.001, double beta_1 = 0.9, double beta_2 = 0.999, double eps = 1.0e-8)
+    : alpha(alpha), beta_1(beta_1), beta_2(beta_2), eps(eps) {};
+
+  void Compute(int iter, const TImage *gradient, TImage *m_k, TImage *v_k, TImage *theta);
+
+protected:
+  double alpha, beta_1, beta_2, eps;
+};
+
 #endif // DIFFERENTIABLESCALINGANDSQUARING_H

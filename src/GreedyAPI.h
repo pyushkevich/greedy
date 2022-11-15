@@ -93,6 +93,8 @@ public:
 
   int RunDeformable(GreedyParameters &param);
 
+  int RunDeformableOptimization(GreedyParameters &param);
+
   int RunAffine(GreedyParameters &param);
 
   int RunBrute(GreedyParameters &param);
@@ -252,6 +254,7 @@ public:
                           ImageBaseType *ref_space,
                           VectorImagePointer &out_warp,
                           MeshArray *meshes = nullptr);
+
 
 protected:
 

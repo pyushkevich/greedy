@@ -251,6 +251,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->mode = GreedyParameters::AFFINE;
     }
+  else if(cmd == "-defopt")
+    {
+    this->mode = GreedyParameters::DEFORMABLE_OPTIMIZATION;
+    }
   else if(cmd == "-moments")
     {
     this->mode = GreedyParameters::MOMENTS;
@@ -517,6 +521,9 @@ std::string GreedyParameters::GenerateCommandLine()
       break;
     case GreedyParameters::METRIC:
       oss << " -metric";
+      break;
+    case GreedyParameters::DEFORMABLE_OPTIMIZATION:
+      oss << " -defopt";
       break;
     }
 

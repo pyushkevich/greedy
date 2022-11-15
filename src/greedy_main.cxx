@@ -76,6 +76,7 @@ int usage()
   printf("  -root inwarp outwarp N : Convert 2^N-th root of a warp \n");
   printf("  -jac inwarp outjac     : Compute the Jacobian determinant of the warp \n");
   printf("  -metric                : Compute metric between images\n");
+  printf("  -defopt                : Deformable optimization mode (experimental)\n");
   printf("Options in deformable / affine mode: \n");
   printf("  -w weight              : weight of the next -i pair\n");
   printf("  -m metric              : metric for the entire registration\n");

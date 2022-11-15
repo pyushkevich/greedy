@@ -187,6 +187,7 @@ public:
 
   static void vimg_scale(const VectorImageType *src, TFloat s, VectorImageType *trg);
   static void vimg_multiply_in_place(VectorImageType *trg, ImageType *s);
+  static void vimg_multiply_in_place(VectorImageType *trg, VectorImageType *s);
   static void vimg_euclidean_inner_product(ImagePointer &trg, VectorImageType *a, VectorImageType *b);
   static TFloat vimg_euclidean_norm_sq(VectorImageType *trg);
 

@@ -664,3 +664,75 @@ template class DisplacementFieldSmoothnessLoss<4, float>;
 template class DisplacementFieldSmoothnessLoss<2, double>;
 template class DisplacementFieldSmoothnessLoss<3, double>;
 template class DisplacementFieldSmoothnessLoss<4, double>;
+
+template <typename TAtomic>
+class AdamStepHelper
+{
+  static void pixel_update(const TAtomic &grad_i, TAtomic &m_k_i, TAtomic &v_k_i, TAtomic &theta_i,
+                           double alpha, double beta_1, double beta_2, double beta_1_t, double beta_2_t, double eps)
+    {
+    m_k_i = m_k_i * beta_1 + grad_i * (1.0 - beta_1);
+    v_k_i = v_k_i * beta_2 + (grad_i * grad_i) * (1.0 - beta_2);
+    TAtomic denom = eps + sqrt(v_k_i / (1.0 - beta_2_t));
+    theta_i -= m_k_i * alpha / (denom * (1.0 - beta_1_t));
+    }
+};
+
+template <unsigned int VDim, typename TReal>
+class AdamStepHelper<itk::CovariantVector<TReal, VDim> >
+{
+public:
+  typedef itk::CovariantVector<TReal, VDim> TAtomic;
+  static void pixel_update(const TAtomic &grad_i, TAtomic &m_k_i, TAtomic &v_k_i, TAtomic &theta_i,
+                           double alpha, double beta_1, double beta_2, double beta_1_t, double beta_2_t, double eps)
+    {
+    for(unsigned int d = 0; d < VDim; d++)
+      {
+      m_k_i[d] = m_k_i[d] * beta_1 + grad_i[d] * (1.0 - beta_1);
+      v_k_i[d] = v_k_i[d] * beta_2 + (grad_i[d] * grad_i[d]) * (1.0 - beta_2);
+      TReal denom = eps + sqrt(v_k_i[d] / (1.0 - beta_2_t));
+      theta_i[d] -= m_k_i[d] * alpha / (denom * (1.0 - beta_1_t));
+      }
+    }
+};
+
+template<typename TImage>
+void AdamStep<TImage>::Compute(int iter, const TImage *gradient, TImage *m_k, TImage *v_k, TImage *theta)
+{
+  // Create an iterator over the deformation field
+  typedef itk::ImageLinearIteratorWithIndex<TImage> IterBase;
+  typedef IteratorExtender<IterBase> IterType;
+  typedef typename TImage::PixelType PixelType;
+  typedef typename TImage::RegionType RegionType;
+  typedef AdamStepHelper<PixelType> Helper;
+
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+  mt->ParallelizeImageRegion<TImage::ImageDimension>(
+        theta->GetBufferedRegion(),
+        [gradient, m_k, v_k, theta, this, iter](const RegionType &region)
+    {
+    double beta_1_t = std::pow(this->beta_1, iter);
+    double beta_2_t = std::pow(this->beta_2, iter);
+    unsigned int line_len = region.GetSize(0);
+
+    for(IterType it(theta, theta->GetBufferedRegion()); !it.IsAtEnd(); it.NextLine())
+      {
+      const auto *grad_line = it.GetPixelPointer(gradient);
+      auto *m_k_line = it.GetPixelPointer(m_k);
+      auto *v_k_line = it.GetPixelPointer(v_k);
+      auto *theta_line = it.GetPixelPointer(theta);
+      PixelType denom;
+
+      for(unsigned int i = 0; i < line_len; i++, grad_line++, m_k_line++, v_k_line++, theta_line++)
+        Helper::pixel_update(*grad_line, *m_k_line, *v_k_line, *theta_line,
+                             alpha, beta_1, beta_2, beta_1_t, beta_2_t, eps);
+      }
+    }, nullptr);
+}
+
+template class AdamStep< typename LDDMMData<double, 2>::VectorImageType >;
+template class AdamStep< typename LDDMMData<double, 3>::VectorImageType >;
+template class AdamStep< typename LDDMMData<double, 4>::VectorImageType >;
+template class AdamStep< typename LDDMMData<float, 2>::VectorImageType >;
+template class AdamStep< typename LDDMMData<float, 3>::VectorImageType >;
+template class AdamStep< typename LDDMMData<float, 4>::VectorImageType >;
