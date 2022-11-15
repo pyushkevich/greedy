@@ -46,6 +46,8 @@ int usage()
   printf("        : Test derivatives of the warp composition layer\n");
   printf("  ssq_layer <2|3 \n");
   printf("        : Test derivatives of the scaling and squaring layer\n");
+  printf("  svf_smoothness_reg <2|3 \n");
+  printf("        : Test derivatives of SVF smoothness regularizer\n");
   return -1;
 }
 
@@ -928,6 +930,14 @@ RunDifferentiableSelfCompositionTest()
   return CompLayer::TestDerivatives() ? 0 : -1;
 }
 
+template <unsigned int VDim>
+int
+RunSVFSmoothnessRegularizerTest()
+{
+  typedef DisplacementFieldSmoothnessLoss<VDim, double> Layer;
+  return Layer::TestDerivatives() ? 0 : -1;
+}
+
 int main(int argc, char *argv[])
 {
   // Check for the environment variable of test data
@@ -1004,6 +1014,15 @@ int main(int argc, char *argv[])
       return RunDifferentiableScalingAndSquaringTest<2>();
     else if(dim == 3)
       return RunDifferentiableScalingAndSquaringTest<3>();
+    else return -1;
+    }
+  else if(cmd == "svf_smoothness_reg")
+    {
+    int dim = cl.read_integer();
+    if(dim == 2)
+      return RunSVFSmoothnessRegularizerTest<2>();
+    else if(dim == 3)
+      return RunSVFSmoothnessRegularizerTest<3>();
     else return -1;
     }
   else return usage();

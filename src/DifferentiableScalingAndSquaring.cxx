@@ -557,3 +557,110 @@ template class ScalingAndSquaringLayer<2, double>;
 template class ScalingAndSquaringLayer<3, double>;
 template class ScalingAndSquaringLayer<4, double>;
 
+
+template<unsigned int VDim, typename TReal>
+double DisplacementFieldSmoothnessLoss<VDim, TReal>
+::ComputeLossAndGradient(VectorImageType *u, VectorImageType *grad, TReal grad_scale)
+{
+  // Create an iterator over the deformation field
+  typedef itk::ImageLinearIteratorWithIndex<VectorImageType> IterBase;
+  typedef IteratorExtenderWithOffset<IterBase> IterType;
+
+  // Scaling factor for the derivative
+  double scale = grad_scale * 2.0 / u->GetBufferedRegion().GetNumberOfPixels();
+
+  // Loop over the image dimension
+  double obj = 0.0;
+  for(unsigned int d = 0; d < VDim; d++)
+    {
+    std::mutex mutex;
+    itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+    mt->ParallelizeImageRegionRestrictDirection<VDim>(
+          d, u->GetBufferedRegion(),
+          [u, d, &mutex, &obj, scale, &grad](const itk::ImageRegion<VDim> &region)
+      {
+      IterType it(u, region);
+      it.SetDirection(d);
+      int line_len = region.GetSize(d);
+      int jump = it.GetOffset(d);
+      double thread_obj = 0.0;
+
+      for(it.GoToBegin(); !it.IsAtEnd(); it.NextLine())
+        {
+        const Vec *p = it.GetPosition();
+        Vec *p_grad = it.GetPixelPointer(grad);
+        for(unsigned int i = 0; i < line_len - 1; i++, p+=jump, p_grad+=jump)
+          {
+          const Vec &a = *p, &b = *(p + jump);
+          Vec &d_a = *p_grad, &d_b = *(p_grad + jump);
+          for(unsigned int k = 0; k < VDim; k++)
+            {
+            TReal del = (b[k] - a[k]);
+            TReal del_scaled = del * scale;
+            d_a[k] -= del_scaled;
+            d_b[k] += del_scaled;
+            thread_obj += del * del;
+            }
+          }
+        }
+
+      std::lock_guard<std::mutex> guard(mutex);
+      obj += thread_obj;
+      }, nullptr);
+    }
+
+  return obj / u->GetBufferedRegion().GetNumberOfPixels();
+}
+
+template<unsigned int VDim, typename TReal>
+bool DisplacementFieldSmoothnessLoss<VDim, TReal>::TestDerivatives()
+{
+  // Create the stationary velocity field
+  typedef DisplacementSelfCompositionLayer<VDim, TReal> CompositionLayer;
+  typename VectorImageType::Pointer u = CompositionLayer::MakeTestDisplacement(96, 8.0, 1.0);
+  typename VectorImageType::Pointer D_u_obj = LDDMMType::new_vimg(u);
+
+  // Create the test object
+  DisplacementFieldSmoothnessLoss<VDim, TReal> self;
+
+  // Compute the objective and gradient in one go
+  itk::TimeProbe tp_f;
+  tp_f.Start();
+  double obj = self.ComputeLossAndGradient(u, D_u_obj);
+  tp_f.Stop();
+
+  // Print forward time statistics
+  printf("Complete run time: %f\n", tp_f.GetTotal());
+  printf("Loss value: %f\n", obj);
+
+  // Generate a random variation of phi
+  typename LDDMMType::VectorImagePointer variation = CompositionLayer::MakeTestDisplacement(96, 1.0, 0.2);
+
+  // Compute the analytic derivative with respect to variation
+  typename LDDMMType::ImagePointer idot = LDDMMType::new_img(u, 0.0);
+  LDDMMType::vimg_euclidean_inner_product(idot, D_u_obj, variation);
+  double ana_deriv = LDDMMType::img_voxel_sum(idot);
+
+  // Compute the numeric derivative with respect to variation
+  double eps = 0.001;
+  LDDMMType::vimg_add_scaled_in_place(u, variation, eps);
+  double obj_plus = self.ComputeLossAndGradient(u, D_u_obj);
+  LDDMMType::vimg_add_scaled_in_place(u, variation, -2.0 * eps);
+  double obj_minus = self.ComputeLossAndGradient(u, D_u_obj);
+  double num_deriv = (obj_plus - obj_minus) / (2.0 * eps);
+
+  // Compute relative difference
+  double rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / std::fabs(ana_deriv + num_deriv);
+
+  // Compute the difference between the two derivatives
+  printf("Derivatives: ANA: %12.8g  NUM: %12.8g  RELDIF: %12.8f\n", ana_deriv, num_deriv, rel_diff);
+
+  return rel_diff < 1.0e-4;
+}
+
+template class DisplacementFieldSmoothnessLoss<2, float>;
+template class DisplacementFieldSmoothnessLoss<3, float>;
+template class DisplacementFieldSmoothnessLoss<4, float>;
+template class DisplacementFieldSmoothnessLoss<2, double>;
+template class DisplacementFieldSmoothnessLoss<3, double>;
+template class DisplacementFieldSmoothnessLoss<4, double>;

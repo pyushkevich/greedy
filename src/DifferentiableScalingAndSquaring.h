@@ -97,4 +97,25 @@ protected:
   unsigned int m_Steps;
 };
 
+/**
+ * A penalty on the derivative of the stationary velocity field, used to
+ * impose smoothness constraints during optimization
+ */
+template <unsigned int VDim, typename TReal>
+class DisplacementFieldSmoothnessLoss
+{
+public:
+  typedef LDDMMData<TReal, VDim> LDDMMType;
+  typedef typename LDDMMType::VectorImageType VectorImageType;
+  typedef typename LDDMMType::Vec Vec;
+
+  double ComputeLossAndGradient(VectorImageType *u, VectorImageType *grad, TReal grad_scale = 1.0);
+
+  // Test
+  static bool TestDerivatives();
+
+protected:
+
+};
+
 #endif // DIFFERENTIABLESCALINGANDSQUARING_H
