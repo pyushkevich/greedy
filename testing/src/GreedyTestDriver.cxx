@@ -42,8 +42,10 @@ int usage()
   printf("          Greedy options: -i, -ia, -m, -n \n");
   printf("  tet_jac_reg <2|3> \n");
   printf("        : Test derivatives of the tetrahedral jacobian regularization term\n");
-  printf("  comp_layer <2|3> <0|1> \n");
-  printf("        : Test derivatives of the warp composition layer (0 single-threaded, 1 multi-threaded)\n");
+  printf("  comp_layer <2|3> \n");
+  printf("        : Test derivatives of the warp composition layer\n");
+  printf("  ssq_layer <2|3 \n");
+  printf("        : Test derivatives of the scaling and squaring layer\n");
   return -1;
 }
 
@@ -912,12 +914,19 @@ RunTetraJacobianRegularizationTest()
 
 template <unsigned int VDim>
 int
-RunDifferentiableScalingAndSquaringTest(bool multi_threaded)
+RunDifferentiableScalingAndSquaringTest()
 {
-  typedef DisplacementSelfCompositionLayer<VDim, double> CompLayer;
-  return CompLayer::TestDerivatives(multi_threaded) ? 0 : -1;
+  typedef ScalingAndSquaringLayer<VDim, double> SSQLayer;
+  return SSQLayer::TestDerivatives() ? 0 : -1;
 }
 
+template <unsigned int VDim>
+int
+RunDifferentiableSelfCompositionTest()
+{
+  typedef DisplacementSelfCompositionLayer<VDim, double> CompLayer;
+  return CompLayer::TestDerivatives() ? 0 : -1;
+}
 
 int main(int argc, char *argv[])
 {
@@ -982,11 +991,19 @@ int main(int argc, char *argv[])
   else if(cmd == "comp_layer")
     {
     int dim = cl.read_integer();
-    bool multi_threaded = cl.read_integer() == 1;
     if(dim == 2)
-      return RunDifferentiableScalingAndSquaringTest<2>(multi_threaded);
+      return RunDifferentiableSelfCompositionTest<2>();
     else if(dim == 3)
-      return RunDifferentiableScalingAndSquaringTest<3>(multi_threaded);
+      return RunDifferentiableSelfCompositionTest<3>();
+    else return -1;
+    }
+  else if(cmd == "ssq_layer")
+    {
+    int dim = cl.read_integer();
+    if(dim == 2)
+      return RunDifferentiableScalingAndSquaringTest<2>();
+    else if(dim == 3)
+      return RunDifferentiableScalingAndSquaringTest<3>();
     else return -1;
     }
   else return usage();

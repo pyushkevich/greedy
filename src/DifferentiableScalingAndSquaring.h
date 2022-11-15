@@ -54,8 +54,11 @@ public:
   // with respect to v, D_v f, compute D_u f = (D_u v)(D_v f)
   void BackwardSingleThreaded(VectorImageType *u, VectorImageType *Dv_f, VectorImageType *Du_f);
 
+  // Helper methods for testing
+  static typename VectorImageType::Pointer MakeTestDisplacement(int size = 96, TReal scale = 8.0, TReal sigma = 1.0);
+
   // Test
-  static bool TestDerivatives(bool multi_threaded);
+  static bool TestDerivatives();
 };
 
 /**
@@ -70,6 +73,8 @@ public:
   typedef DisplacementSelfCompositionLayer<VDim, TReal> CompositionLayer;
   typedef LDDMMData<TReal, VDim> LDDMMType;
   typedef typename LDDMMType::VectorImageType VectorImageType;
+  typedef typename LDDMMType::Vec Vec;
+
 
   // Initialize the layer
   ScalingAndSquaringLayer(VectorImageType *u, unsigned int n_steps = 6);
@@ -82,15 +87,13 @@ public:
   void Backward(VectorImageType *u, VectorImageType *Dv_f, VectorImageType *Du_f);
 
   // Test
-  static bool TestDerivatives(bool multi_threaded);
+  static bool TestDerivatives();
 
 protected:
   CompositionLayer m_CompositionLayer;
 
   // During the forward pass, we need to store the U at every stage
-  std::vector<typename VectorImageType::Pointer> m_StepU;
-
-  typename VectorImageType::Pointer m_WorkImage1, m_WorkImage2;
+  std::vector<typename VectorImageType::Pointer> m_WorkImage;
   unsigned int m_Steps;
 };
 

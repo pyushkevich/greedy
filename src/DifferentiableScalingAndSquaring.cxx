@@ -307,9 +307,9 @@ void DisplacementSelfCompositionLayer<VDim, TReal>
   delete [] Dx_v;
 }
 
-
 template<unsigned int VDim, typename TReal>
-bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives(bool multi_threaded)
+typename DisplacementSelfCompositionLayer<VDim, TReal>::VectorImageType::Pointer
+DisplacementSelfCompositionLayer<VDim, TReal>::MakeTestDisplacement(int size, TReal scale, TReal sigma)
 {
   // Create a dummy image
   typename VectorImageType::Pointer phi = VectorImageType::New();
@@ -318,7 +318,7 @@ bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives(bool multi_t
   double origin_phi[VDim], spacing_phi[VDim];
   for(unsigned int d = 0; d < VDim; d++)
     {
-    sz_phi[d] = 96;
+    sz_phi[d] = size;
     spacing_phi[d] = 1.0 / sz_phi[d];
     origin_phi[d] = 0.5 * spacing_phi[d];
     }
@@ -333,10 +333,18 @@ bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives(bool multi_t
   vnl_random randy;
   for(itk::ImageRegionIteratorWithIndex<VectorImageType> it(phi, region); !it.IsAtEnd(); ++it)
     for(unsigned int d = 0; d < VDim; d++)
-      it.Value()[d] = randy.normal() * 8.0;
-  LDDMMType::vimg_smooth(phi, phi, 1.0);
+      it.Value()[d] = randy.normal() * scale;
+  LDDMMType::vimg_smooth(phi, phi, sigma);
 
+  return phi;
+}
+
+
+template<unsigned int VDim, typename TReal>
+bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives()
+{
   // Create the self-composition image
+  typename VectorImageType::Pointer phi = MakeTestDisplacement(96, 8.0, 1.0);
   typename VectorImageType::Pointer phi_comp_phi_1 = LDDMMType::new_vimg(phi);
   typename VectorImageType::Pointer phi_comp_phi_2 = LDDMMType::new_vimg(phi);
   typename VectorImageType::Pointer phi_comp_phi_3 = LDDMMType::new_vimg(phi);
@@ -344,7 +352,6 @@ bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives(bool multi_t
   // Compute the composition the normal way
   LDDMMType::interp_vimg(phi, phi, 1.0, phi_comp_phi_1);
   LDDMMType::vimg_add_in_place(phi_comp_phi_1, phi);
-  // LDDMMType::vimg_write(phi_comp_phi_1, "/tmp/phi_comp_phi_filter.nii.gz");
 
   // Compute the composition the way this class does
   DisplacementSelfCompositionLayer<VDim, TReal> self;
@@ -358,9 +365,6 @@ bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives(bool multi_t
   tp_f_st.Stop();
 
   printf("Forward run time ST: %f, MT: %f\n", tp_f_st.GetTotal(), tp_f_mt.GetTotal());
-
-  // LDDMMType::vimg_write(phi_comp_phi_2, "/tmp/phi_comp_phi_forward.nii.gz");
-  // LDDMMType::vimg_write(phi_comp_phi_3, "/tmp/phi_comp_phi_forward_singlethread.nii.gz");
 
   // Compare the two results
   LDDMMType::vimg_subtract_in_place(phi_comp_phi_1, phi_comp_phi_2);
@@ -385,7 +389,6 @@ bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives(bool multi_t
   typename VectorImageType::Pointer D_u_obj = LDDMMType::new_vimg(phi);
   typename VectorImageType::Pointer D_u_obj_st = LDDMMType::new_vimg(phi);
 
-
   itk::TimeProbe tp_mt, tp_st;
   tp_mt.Start();
   self.Backward(phi, D_v_obj, D_u_obj);
@@ -397,26 +400,13 @@ bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives(bool multi_t
 
   printf("Run time ST: %f, MT: %f\n", tp_st.GetTotal(), tp_mt.GetTotal());
 
-  // LDDMMType::vimg_write(D_u_obj, "/tmp/phi_comp_phi_backward.nii.gz");
-  // LDDMMType::vimg_write(D_u_obj_st, "/tmp/phi_comp_phi_backward_singlethread.nii.gz");
-
   // Compare the two results
   LDDMMType::vimg_subtract_in_place(D_u_obj_st, D_u_obj);
   double err3 = LDDMMType::vimg_euclidean_norm_sq(D_u_obj_st);
   printf("Error Backward vs BackwardSingleThreaded: %12.8f\n", err3);
 
   // Generate a random variation of phi
-  typename LDDMMType::VectorImagePointer variation = LDDMMType::new_vimg(phi, 0.0);
-  typename VectorImageType::RegionType subregion;
-  for(unsigned int d = 0; d < VDim; d++)
-    {
-    subregion.SetIndex(d, 8);
-    subregion.SetSize(d, 16);
-    }
-  for(itk::ImageRegionIteratorWithIndex<VectorImageType> it(variation, subregion); !it.IsAtEnd(); ++it)
-    for(unsigned int d = 0; d < VDim; d++)
-      it.Value()[d] = randy.normal() * 1.0;
-  LDDMMType::vimg_smooth(variation, variation, 0.2);
+  typename LDDMMType::VectorImagePointer variation = MakeTestDisplacement(96, 1.0, 0.2);
 
   // Compute the analytic derivative with respect to variation
   typename LDDMMType::ImagePointer idot = LDDMMType::new_img(phi, 0.0);
@@ -427,10 +417,10 @@ bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives(bool multi_t
   double eps = 0.001;
   typename LDDMMType::VectorImagePointer work = LDDMMType::new_vimg(phi, 0.0);
   LDDMMType::vimg_add_scaled_in_place(phi, variation, eps);
-  if(multi_threaded) self.Forward(phi, work); else self.ForwardSingleThreaded(phi, work);
+  self.Forward(phi, work);
   double obj_plus = LDDMMType::vimg_euclidean_norm_sq(work) / nvox;
   LDDMMType::vimg_add_scaled_in_place(phi, variation, -2.0 * eps);
-  if(multi_threaded) self.Forward(phi, work); else self.ForwardSingleThreaded(phi, work);
+  self.Forward(phi, work);
   double obj_minus = LDDMMType::vimg_euclidean_norm_sq(work) / nvox;
   double num_deriv = (obj_plus - obj_minus) / (2.0 * eps);
 
@@ -455,33 +445,115 @@ ScalingAndSquaringLayer<VDim, TReal>
 ::ScalingAndSquaringLayer(VectorImageType *u, unsigned int n_steps)
 {
   this->m_Steps = n_steps;
-  this->m_StepU.resize(this->m_Steps, nullptr);
+  this->m_WorkImage.resize(this->m_Steps, nullptr);
   for(unsigned int i = 0; i < this->m_Steps; i++)
-    this->m_StepU[i] = LDDMMType::new_vimg(u);
-  m_WorkImage1 = LDDMMType::new_vimg(u);
-  m_WorkImage2 = LDDMMType::new_vimg(u);
+    this->m_WorkImage[i] = LDDMMType::new_vimg(u);
 }
 
 template<unsigned int VDim, typename TReal>
 void ScalingAndSquaringLayer<VDim, TReal>::Forward(VectorImageType *u, VectorImageType *v)
 {
   for(unsigned int i = 0; i < m_Steps; i++)
-    m_CompositionLayer.Forward(i == 0 ? u : this->m_StepU[i-1], i == m_Steps - 1 ? v : this->m_StepU[i]);
+    m_CompositionLayer.Forward(i == 0 ? u : m_WorkImage[i-1].GetPointer(),
+                               i == m_Steps - 1 ? v : m_WorkImage[i].GetPointer());
 }
 
 template<unsigned int VDim, typename TReal>
 void ScalingAndSquaringLayer<VDim, TReal>
 ::Backward(VectorImageType *u, VectorImageType *Dv_f, VectorImageType *Du_f)
 {
-  m_WorkImage
-  for(unsigned int i = m_Steps-1; i >= 0; i--)
+
+  for(int i = m_Steps-1; i >= 0; i--)
     {
-    m_CompositionLayer.Backward(i == 0 ? u : this->m_StepU[i-1],
-                                i == m_Steps - 1 ? Dv_f : m_WorkImage1,
-                                i == 0 ? Du_f : m_WorkImage2);
-
-
-
+    if(i > 0)
+      m_WorkImage[i]->FillBuffer(Vec(0.0));
+    m_CompositionLayer.Backward(i == 0 ? u : m_WorkImage[i-1].GetPointer(),
+                                i == (int) (m_Steps - 1) ? Dv_f : m_WorkImage[i+1].GetPointer(),
+                                i == 0 ? Du_f : m_WorkImage[i].GetPointer());
     }
-
 }
+
+template<unsigned int VDim, typename TReal>
+bool ScalingAndSquaringLayer<VDim, TReal>::TestDerivatives()
+{
+  // Create the stationary velocity field
+  typename VectorImageType::Pointer u = CompositionLayer::MakeTestDisplacement(96, 8.0, 1.0);
+  typename VectorImageType::Pointer v_reference = LDDMMType::new_vimg(u);
+  typename VectorImageType::Pointer v_test = LDDMMType::new_vimg(u);
+  typename VectorImageType::Pointer work = LDDMMType::new_vimg(u);
+
+  // Create the test object
+  ScalingAndSquaringLayer<VDim, TReal> self(u);
+
+  // Perform scaling and squaring the conventional way
+  itk::TimeProbe tp_f_reference, tp_f_test;
+  tp_f_reference.Start();
+  LDDMMType::vimg_exp(u, v_reference, work, 6, 1.0);
+  tp_f_reference.Stop();
+
+  // Perform scaling and squaring using the layer
+  tp_f_test.Start();
+  self.Forward(u, v_test);
+  tp_f_test.Stop();
+
+  // Print forward time statistics
+  printf("Forward run time reference: %f, test: %f\n", tp_f_reference.GetTotal(), tp_f_test.GetTotal());
+
+  // Compare the two results
+  LDDMMType::vimg_subtract_in_place(v_reference, v_test);
+  double err1 = LDDMMType::vimg_euclidean_norm_sq(v_reference);
+  printf("Error Test vs Reference: %12.8f\n", err1);
+
+  // Let's define the objective function as just the norm of the vector field
+  double nvox = u->GetBufferedRegion().GetNumberOfPixels();
+  double obj = LDDMMType::vimg_euclidean_norm_sq(v_test) / nvox;
+
+  // Then the derivative of the objective with respect to phi_comp_phi_2 is just 2 * phi_comp_phi_2 / nvox;
+  typename VectorImageType::Pointer D_v_obj = LDDMMType::new_vimg(u);
+  LDDMMType::vimg_copy(v_test, D_v_obj);
+  LDDMMType::vimg_scale_in_place(D_v_obj, 2.0 / nvox);
+
+  // Backpropagate this to the derivative with respect to u
+  typename VectorImageType::Pointer D_u_obj = LDDMMType::new_vimg(u);
+
+  itk::TimeProbe tp_b;
+  tp_b.Start();
+  self.Backward(u, D_v_obj, D_u_obj);
+  tp_b.Stop();
+
+  printf("Run time backprop: %f\n", tp_b.GetTotal());
+
+  // Generate a random variation of phi
+  typename LDDMMType::VectorImagePointer variation = CompositionLayer::MakeTestDisplacement(96, 1.0, 0.2);
+
+  // Compute the analytic derivative with respect to variation
+  typename LDDMMType::ImagePointer idot = LDDMMType::new_img(u, 0.0);
+  LDDMMType::vimg_euclidean_inner_product(idot, D_u_obj, variation);
+  double ana_deriv = LDDMMType::img_voxel_sum(idot);
+
+  // Compute the numeric derivative with respect to variation
+  double eps = 0.001;
+  LDDMMType::vimg_add_scaled_in_place(u, variation, eps);
+  self.Forward(u, work);
+  double obj_plus = LDDMMType::vimg_euclidean_norm_sq(work) / nvox;
+  LDDMMType::vimg_add_scaled_in_place(u, variation, -2.0 * eps);
+  self.Forward(u, work);
+  double obj_minus = LDDMMType::vimg_euclidean_norm_sq(work) / nvox;
+  double num_deriv = (obj_plus - obj_minus) / (2.0 * eps);
+
+  // Compute relative difference
+  double rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / std::fabs(ana_deriv + num_deriv);
+
+  // Compute the difference between the two derivatives
+  printf("Derivatives: ANA: %12.8g  NUM: %12.8g  RELDIF: %12.8f\n", ana_deriv, num_deriv, rel_diff);
+
+  return rel_diff < 1.0e-4;
+}
+
+template class ScalingAndSquaringLayer<2, float>;
+template class ScalingAndSquaringLayer<3, float>;
+template class ScalingAndSquaringLayer<4, float>;
+template class ScalingAndSquaringLayer<2, double>;
+template class ScalingAndSquaringLayer<3, double>;
+template class ScalingAndSquaringLayer<4, double>;
+
