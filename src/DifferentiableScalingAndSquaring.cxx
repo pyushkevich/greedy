@@ -9,19 +9,6 @@
 
 
 template<unsigned int VDim, typename TReal>
-void DisplacementSelfCompositionLayer<VDim, TReal>::Initialize(VectorImageType *u)
-{
-  // Allocate the offset image
-  m_OffsetImage = OffsetImageType::New();
-  m_OffsetImage->CopyInformation(u);
-  m_OffsetImage->SetRegions(u->GetBufferedRegion());
-  m_OffsetImage->Allocate();
-
-  // Allocate the remainder image
-  m_RemainderImage = LDDMMType::new_vimg(u);
-}
-
-template<unsigned int VDim, typename TReal>
 void DisplacementSelfCompositionLayer<VDim, TReal>::Forward(VectorImageType *u, VectorImageType *v)
 {
   // Create an iterator over the deformation field
@@ -361,8 +348,16 @@ bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives(bool multi_t
 
   // Compute the composition the way this class does
   DisplacementSelfCompositionLayer<VDim, TReal> self;
+  itk::TimeProbe tp_f_mt, tp_f_st;
+  tp_f_mt.Start();
   self.Forward(phi, phi_comp_phi_2);
+  tp_f_mt.Stop();
+
+  tp_f_st.Start();
   self.ForwardSingleThreaded(phi, phi_comp_phi_3);
+  tp_f_st.Stop();
+
+  printf("Forward run time ST: %f, MT: %f\n", tp_f_st.GetTotal(), tp_f_mt.GetTotal());
 
   // LDDMMType::vimg_write(phi_comp_phi_2, "/tmp/phi_comp_phi_forward.nii.gz");
   // LDDMMType::vimg_write(phi_comp_phi_3, "/tmp/phi_comp_phi_forward_singlethread.nii.gz");
@@ -370,12 +365,12 @@ bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives(bool multi_t
   // Compare the two results
   LDDMMType::vimg_subtract_in_place(phi_comp_phi_1, phi_comp_phi_2);
   double err1 = LDDMMType::vimg_euclidean_norm_sq(phi_comp_phi_1);
-  printf("Error 1: %12.8f\n", err1);
+  printf("Error Forward vs LDDMMType::interp_vimg: %12.8f\n", err1);
 
   // Compare the two results
   LDDMMType::vimg_subtract_in_place(phi_comp_phi_2, phi_comp_phi_3);
   double err2 = LDDMMType::vimg_euclidean_norm_sq(phi_comp_phi_2);
-  printf("Error 2: %12.8f\n", err2);
+  printf("Error Forward vs ForwardSingleThreaded: %12.8f\n", err2);
 
   // Let's define the objective function as just the norm of the vector field
   double nvox = phi_comp_phi_3->GetBufferedRegion().GetNumberOfPixels();
@@ -408,7 +403,7 @@ bool DisplacementSelfCompositionLayer<VDim, TReal>::TestDerivatives(bool multi_t
   // Compare the two results
   LDDMMType::vimg_subtract_in_place(D_u_obj_st, D_u_obj);
   double err3 = LDDMMType::vimg_euclidean_norm_sq(D_u_obj_st);
-  printf("Error 3: %12.8f\n", err3);
+  printf("Error Backward vs BackwardSingleThreaded: %12.8f\n", err3);
 
   // Generate a random variation of phi
   typename LDDMMType::VectorImagePointer variation = LDDMMType::new_vimg(phi, 0.0);
@@ -454,3 +449,39 @@ template class DisplacementSelfCompositionLayer<4, float>;
 template class DisplacementSelfCompositionLayer<2, double>;
 template class DisplacementSelfCompositionLayer<3, double>;
 template class DisplacementSelfCompositionLayer<4, double>;
+
+template<unsigned int VDim, typename TReal>
+ScalingAndSquaringLayer<VDim, TReal>
+::ScalingAndSquaringLayer(VectorImageType *u, unsigned int n_steps)
+{
+  this->m_Steps = n_steps;
+  this->m_StepU.resize(this->m_Steps, nullptr);
+  for(unsigned int i = 0; i < this->m_Steps; i++)
+    this->m_StepU[i] = LDDMMType::new_vimg(u);
+  m_WorkImage1 = LDDMMType::new_vimg(u);
+  m_WorkImage2 = LDDMMType::new_vimg(u);
+}
+
+template<unsigned int VDim, typename TReal>
+void ScalingAndSquaringLayer<VDim, TReal>::Forward(VectorImageType *u, VectorImageType *v)
+{
+  for(unsigned int i = 0; i < m_Steps; i++)
+    m_CompositionLayer.Forward(i == 0 ? u : this->m_StepU[i-1], i == m_Steps - 1 ? v : this->m_StepU[i]);
+}
+
+template<unsigned int VDim, typename TReal>
+void ScalingAndSquaringLayer<VDim, TReal>
+::Backward(VectorImageType *u, VectorImageType *Dv_f, VectorImageType *Du_f)
+{
+  m_WorkImage
+  for(unsigned int i = m_Steps-1; i >= 0; i--)
+    {
+    m_CompositionLayer.Backward(i == 0 ? u : this->m_StepU[i-1],
+                                i == m_Steps - 1 ? Dv_f : m_WorkImage1,
+                                i == 0 ? Du_f : m_WorkImage2);
+
+
+
+    }
+
+}

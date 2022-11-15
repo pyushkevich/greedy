@@ -30,9 +30,8 @@
 #include "lddmm_data.h"
 
 /**
- * An experimental scaling and squaring layer that can be
- * backpropagated, allowing the use of scaling and squaring
- * for direct optimization
+ * A layer implementing composition of a displacement field with itself
+ * with efficient backpropagation
  */
 template <unsigned int VDim, typename TReal>
 class DisplacementSelfCompositionLayer
@@ -40,9 +39,6 @@ class DisplacementSelfCompositionLayer
 public:
   typedef LDDMMData<TReal, VDim> LDDMMType;
   typedef typename LDDMMType::VectorImageType VectorImageType;
-
-  // Initialization - allocates necessary data
-  void Initialize(VectorImageType *u);
 
   // Forward pass - compute the composition of u with itself
   void Forward(VectorImageType *u, VectorImageType *v);
@@ -60,16 +56,42 @@ public:
 
   // Test
   static bool TestDerivatives(bool multi_threaded);
+};
+
+/**
+ * An experimental scaling and squaring layer that can be
+ * backpropagated, allowing the use of scaling and squaring
+ * for direct optimization
+ */
+template <unsigned int VDim, typename TReal>
+class ScalingAndSquaringLayer
+{
+public:
+  typedef DisplacementSelfCompositionLayer<VDim, TReal> CompositionLayer;
+  typedef LDDMMData<TReal, VDim> LDDMMType;
+  typedef typename LDDMMType::VectorImageType VectorImageType;
+
+  // Initialize the layer
+  ScalingAndSquaringLayer(VectorImageType *u, unsigned int n_steps = 6);
+
+  // Forward pass - compute the composition of u with itself
+  void Forward(VectorImageType *u, VectorImageType *v);
+
+  // Backward pass - Given u and the partial derivative of some objective function f,
+  // with respect to v, D_v f, compute D_u f = (D_u v)(D_v f)
+  void Backward(VectorImageType *u, VectorImageType *Dv_f, VectorImageType *Du_f);
+
+  // Test
+  static bool TestDerivatives(bool multi_threaded);
 
 protected:
+  CompositionLayer m_CompositionLayer;
 
-  // An image storing the offset of the first corner pixel - needed for parallel splatting
-  typedef itk::Image<int, VDim> OffsetImageType;
-  typename OffsetImageType::Pointer m_OffsetImage;
+  // During the forward pass, we need to store the U at every stage
+  std::vector<typename VectorImageType::Pointer> m_StepU;
 
-  // An image storing the remainders fx, fy, fz in linear interpolation, also used for splatting
-  typename LDDMMType::VectorImagePointer m_RemainderImage;
-
+  typename VectorImageType::Pointer m_WorkImage1, m_WorkImage2;
+  unsigned int m_Steps;
 };
 
 #endif // DIFFERENTIABLESCALINGANDSQUARING_H
