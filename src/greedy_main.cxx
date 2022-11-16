@@ -140,6 +140,8 @@ int usage()
   printf("                           is the initial stationary velocity field (output by -oroot option)\n");
   printf("  -tjr mesh.vtk WGT      : Apply a regularization penalty based on the variation of the Jacobian of a tetrahedral\n");
   printf("                           mesh defined in reference image space. WGT is the weight of the penalty term.\n");
+  printf("Specific to (experimental) deformable optimization mode: \n");
+  printf("  -wr VALUE              : Weight of SVF smoothness regularization term (default: 1000)\n");
   printf("Initial transform specification (for affine mode): \n");
   printf("  -ia filename           : initial affine matrix for optimization (not the same as -it) \n");
   printf("  -ia-identity           : initialize affine matrix based on NIFTI headers (default) \n");

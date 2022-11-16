@@ -609,6 +609,8 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
   double epsilon = cl.read_double();
   double tol = cl.read_double();
 
+  bool minimization_mode = true;
+
   // List of greedy commands that are recognized by this test command
   std::set<std::string> greedy_cmd {
     "-m", "-threads", "-i", "-it", "-gm", "-mm", "-ia", "-bg"
@@ -648,9 +650,10 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
   // Initialize phi to some dummy value
   api.LoadInitialTransform(gp, of_helper, 0, phi);
 
-  // Compute the metric and gradient
+  // Compute the metric and gradient, using minimization mode, which should ensure that
+  // the gradient is scaled correctly relative to the metric
   MultiComponentMetricReport metric_report;
-  api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0);
+  api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0, minimization_mode);
 
   // Interpolator to figure out what kind of sample it is
   typedef LDDMMData<double, VDim> LDDMMType;
@@ -720,12 +723,14 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
         break;
       }
 
+    s.mask_vol = metric_report.MaskVolume;
+
     // Some scaling is unaccounted for
     s.df_analytic = grad_metric->GetPixel(s.pos);
-    if(gp.metric == GreedyParameters::SSD)
-      s.df_analytic *= -2.0;
 
-    s.mask_vol = metric_report.MaskVolume;
+    // if(gp.metric == GreedyParameters::SSD)
+    //  s.df_analytic *= -2.0;
+
     }
 
   // Compute numerical derivative approximation
@@ -738,33 +743,38 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
       auto def1 = orig, def2 = orig;
       def1[k] -= epsilon;
       phi->SetPixel(s.pos, def1);
-      api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0);
+      api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0, minimization_mode);
       double v1 = metric_report.TotalPerPixelMetric;
 
       def2[k] += epsilon;
       phi->SetPixel(s.pos, def2);
-      api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_2, grad_metric, 1.0);
+      api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_2, grad_metric, 1.0, minimization_mode);
       double v2 = metric_report.TotalPerPixelMetric;
 
       // We scale by the central mask volume (so that we are actually testing the TotalPerPixelMetric
       // but reporting in units of the whole metric
-      s.df_numeric[k] = s.mask_vol * ((v2-v1) / (2 * epsilon));
+      if(minimization_mode)
+        s.df_numeric[k] = (v2 - v1) / (2 * epsilon);
+      else
+        s.df_numeric[k] = s.mask_vol * ((v2-v1) / (2 * epsilon));
 
       phi->SetPixel(s.pos, orig);
       }
 
-    // Compute the error
-    auto err_vec = (s.df_analytic - s.df_numeric).GetVnlVector();
-    double del = err_vec.inf_norm();
+    // Compute the relative error
+    vnl_vector<double> rel_err_comp(VDim);
+    for(unsigned int d = 0; d < VDim; d++)
+      rel_err_comp[d] = fabs(s.df_analytic[d] - s.df_numeric[d]) / (0.5 * (fabs(s.df_analytic[d]) + fabs(s.df_numeric[d])) + 1e-6);
+    double rel_err_sup = rel_err_comp.inf_norm();
 
     // Print the comparison
     const char *status_names[] = { "INSIDE", "OUTSIDE", "BORDER" };
-    printf("Sample [%s] (%7s)  Num: %s  Anl: %s   Err: %8.2e\n",
+    printf("Sample [%s] (%7s)  Num: %s  Anl: %s   Err: %8.5f\n",
            printf_index("%03ld", s.pos).c_str(),
            status_names[s.status],
-           printf_vec<VDim,double>("%12.4f", s.df_numeric.GetVnlVector().data_block()).c_str(),
-           printf_vec<VDim,double>("%12.4f", s.df_analytic.GetVnlVector().data_block()).c_str(),
-           del);
+           printf_vec<VDim,double>("%12.9f", s.df_numeric.GetVnlVector().data_block()).c_str(),
+           printf_vec<VDim,double>("%12.9f", s.df_analytic.GetVnlVector().data_block()).c_str(),
+           rel_err_sup);
 
     /*
     std::cout << "W      : " << s.weight_value << std::endl;
@@ -773,7 +783,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
     std::cout << "Grad-WM: " << s.grad_WM << std::endl;
     */
 
-    if(del > tol)
+    if(rel_err_sup > tol)
       retval = -1;
     }
 

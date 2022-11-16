@@ -1552,7 +1552,7 @@ void GreedyApproach<VDim, TReal>
     MultiComponentMetricReport &metric_report,
     ImageType *out_metric_image,
     VectorImageType *out_metric_gradient,
-    double eps)
+    double eps, bool minimization_mode)
 {
   // Initialize the metric and gradient to zeros
   out_metric_image->FillBuffer(0.0);
@@ -1595,7 +1595,7 @@ void GreedyApproach<VDim, TReal>
 
       // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
       of_helper.ComputeNCCMetricAndGradient(g, level, phi, radius, false,
-                                            out_metric_image, group_report, out_metric_gradient, eps);
+                                            out_metric_image, group_report, out_metric_gradient, eps, minimization_mode);
       group_report.Scale(1.0 / eps);
       }
 
@@ -1606,7 +1606,7 @@ void GreedyApproach<VDim, TReal>
       // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
       // TODO: configure weighting
       of_helper.ComputeNCCMetricAndGradient(g, level, phi, radius, true,
-                                            out_metric_image, group_report, out_metric_gradient, eps);
+                                            out_metric_image, group_report, out_metric_gradient, eps, minimization_mode);
       group_report.Scale(1.0 / eps);
       }
 
@@ -2243,7 +2243,7 @@ int GreedyApproach<VDim, TReal>
     typedef AdamStep<VectorImageType> AdamStepType;
     SSQLayer ssq_layer(uk);
     SmoothnessLossLayer smoothness_loss;
-    AdamStepType adam;
+    AdamStepType adam(param.epsilon_per_level[level]);
 
     // Iterate for this level
     for(int iter = 0; iter < param.iter_per_level[level]; iter++)
@@ -2271,7 +2271,7 @@ int GreedyApproach<VDim, TReal>
 
       // Evaluate the metric and gradient
       Dphi_loss->FillBuffer(typename LDDMMType::Vec(0.0));
-      this->EvaluateMetricForDeformableRegistration(param, of_helper, level, phi, metric_report, iTemp, Dphi_loss, 1.0);
+      this->EvaluateMetricForDeformableRegistration(param, of_helper, level, phi, metric_report, iTemp, Dphi_loss, 1.0, true);
 
       // If regularization present, compute the regularization penalty and add its gradient to uk
       if(tmc)
@@ -2284,7 +2284,7 @@ int GreedyApproach<VDim, TReal>
       ssq_layer.Backward(uk, Dphi_loss, Duk_loss);
 
       // Compute the smoothness regularization term
-      double w_obj_smooth = 10.0;
+      double w_obj_smooth = param.defopt_svf_smoothness_weight == 0.0 ? 1000.0 : param.defopt_svf_smoothness_weight;
       double obj_smooth = smoothness_loss.ComputeLossAndGradient(uk, Duk_loss, w_obj_smooth) * w_obj_smooth;
       reg_report.terms["SVFSmooth"] = std::make_pair(w_obj_smooth, obj_smooth / w_obj_smooth);
 
@@ -2328,7 +2328,7 @@ int GreedyApproach<VDim, TReal>
     // Compute the jacobian of the deformation field - but only if we iterated at this level
     if(param.iter_per_level[level] > 0)
       {
-      LDDMMType::field_jacobian_det(uk, iTemp);
+      LDDMMType::field_jacobian_det(phi, iTemp);
       TReal jac_min, jac_max;
       LDDMMType::img_min_max(iTemp, jac_min, jac_max);
       gout.printf("END OF LEVEL %3d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
@@ -2362,60 +2362,28 @@ int GreedyApproach<VDim, TReal>
   // into physical offset units - just scaled by the spacing?
   ImageBaseType *warp_ref_space = of_helper.GetReferenceSpace(nlevels - 1);
 
-  if(param.flag_stationary_velocity_mode)
+  // Write the root warp if requested
+  if(param.root_warp.size())
+    WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevel, param.root_warp.c_str(), 0);
+
+  if(param.output.size() || param.inverse_warp.size())
     {
     // Take current warp to 'exponent' power - this is the actual warp
     VectorImagePointer uLevelExp = LDDMMType::new_vimg(uLevel);
     VectorImagePointer uLevelWork = LDDMMType::new_vimg(uLevel);
-    LDDMMType::vimg_exp(uLevel, uLevelExp, uLevelWork, param.warp_exponent, 1.0);
 
-    // Write the resulting transformation field (if provided)
     if(param.output.size())
       {
+      LDDMMType::vimg_exp(uLevel, uLevelExp, uLevelWork, param.warp_exponent, 1.0);
       WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevelExp, param.output.c_str(), param.warp_precision);
       }
-
-    // If asked to write root warp, do so
-    if(param.root_warp.size())
-      {
-      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevel, param.root_warp.c_str(), 0);
-      }
-
-    // Compute the inverse (this is probably unnecessary for small warps)
     if(param.inverse_warp.size())
       {
-      // Exponentiate the negative velocity field
       LDDMMType::vimg_exp(uLevel, uLevelExp, uLevelWork, param.warp_exponent, -1.0);
-      // of_helper.ComputeDeformationFieldInverse(uLevel, uLevelWork, 0);
       WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevelExp, param.inverse_warp.c_str(), param.warp_precision);
       }
     }
-  else
-    {
-    // Write the resulting transformation field
-    if(param.output.size())
-      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uLevel, param.output.c_str(), param.warp_precision);
 
-    // If an inverse is requested, compute the inverse using the Chen 2008 fixed method.
-    // A modification of this method is that if convergence is slow, we take the square
-    // root of the forward transform.
-    //
-    // TODO: it would be more efficient to check the Lipschitz condition rather than
-    // the brute force approach below
-    //
-    // TODO: the maximum checks should only be done over the region where the warp is
-    // not going outside of the image. Right now, they are meaningless and we are doing
-    // extra work when computing the inverse.
-    if(param.inverse_warp.size())
-      {
-      // Compute the inverse
-      VectorImagePointer uInverse = LDDMMType::new_vimg(uLevel);
-      of_helper.ComputeDeformationFieldInverse(uLevel, uInverse, param.warp_exponent);
-
-      // Write the warp using compressed format
-      WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uInverse, param.inverse_warp.c_str(), param.warp_precision);
-      }
-    }
   return 0;
 }
 

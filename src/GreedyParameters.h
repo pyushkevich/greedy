@@ -332,6 +332,9 @@ struct GreedyParameters
   // Tetrahedral mesh jacobian regularization parameters
   GreedyTJRSpec tjr_param;
 
+  // Weight of the smoothness term in defopt
+  double defopt_svf_smoothness_weight = 0.0;
+
   // Registration mode
   Mode mode = GREEDY;
 

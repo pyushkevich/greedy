@@ -31,6 +31,12 @@ struct MultiComponentMetricReport
     ComponentPerPixelMetrics *= scale_factor;
   }
 
+  void Shift(double per_component_amount)
+  {
+    TotalPerPixelMetric += per_component_amount * ComponentPerPixelMetrics.size();
+    ComponentPerPixelMetrics += per_component_amount;
+  }
+
   void Append(MultiComponentMetricReport &other)
   {
     // Add the scalars

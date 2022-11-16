@@ -711,8 +711,8 @@ void AdamStep<TImage>::Compute(int iter, const TImage *gradient, TImage *m_k, TI
         theta->GetBufferedRegion(),
         [gradient, m_k, v_k, theta, this, iter](const RegionType &region)
     {
-    double beta_1_t = std::pow(this->beta_1, iter);
-    double beta_2_t = std::pow(this->beta_2, iter);
+    double beta_1_t = std::pow(this->beta_1, iter+1);
+    double beta_2_t = std::pow(this->beta_2, iter+1);
     unsigned int line_len = region.GetSize(0);
 
     for(IterType it(theta, theta->GetBufferedRegion()); !it.IsAtEnd(); it.NextLine())
