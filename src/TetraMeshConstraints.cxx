@@ -9,6 +9,7 @@
 #include <vtkHexahedron.h>
 #include "GreedyMeshIO.h"
 #include <vtkSubdivideTetra.h>
+#include "DifferentiableScalingAndSquaring.h"
 
 // Tetra/triangle volume computations
 template <unsigned int VDim>
@@ -112,8 +113,23 @@ void TetraMeshConstraints<TFloat, VDim>
     if(cell->GetNumberOfPoints() != VDim + 1)
       throw GreedyException("Mesh has cells of incorrect dimension");
 
+    // Assign vertices to the tetrahedra
     for(unsigned int j = 0; j < VDim+1; j++)
       m_TetraVI(i,j) = cell->GetPointId(j);
+
+    // Check the tetrahedral orientation - volumes in the input tetrahedron
+    // should all be positive, if negative, flip the order
+    double vol = simplex_volume<VDim>(m_TetraX_RAS, m_TetraVI.get_row(i), nullptr);
+    if(vol < 0)
+      {
+      auto v0 = m_TetraVI(i, 0);
+      m_TetraVI(i, 0) = m_TetraVI(i, 1);
+      m_TetraVI(i, 1) = v0;
+      }
+
+    vol = simplex_volume<VDim>(m_TetraX_RAS, m_TetraVI.get_row(i), nullptr);
+    if(vol < 0)
+      std::cout << "Something is wrong" << std::endl;
 
     // Initialize the volume layer
     m_TetraVolumeLayer[i].SetIndex(m_TetraVI.get_row(i));
@@ -337,12 +353,30 @@ vtkSmartPointer<vtkUnstructuredGrid> create_sample_tetra_mesh<2>()
 }
 
 template<class TFloat, unsigned int VDim>
-bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives()
+bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives(ImageBaseType *refspace, vtkUnstructuredGrid *mesh)
 {
   // Create a tetrahedral mesh of appropriate dimensions
-  vtkSmartPointer<vtkUnstructuredGrid> tetra = create_sample_tetra_mesh<3>();
+  vtkSmartPointer<vtkUnstructuredGrid> tetra = mesh;
+  if(!mesh)
+    tetra = create_sample_tetra_mesh<3>();
 
   // Create a dummy image
+  typename VectorImageType::Pointer phi;
+  if(refspace)
+    {
+    phi = LDDMMType::new_vimg(refspace);
+    LDDMMType::vimg_add_gaussian_noise_in_place(phi, 20.0);
+    LDDMMType::vimg_smooth(phi, phi, 1.0);
+    }
+  else
+    phi = DisplacementSelfCompositionLayer<VDim, TFloat>::MakeTestDisplacement(32, 8.0, 1.0, true);
+
+  // Generate a gradient image
+  typename LDDMMType::VectorImagePointer grad = LDDMMType::new_vimg(phi, 0.0);
+
+
+
+  /*
   typename VectorImageType::Pointer phi = VectorImageType::New();
   typename VectorImageType::SizeType sz_phi;
   typename VectorImageType::RegionType region;
@@ -364,21 +398,17 @@ bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives()
   phi->SetRegions(region);
   phi->Allocate();
 
-  // Generate a gradient image
-  typename LDDMMType::VectorImagePointer grad = LDDMMType::new_vimg(phi, 0.0);
-
   // Generate a random smooth deformation
   vnl_random randy;
   for(itk::ImageRegionIteratorWithIndex<VectorImageType> it(phi, region); !it.IsAtEnd(); ++it)
     for(unsigned int d = 0; d < VDim; d++)
       it.Value()[d] = randy.normal() * 8.0;
   LDDMMType::vimg_smooth(phi, phi, 1.0);
+  */
 
   // Generate a random variation of phi
   typename LDDMMType::VectorImagePointer variation = LDDMMType::new_vimg(phi, 0.0);
-  for(itk::ImageRegionIteratorWithIndex<VectorImageType> it(variation, region); !it.IsAtEnd(); ++it)
-    for(unsigned int d = 0; d < VDim; d++)
-      it.Value()[d] = randy.normal() * 1.0;
+  LDDMMType::vimg_add_gaussian_noise_in_place(variation, 1.0);
   LDDMMType::vimg_smooth(variation, variation, 1.2);
 
   // Initialize the mesh computation
@@ -391,19 +421,23 @@ bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives()
   double obj = tmc.ComputeObjectiveAndGradientPhi(phi, grad, weight);
 
   // Report the tetrahedral volumes
-  std::cout << tmc.m_TetraX_RAS << std::endl;
   printf("Objective: %8.6f\n", obj);
-  for(unsigned int i = 0; i < tmc.m_TetraVol.size(); i++)
-    printf("Tetra %3d Volume, fixed = %8.4f, warped = %8.4f\n", i, tmc.m_TetraVol[i], tmc.m_TetraVol_Warped[i]);
 
-  for(unsigned int i = 0; i < tmc.m_TetraNbr.size(); i++)
+  // We only want to report a subset of vertices
+  int n_report = 100;
+  int report_interval = std::max(1, (int) (tmc.m_TetraVol.size() / n_report));
+  for(unsigned int i = 0; i < tmc.m_TetraVol.size(); i+=report_interval)
+    printf("Tetra %3d Volume, fixed = %12.9f, warped = %12.9f\n", i, tmc.m_TetraVol[i], tmc.m_TetraVol_Warped[i]);
+
+  report_interval = std::max(1, (int) (tmc.m_TetraNbr.size() / n_report));
+  for(unsigned int i = 0; i < tmc.m_TetraNbr.size(); i+=report_interval)
     {
     int i1, i2;
     std::tie(i1, i2) = tmc.m_TetraNbr[i];
     double v1 = tmc.m_TetraVol[i1], v2 = tmc.m_TetraVol[i2];
     double w1 = tmc.m_TetraVol_Warped[i1], w2 = tmc.m_TetraVol_Warped[i2];
     double jac1 = w1 / v1, jac2 = w2 / v2;
-    printf("Pair %d, %d  Jac = %8.4f / %8.4f  SD = %8.6f\n", i1, i2, jac1, jac2, (jac1 - jac2) * (jac1 - jac2));
+    printf("Pair %d, %d  Jac = %12.9f / %12.9f  SD = %12.9f\n", i1, i2, jac1, jac2, (jac1 - jac2) * (jac1 - jac2));
     }
 
   // Compute the analytic derivative with respect to variation
@@ -420,7 +454,7 @@ bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives()
   double num_deriv = (obj_plus - obj_minus) / (2.0 * eps);
 
   // Compute relative difference
-  double rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / std::fabs(ana_deriv + num_deriv);
+  double rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / (1.0e-8 + std::fabs(ana_deriv) + std::fabs(num_deriv));
 
   // Compute the difference between the two derivatives
   printf("Derivatives: ANA: %12.8g  NUM: %12.8g  RELDIF: %12.8f\n", ana_deriv, num_deriv, rel_diff);

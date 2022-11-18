@@ -13,6 +13,8 @@
 #include <itkMultiThreaderBase.h>
 #include "TetraMeshConstraints.h"
 #include "DifferentiableScalingAndSquaring.h"
+#include "GreedyMeshIO.h"
+#include "vtkUnstructuredGrid.h"
 
 // Global variable storing the test data root
 std::string data_root;
@@ -40,7 +42,7 @@ int usage()
   printf("  reg_2d_3d <aff|def> <metric_value> <tol> <greedy_opts>\n");
   printf("        : Test 2D/3D registration using phantom images\n");
   printf("          Greedy options: -i, -ia, -m, -n \n");
-  printf("  tet_jac_reg <2|3> \n");
+  printf("  tet_jac_reg <2|3> [refimage] [mesh] \n");
   printf("        : Test derivatives of the tetrahedral jacobian regularization term\n");
   printf("  comp_layer <2|3> \n");
   printf("        : Test derivatives of the warp composition layer\n");
@@ -787,6 +789,51 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
       retval = -1;
     }
 
+  // Check using variational derivatives
+  vnl_random randy;
+  for(unsigned int i = 0; i < 5; i++)
+    {
+    // Compute the gradient - previous calls have corrupted it
+    grad_metric->FillBuffer(typename LDDMMType::Vec(0.0));
+    api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0, minimization_mode);
+
+    // Create a variation
+    typename GreedyAPI::VectorImagePointer variation = GreedyAPI::LDDMMType::new_vimg(refspace);
+    LDDMMType::vimg_add_gaussian_noise_in_place(variation, 6.0);
+    LDDMMType::vimg_smooth(variation, variation, 8.0);
+    typename LDDMMType::ImagePointer idot = LDDMMType::new_img(phi, 0.0);
+    LDDMMType::vimg_euclidean_inner_product(idot, grad_metric, variation);
+    double ana_deriv = LDDMMType::img_voxel_sum(idot);
+
+    char buffer[256];
+    sprintf(buffer, "/tmp/variation%d.nii.gz", i);
+    LDDMMType::vimg_write(variation, buffer);
+
+    // Compute numeric derivatives
+    LDDMMType::vimg_add_scaled_in_place(phi, variation, epsilon);
+    api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0, minimization_mode);
+    double v2 = metric_report.TotalPerPixelMetric;
+    LDDMMType::vimg_add_scaled_in_place(phi, variation, -2.0 * epsilon);
+    api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0, minimization_mode);
+    double v1 = metric_report.TotalPerPixelMetric;
+    LDDMMType::vimg_add_scaled_in_place(phi, variation, epsilon);
+
+    // We scale by the central mask volume (so that we are actually testing the TotalPerPixelMetric
+    // but reporting in units of the whole metric
+    double num_deriv = (minimization_mode)
+      ? (v2 - v1) / (2 * epsilon)
+      : metric_report.MaskVolume * ((v2-v1) / (2 * epsilon));
+
+    // Compute relative difference
+    double rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / (std::fabs(ana_deriv) + std::fabs(num_deriv));
+
+    // Compute the difference between the two derivatives
+    printf("Variation %d  ANA: %12.8g  NUM: %12.8g  RELDIF: %12.8f\n", i, ana_deriv, num_deriv, rel_diff);
+
+    if(rel_diff > tol)
+      retval = -1;
+    }
+
   if(retval == 0)
     std::cout << "Success" << std::endl;
 
@@ -918,10 +965,20 @@ int RunReg2D3D(CommandLineHelper &cl)
 
 template <unsigned int VDim>
 int
-RunTetraJacobianRegularizationTest()
+RunTetraJacobianRegularizationTest(std::string fn_refspace, std::string fn_mesh)
 {
   typedef TetraMeshConstraints<double, VDim> TMC;
-  return TMC::TestDerivatives() ? 0 : -1;
+  vtkSmartPointer<vtkUnstructuredGrid> tetra;
+  typename TMC::ImageBaseType::Pointer refspace;
+  if(fn_refspace.size())
+    refspace = LDDMMData<double, VDim>::cimg_read(fn_refspace.c_str());
+  if(fn_mesh.size())
+    {
+    vtkSmartPointer<vtkPointSet> point_set = ReadMesh(fn_mesh.c_str());
+    tetra = dynamic_cast<vtkUnstructuredGrid *>(point_set.GetPointer());
+    }
+
+  return TMC::TestDerivatives(refspace, tetra) ? 0 : -1;
 }
 
 template <unsigned int VDim>
@@ -1002,10 +1059,12 @@ int main(int argc, char *argv[])
   else if(cmd == "tet_jac_reg")
     {
     int dim = cl.read_integer();
+    std::string refspace = cl.is_at_end() ? std::string() : cl.read_existing_filename();
+    std::string mesh = cl.is_at_end() ? std::string() : cl.read_existing_filename();
     if(dim == 2)
-      return RunTetraJacobianRegularizationTest<2>();
+      return RunTetraJacobianRegularizationTest<2>(refspace, mesh);
     else if(dim == 3)
-      return RunTetraJacobianRegularizationTest<3>();
+      return RunTetraJacobianRegularizationTest<3>(refspace, mesh);
     else return -1;
     }
   else if(cmd == "comp_layer")

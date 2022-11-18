@@ -55,7 +55,8 @@ public:
   void BackwardSingleThreaded(VectorImageType *u, VectorImageType *Dv_f, VectorImageType *Du_f);
 
   // Helper methods for testing
-  static typename VectorImageType::Pointer MakeTestDisplacement(int size = 96, TReal scale = 8.0, TReal sigma = 1.0);
+  static typename VectorImageType::Pointer MakeTestDisplacement(
+      int size = 96, TReal scale = 8.0, TReal sigma = 1.0, bool orient_ras = false);
 
   // Test
   static bool TestDerivatives();

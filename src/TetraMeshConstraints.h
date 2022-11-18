@@ -91,8 +91,8 @@ public:
   // displacement field phi
   double ComputeObjectiveAndGradientPhi(VectorImageType *phi_vox, VectorImageType *grad, double weight = 1.0);
 
-  // A function to test derivatives on dummy data
-  static bool TestDerivatives();
+  // A function to test derivatives on dummy data or real data
+  static bool TestDerivatives(ImageBaseType *refspace = nullptr, vtkUnstructuredGrid *mesh = nullptr);
 
 protected:
   // The mesh object

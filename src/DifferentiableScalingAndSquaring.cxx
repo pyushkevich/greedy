@@ -309,7 +309,8 @@ void DisplacementSelfCompositionLayer<VDim, TReal>
 
 template<unsigned int VDim, typename TReal>
 typename DisplacementSelfCompositionLayer<VDim, TReal>::VectorImageType::Pointer
-DisplacementSelfCompositionLayer<VDim, TReal>::MakeTestDisplacement(int size, TReal scale, TReal sigma)
+DisplacementSelfCompositionLayer<VDim, TReal>::MakeTestDisplacement(
+    int size, TReal scale, TReal sigma, bool orient_ras)
 {
   // Create a dummy image
   typename VectorImageType::Pointer phi = VectorImageType::New();
@@ -327,6 +328,16 @@ DisplacementSelfCompositionLayer<VDim, TReal>::MakeTestDisplacement(int size, TR
   phi->SetOrigin(origin_phi);
   phi->SetSpacing(spacing_phi);
   phi->SetRegions(region);
+
+  if(orient_ras)
+    {
+    typename VectorImageType::DirectionType dir_phi;
+    dir_phi.Fill(0.0);
+    for(unsigned int d = 0; d < VDim; d++)
+      dir_phi(d,d) = d < 2 ? -1.0 : 1.0;
+    phi->SetDirection(dir_phi);
+    }
+
   phi->Allocate();
 
   // Fill image with random noise

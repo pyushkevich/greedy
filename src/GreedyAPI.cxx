@@ -1695,6 +1695,9 @@ int GreedyApproach<VDim, TReal>
   // In deformable mode, we force resampling of moving image to fixed image space
   ReadImages(param, of_helper, true);
 
+  // Whether the metric is computed in minimization mode
+  bool minimization_mode = false;
+
   // Read the tetrahedral regularization mesh, if specified
   typedef TetraMeshConstraints<TReal, VDim> TetraMeshConstraintsType;
   TetraMeshConstraintsType *tmc = nullptr;
@@ -1709,6 +1712,9 @@ int GreedyApproach<VDim, TReal>
     // Initialize the regularization term
     tmc = new TetraMeshConstraintsType();
     tmc->SetMesh(tetra);
+
+    // We need to use minimization mode, otherwise the gradients can't be added correctly
+    minimization_mode = true;
     }
 
   // An image pointer desribing the current estimate of the deformation
@@ -1864,7 +1870,10 @@ int GreedyApproach<VDim, TReal>
       tm_Gradient.Start();
 
       // Evaluate the correct metric
-      this->EvaluateMetricForDeformableRegistration(param, of_helper, level, uFull, metric_report, iTemp, uk1, eps);
+      if(minimization_mode)
+        this->EvaluateMetricForDeformableRegistration(param, of_helper, level, uFull, metric_report, iTemp, uk1, 1.0, true);
+      else
+        this->EvaluateMetricForDeformableRegistration(param, of_helper, level, uFull, metric_report, iTemp, uk1, eps);
 
       // If regularization present, compute the regularization penalty and add its gradient to uk
       if(tmc)
@@ -1927,7 +1936,8 @@ int GreedyApproach<VDim, TReal>
         // v' = v + u + [v, u]/2 (this is the Lie bracket)
         
         // Scale the update by 1 / 2^exponent (tiny update, first order approximation)
-        LDDMMType::vimg_scale_in_place(viTemp, 1.0 / (2 << param.warp_exponent));
+        double scale_upd = minimization_mode ? -1.0 / (2 << param.warp_exponent) : 1.0 / (2 << param.warp_exponent);
+        LDDMMType::vimg_scale_in_place(viTemp, scale_upd);
 
         // Use appropriate update
         if(param.flag_stationary_velocity_mode_use_lie_bracket)
@@ -2114,6 +2124,81 @@ int GreedyApproach<VDim, TReal>
   return 0;
 }
 
+template <unsigned int VDim, typename TReal>
+class DeformableRegistrationOptimizationProblem
+{
+public:
+  typedef GreedyApproach<VDim, TReal> GreedyAPI;
+  typedef ScalingAndSquaringLayer<VDim, TReal> SSQLayer;
+  typedef DisplacementFieldSmoothnessLoss<VDim, TReal> SmoothnessLossLayer;
+  typedef typename GreedyAPI::LDDMMType LDDMMType;
+  typedef typename GreedyAPI::VectorImageType VectorImageType;
+  typedef typename GreedyAPI::ImageType ImageType;
+  typedef typename GreedyAPI::OFHelperType OFHelperType;
+  typedef TetraMeshConstraints<TReal, VDim> TetraMeshConstraintsType;
+
+  DeformableRegistrationOptimizationProblem(
+      GreedyAPI *api,
+      GreedyParameters *param,
+      OFHelperType *of_helper,
+      unsigned int level,
+      VectorImageType *u,
+      TetraMeshConstraintsType *tmc = nullptr)
+  : m_API(api), m_Param(param), m_OF_Helper(of_helper),
+    m_Level(level), m_SSQLayer(u), m_TMC(tmc)
+  {
+    m_Dphi_loss = LDDMMType::new_vimg(u);
+    m_MetricImage = LDDMMType::new_img(u);
+  }
+
+  double ComputeObjectiveAndGradient(
+      VectorImageType *u,
+      VectorImageType *phi,
+      VectorImageType *Du_loss,
+      MultiComponentMetricReport &metric_report,
+      GreedyRegularizationReport &reg_report)
+  {
+    m_SSQLayer.Forward(u, phi);
+    m_Dphi_loss->FillBuffer(typename LDDMMType::Vec(0.0));
+
+    m_API->EvaluateMetricForDeformableRegistration(
+          *m_Param, *m_OF_Helper, m_Level, phi, metric_report, m_MetricImage, m_Dphi_loss, 1.0, true);
+
+    if(m_TMC)
+    {
+      double obj_reg = m_TMC->ComputeObjectiveAndGradientPhi(phi, m_Dphi_loss, m_Param->tjr_param.weight);
+      reg_report.terms["MeshTetJac"] = std::make_pair(m_Param->tjr_param.weight, obj_reg / m_Param->tjr_param.weight);
+    }
+
+    // Backpropagate the metric gradient through to the SVF
+    Du_loss->FillBuffer(typename LDDMMType::Vec(0.0));
+    m_SSQLayer.Backward(u, m_Dphi_loss, Du_loss);
+
+    // Compute the smoothness regularization term
+    double w_obj_smooth = m_Param->defopt_svf_smoothness_weight == 0.0 ? 1000.0 : m_Param->defopt_svf_smoothness_weight;
+    double obj_smooth = m_SmoothnessLayer.ComputeLossAndGradient(u, Du_loss, w_obj_smooth) * w_obj_smooth;
+    reg_report.terms["SVFSmooth"] = std::make_pair(w_obj_smooth, obj_smooth / w_obj_smooth);
+
+    // Compute the objective
+    double total = metric_report.TotalPerPixelMetric;
+    for(const auto &it : reg_report.terms)
+      total += it.second.first * it.second.second;
+
+    return total;
+  }
+
+protected:
+  GreedyAPI *m_API;
+  GreedyParameters *m_Param;
+  OFHelperType *m_OF_Helper;
+  unsigned int m_Level;
+  SSQLayer m_SSQLayer;
+  SmoothnessLossLayer m_SmoothnessLayer;
+  TetraMeshConstraintsType *m_TMC;
+  typename VectorImageType::Pointer m_Dphi_loss;
+  typename ImageType::Pointer m_MetricImage;
+};
+
 /**
  * This performs deformable registration using an optimization scheme,
  * where we actually perform gradient descent with respect to the unknown
@@ -2205,11 +2290,10 @@ int GreedyApproach<VDim, TReal>
     // This holds the current estimate of the SVF
     VectorImagePointer uk = LDDMMType::new_vimg(refspace);
 
-    // This holds the current scaled and squared displacement field
+    // This holds the deformation
     VectorImagePointer phi = LDDMMType::new_vimg(refspace);
 
     // This holds the gradient of the objective function
-    VectorImagePointer Dphi_loss = LDDMMType::new_vimg(refspace);
     VectorImagePointer Duk_loss = LDDMMType::new_vimg(refspace);
 
     // Adam storage
@@ -2237,13 +2321,17 @@ int GreedyApproach<VDim, TReal>
       uLevel = uk;
       }
 
-    // Initialize the layers used during the optimization
-    typedef ScalingAndSquaringLayer<VDim, TReal> SSQLayer;
-    typedef DisplacementFieldSmoothnessLoss<VDim, TReal> SmoothnessLossLayer;
+    // Initialize the optimization problem
+    typedef DeformableRegistrationOptimizationProblem<VDim, TReal> Problem;
+    Problem problem(this, &param, &of_helper, level, uk, tmc);
+
+    // For Adam optimization
     typedef AdamStep<VectorImageType> AdamStepType;
-    SSQLayer ssq_layer(uk);
-    SmoothnessLossLayer smoothness_loss;
     AdamStepType adam(param.epsilon_per_level[level]);
+
+    // Create a variation for derivative debugging
+    VectorImagePointer variation = LDDMMType::new_vimg(refspace);
+    typename LDDMMType::ImagePointer idot = LDDMMType::new_img(uk, 0.0);
 
     // Iterate for this level
     for(int iter = 0; iter < param.iter_per_level[level]; iter++)
@@ -2251,45 +2339,52 @@ int GreedyApproach<VDim, TReal>
       // Does a debug dump get generated on this iteration?
       bool flag_dump = param.flag_dump_moving && 0 == iter % param.dump_frequency;
 
+      // The epsilon for this level
+      // double eps = param.epsilon_per_level[level];
+
       // Start the iteration timer
       tm_Iteration.Start();
-
-      // The epsilon for this level
-      double eps = param.epsilon_per_level[level];
-
-      // Forward pass of scaling and squaring layer
-      tm_Integration.Start();
-      ssq_layer.Forward(uk, phi);
-      tm_Integration.Stop();
 
       // Create a metric report that will be returned by all metrics
       MultiComponentMetricReport metric_report;
       GreedyRegularizationReport reg_report;
 
-      // Begin gradient computation
-      tm_Gradient.Start();
-
-      // Evaluate the metric and gradient
-      Dphi_loss->FillBuffer(typename LDDMMType::Vec(0.0));
-      this->EvaluateMetricForDeformableRegistration(param, of_helper, level, phi, metric_report, iTemp, Dphi_loss, 1.0, true);
-
-      // If regularization present, compute the regularization penalty and add its gradient to uk
-      if(tmc)
+      // Derivative check
+      if(iter % 5 == 0)
         {
-        double obj_reg = tmc->ComputeObjectiveAndGradientPhi(phi, Dphi_loss, param.tjr_param.weight);
-        reg_report.terms["MeshTetJac"] = std::make_pair(param.tjr_param.weight, obj_reg / param.tjr_param.weight);
+        MultiComponentMetricReport metric_report_1, metric_report_2;
+        GreedyRegularizationReport reg_report_1, reg_report_2;
+
+        // A new random variation
+        variation->FillBuffer(typename LDDMMType::Vec(0.));
+        LDDMMType::vimg_add_gaussian_noise_in_place(variation, 6.0);
+        LDDMMType::vimg_smooth(variation, variation, 8.0);
+
+        // Compute numerical derivative
+        double eps_deriv = 0.001;
+        LDDMMType::vimg_add_scaled_in_place(uk, variation, eps_deriv);
+        double obj_plus = problem.ComputeObjectiveAndGradient(uk, phi, Duk_loss, metric_report_1, reg_report_1);
+        LDDMMType::vimg_add_scaled_in_place(uk, variation, -2.0 * eps_deriv);
+        double obj_minus = problem.ComputeObjectiveAndGradient(uk, phi, Duk_loss, metric_report_2, reg_report_2);
+        double num_deriv = (obj_plus - obj_minus) / (2.0 * eps_deriv);
+
+        // Compute analytical derivative
+        LDDMMType::vimg_add_scaled_in_place(uk, variation, eps_deriv);
+        problem.ComputeObjectiveAndGradient(uk, phi, Duk_loss, metric_report, reg_report);
+        LDDMMType::vimg_euclidean_inner_product(idot, Duk_loss, variation);
+        double ana_deriv = LDDMMType::img_voxel_sum(idot);
+
+        // Compute relative difference
+        double rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / (std::fabs(ana_deriv) + std::fabs(num_deriv));
+
+        // Compute the difference between the two derivatives
+        printf("Derivatives: ANA: %12.8g  NUM: %12.8g  RELDIF: %12.8f\n", ana_deriv, num_deriv, rel_diff);
         }
-
-      // Backpropagate the metric gradient through to the SVF
-      ssq_layer.Backward(uk, Dphi_loss, Duk_loss);
-
-      // Compute the smoothness regularization term
-      double w_obj_smooth = param.defopt_svf_smoothness_weight == 0.0 ? 1000.0 : param.defopt_svf_smoothness_weight;
-      double obj_smooth = smoothness_loss.ComputeLossAndGradient(uk, Duk_loss, w_obj_smooth) * w_obj_smooth;
-      reg_report.terms["SVFSmooth"] = std::make_pair(w_obj_smooth, obj_smooth / w_obj_smooth);
-
-      // End gradient computation
-      tm_Gradient.Stop();
+      else
+        {
+        // Compute the problem
+        problem.ComputeObjectiveAndGradient(uk, phi, Duk_loss, metric_report, reg_report);
+        }
 
       // Print a report for this iteration
       std::cout << this->PrintIter(level, iter, metric_report, reg_report) << std::endl;
@@ -2303,7 +2398,7 @@ int GreedyApproach<VDim, TReal>
       if(flag_dump)
         {
         WriteImageViaCache(iTemp.GetPointer(), GetDumpFile(param, "dump_metric_lev%02d_iter%04d.nii.gz", level, iter));
-        WriteImageViaCache(Dphi_loss.GetPointer(), GetDumpFile(param, "dump_grad_phi_lev%02d_iter%04d.nii.gz", level, iter));
+        // WriteImageViaCache(Dphi_loss.GetPointer(), GetDumpFile(param, "dump_grad_phi_lev%02d_iter%04d.nii.gz", level, iter));
         WriteImageViaCache(Duk_loss.GetPointer(), GetDumpFile(param, "dump_grad_svf_lev%02d_iter%04d.nii.gz", level, iter));
         }
 
@@ -2316,7 +2411,9 @@ int GreedyApproach<VDim, TReal>
 
       // Perform Adam iteration, updating the SVF uk
       tm_Update.Start();
-      adam.Compute(iter, Duk_loss, m_k, v_k, uk);
+      // adam.Compute(iter, Duk_loss, m_k, v_k, uk);
+      // Plain old gradient descent
+      LDDMMType::vimg_add_scaled_in_place(uk, Duk_loss, -param.epsilon_per_level[level]);
       tm_Update.Stop();
 
       tm_Iteration.Stop();
