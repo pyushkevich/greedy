@@ -154,6 +154,7 @@ void TetraMeshConstraints<TFloat, VDim>
     }
 
   // Allocate the internal computation arrays
+  m_TetraX_RAS_Disp.set_size(m_MeshVTK->GetNumberOfPoints(), VDim);
   m_TetraX_RAS_Warped.set_size(m_MeshVTK->GetNumberOfPoints(), VDim);
   m_D_TetraX_RAS_Warped.set_size(m_MeshVTK->GetNumberOfPoints(), VDim);
   m_TetraVol.set_size(m_TetraVI.rows());
@@ -192,6 +193,54 @@ void TetraMeshConstraints<TFloat, VDim>
 
 
 template<class TFloat, unsigned int VDim>
+double
+TetraMeshConstraints<TFloat, VDim>
+::ComputeObjectiveAndGradientDisp(
+    const vnl_matrix<double> &disp_ras, vnl_matrix<double> &grad, double weight)
+{
+  // Number of vertices and tetrahedra
+  unsigned int nv = m_TetraX_Vox.rows(), nt = m_TetraVI.rows();
+
+  // Apply transformation to the coordinates
+  for(unsigned int i = 0; i < nv; i++)
+    for(unsigned int j = 0; j < VDim; j++)
+      m_TetraX_RAS_Warped[i][j] = m_TetraX_RAS[i][j] + disp_ras[i][j];
+
+  // Compute the transformed tetrahedral volumes - forward pass
+  for(unsigned int k = 0; k < nt; k++)
+    m_TetraVol_Warped[k] = m_TetraVolumeLayer[k].Forward(m_TetraX_RAS_Warped, true);
+
+  // Compute the difference of Jacobians metric
+  double obj = 0.0;
+  m_D_TetraVol_Warped.fill(0.0);
+  for(unsigned int j = 0; j < m_TetraNbr.size(); j++)
+    {
+    int i1, i2;
+    std::tie(i1, i2) = m_TetraNbr[j];
+    double jac_1 = m_TetraVol_Warped[i1] / m_TetraVol[i1];
+    double jac_2 = m_TetraVol_Warped[i2] / m_TetraVol[i2];
+    obj += (jac_1 - jac_2) * (jac_1 - jac_2);
+
+    // Backprop onto the volumes of the tetrahedra
+    m_D_TetraVol_Warped[i1] += 2.0 * (jac_1 - jac_2) / m_TetraVol[i1];
+    m_D_TetraVol_Warped[i2] -= 2.0 * (jac_1 - jac_2) / m_TetraVol[i2];
+    }
+
+  // Final objective value
+  double obj_scale = weight / m_TetraNbr.size();
+  obj *= obj_scale;
+  m_D_TetraVol_Warped *= obj_scale;
+
+  // Backprop onto the RAS coordinates
+  grad.fill(0.0);
+  for(unsigned int k = 0; k < nt; k++)
+    m_TetraVolumeLayer[k].Backward(m_D_TetraVol_Warped[k], grad);
+
+  return obj;
+}
+
+
+template<class TFloat, unsigned int VDim>
 double TetraMeshConstraints<TFloat, VDim>
 ::ComputeObjectiveAndGradientPhi(VectorImageType *phi_vox, VectorImageType *grad, double weight)
 {
@@ -220,57 +269,45 @@ double TetraMeshConstraints<TFloat, VDim>
     interp.Interpolate(x_i, &phi_i);
 
     // Transform into a RAS displacement
-    for(unsigned int d = 0; d < VDim; d++)
-      phi_i_vox[d] = phi_i[d];
-    m_TetraX_RAS_Warped.set_row(i, m_TetraX_RAS.get_row(i) + A_vox_to_ras * phi_i_vox);
+    for(unsigned int a = 0; a < VDim; a++)
+      {
+      double disp = 0.0;
+      for(unsigned int b = 0; b < VDim; b++)
+        disp += A_vox_to_ras[a][b] * phi_i[b];
+      m_TetraX_RAS_Disp[i][a] = disp;
+      m_TetraX_RAS_Warped[i][a] = m_TetraX_RAS[i][a] + disp;
+      }
     }
 
-  // Compute the transformed tetrahedral volumes - forward pass
-  for(unsigned int k = 0; k < nt; k++)
-    m_TetraVol_Warped[k] = m_TetraVolumeLayer[k].Forward(m_TetraX_RAS_Warped, true);
-
-  // Compute the difference of Jacobians metric
-  double obj = 0.0;
-  m_D_TetraVol_Warped.fill(0.0);
-  for(unsigned int j = 0; j < m_TetraNbr.size(); j++)
-    {
-    int i1, i2;
-    std::tie(i1, i2) = m_TetraNbr[j];
-    double jac_1 = m_TetraVol_Warped[i1] / m_TetraVol[i1];
-    double jac_2 = m_TetraVol_Warped[i2] / m_TetraVol[i2];
-    obj += (jac_1 - jac_2) * (jac_1 - jac_2);
-
-    // Backprop onto the volumes of the tetrahedra
-    m_D_TetraVol_Warped[i1] += 2.0 * (jac_1 - jac_2) / m_TetraVol[i1];
-    m_D_TetraVol_Warped[i2] -= 2.0 * (jac_1 - jac_2) / m_TetraVol[i2];
-    }
-
-  // Final objective value
-  double obj_scale = weight / m_TetraNbr.size();
-  obj *= obj_scale;
-  m_D_TetraVol_Warped *= obj_scale;
-
-  // Backprop onto the RAS coordinates
-  m_D_TetraX_RAS_Warped.fill(0.0);
-  for(unsigned int k = 0; k < nt; k++)
-    m_TetraVolumeLayer[k].Backward(m_D_TetraVol_Warped[k], m_D_TetraX_RAS_Warped);
+  // Compute the gradient with respect to the displacement
+  double obj = this->ComputeObjectiveAndGradientDisp(m_TetraX_RAS_Disp, m_D_TetraX_RAS_Warped, weight);
 
   // Backprop onto the phi values
   VectorImagePixel D_phi_i_vox;
+  unsigned int n_inside = 0, n_outside = 0, n_border = 0;
   for(unsigned int i = 0; i < nv; i++)
     {
-    // The derivative of the objective with respect to the phi_vox sampled at i-th voxel
-    auto D_phi_i_vox_vec = A_vox_to_ras * m_D_TetraX_RAS_Warped.get_row(i);
-
-    for(unsigned int d = 0; d < VDim; d++)
+    // Calculate the splat position and the splatted vector (derivative of objective
+    // with respect to the voxel-space displacement)
+    for(unsigned int a = 0; a < VDim; a++)
       {
-      x_i[d] = (TFloat) m_TetraX_Vox(i,d);
-      D_phi_i_vox[d] = D_phi_i_vox_vec[d];
+      x_i[a] = (TFloat) m_TetraX_Vox(i, a);
+      D_phi_i_vox[a] = 0.0;
+      for(unsigned int b = 0; b < VDim; b++)
+        D_phi_i_vox[a] += A_vox_to_ras[b][a] * m_D_TetraX_RAS_Warped[i][b];
       }
 
     // Splat this derivative onto the phi gradient
-    interp_grad.Splat(x_i, &D_phi_i_vox);
+    auto status = interp_grad.Splat(x_i, &D_phi_i_vox);
+    if(status == Interpolator::INSIDE)
+      n_inside++;
+    else if(status == Interpolator::BORDER)
+      n_border++;
+    else
+      n_outside++;
     }
+
+  printf("Inside: %d, Border: %d, Outside: %d\n", n_inside, n_outside, n_border);
 
   return obj;
 }
@@ -355,6 +392,8 @@ vtkSmartPointer<vtkUnstructuredGrid> create_sample_tetra_mesh<2>()
 template<class TFloat, unsigned int VDim>
 bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives(ImageBaseType *refspace, vtkUnstructuredGrid *mesh)
 {
+  double eps = 0.001;
+
   // Create a tetrahedral mesh of appropriate dimensions
   vtkSmartPointer<vtkUnstructuredGrid> tetra = mesh;
   if(!mesh)
@@ -365,8 +404,8 @@ bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives(ImageBaseType *refspace
   if(refspace)
     {
     phi = LDDMMType::new_vimg(refspace);
-    LDDMMType::vimg_add_gaussian_noise_in_place(phi, 20.0);
-    LDDMMType::vimg_smooth(phi, phi, 1.0);
+    LDDMMType::vimg_add_gaussian_noise_in_place(phi, 1.0);
+    LDDMMType::vimg_smooth(phi, phi, 2.0);
     }
   else
     phi = DisplacementSelfCompositionLayer<VDim, TFloat>::MakeTestDisplacement(32, 8.0, 1.0, true);
@@ -374,51 +413,57 @@ bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives(ImageBaseType *refspace
   // Generate a gradient image
   typename LDDMMType::VectorImagePointer grad = LDDMMType::new_vimg(phi, 0.0);
 
-
-
-  /*
-  typename VectorImageType::Pointer phi = VectorImageType::New();
-  typename VectorImageType::SizeType sz_phi;
-  typename VectorImageType::RegionType region;
-  double origin_phi[VDim], spacing_phi[VDim];
-  typename VectorImageType::DirectionType dir_phi;
-  dir_phi.Fill(0.0);
-  for(unsigned int d = 0; d < VDim; d++)
-    {
-    sz_phi[d] = 32;
-    spacing_phi[d] = 1.0 / sz_phi[d];
-    origin_phi[d] = 0.5 * spacing_phi[d];
-    dir_phi(d,d) = d < 2 ? -1.0 : 1.0;
-    }
-
-  region.SetSize(sz_phi);
-  phi->SetOrigin(origin_phi);
-  phi->SetSpacing(spacing_phi);
-  phi->SetDirection(dir_phi);
-  phi->SetRegions(region);
-  phi->Allocate();
-
-  // Generate a random smooth deformation
-  vnl_random randy;
-  for(itk::ImageRegionIteratorWithIndex<VectorImageType> it(phi, region); !it.IsAtEnd(); ++it)
-    for(unsigned int d = 0; d < VDim; d++)
-      it.Value()[d] = randy.normal() * 8.0;
-  LDDMMType::vimg_smooth(phi, phi, 1.0);
-  */
-
   // Generate a random variation of phi
   typename LDDMMType::VectorImagePointer variation = LDDMMType::new_vimg(phi, 0.0);
   LDDMMType::vimg_add_gaussian_noise_in_place(variation, 1.0);
   LDDMMType::vimg_smooth(variation, variation, 1.2);
+
+  // What weight to use
+  double weight = 4.0;
 
   // Initialize the mesh computation
   TetraMeshConstraints<TFloat, VDim> tmc;
   tmc.SetMesh(tetra);
   tmc.SetReferenceImage(phi);
 
-  // What weight to use
-  double weight = 4.0;
-  double obj = tmc.ComputeObjectiveAndGradientPhi(phi, grad, weight);
+  std::cout << tmc.A_vox_to_ras << std::endl;
+
+  // First, let's test the mesh portion of the network. We will apply a random set of
+  // displacements to the mesh coordinates and check the derivatives
+  vnl_random randy;
+  vnl_matrix<double> disp_x_ras(tmc.m_TetraX_RAS.rows(), VDim);
+  vnl_matrix<double> grad_disp_x_ras(tmc.m_TetraX_RAS.rows(), VDim);
+  vnl_matrix<double> variation_x_ras(tmc.m_TetraX_RAS.rows(), VDim);
+  auto tet_x_ras_warped = tmc.m_TetraX_RAS;
+  for(unsigned int i = 0; i < tmc.m_TetraX_RAS.rows(); i++)
+    {
+    for(unsigned int j = 0; j < VDim; j++)
+      {
+      disp_x_ras[i][j] = randy.normal() * 1.0;
+      variation_x_ras[i][j] = randy.normal() * 1.0;
+      }
+    }
+
+  // Compute the numerical derivative
+  double obj_plus = tmc.ComputeObjectiveAndGradientDisp(
+                      disp_x_ras + variation_x_ras * eps, grad_disp_x_ras, weight);
+  double obj_minus = tmc.ComputeObjectiveAndGradientDisp(
+                      disp_x_ras - variation_x_ras * eps, grad_disp_x_ras, weight);
+
+  double num_deriv = (obj_plus - obj_minus) / (2.0 * eps);
+
+  // Compute the analytical derivative
+  double obj = tmc.ComputeObjectiveAndGradientDisp(disp_x_ras, grad_disp_x_ras, weight);
+  double ana_deriv = dot_product(grad_disp_x_ras, variation_x_ras);
+
+  // Compute relative difference
+  double rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / (1.0e-8 + std::fabs(ana_deriv) + std::fabs(num_deriv));
+
+  // Compute the difference between the two derivatives
+  printf("Derivatives (Mesh): ANA: %12.8g  NUM: %12.8g  RELDIF: %12.8f\n", ana_deriv, num_deriv, rel_diff);
+
+  // Now perform the computation with respect to a displacement field
+  obj = tmc.ComputeObjectiveAndGradientPhi(phi, grad, weight);
 
   // Report the tetrahedral volumes
   printf("Objective: %8.6f\n", obj);
@@ -443,21 +488,20 @@ bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives(ImageBaseType *refspace
   // Compute the analytic derivative with respect to variation
   typename LDDMMType::ImagePointer idot = LDDMMType::new_img(phi, 0.0);
   LDDMMType::vimg_euclidean_inner_product(idot, grad, variation);
-  double ana_deriv = LDDMMType::img_voxel_sum(idot);
+  ana_deriv = LDDMMType::img_voxel_sum(idot);
 
   // Compute the numeric derivative with respect to variation
-  double eps = 0.001;
   LDDMMType::vimg_add_scaled_in_place(phi, variation, eps);
-  double obj_plus = tmc.ComputeObjectiveAndGradientPhi(phi, grad, weight);
+  obj_plus = tmc.ComputeObjectiveAndGradientPhi(phi, grad, weight);
   LDDMMType::vimg_add_scaled_in_place(phi, variation, -2.0 * eps);
-  double obj_minus = tmc.ComputeObjectiveAndGradientPhi(phi, grad, weight);
-  double num_deriv = (obj_plus - obj_minus) / (2.0 * eps);
+  obj_minus = tmc.ComputeObjectiveAndGradientPhi(phi, grad, weight);
+  num_deriv = (obj_plus - obj_minus) / (2.0 * eps);
 
   // Compute relative difference
-  double rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / (1.0e-8 + std::fabs(ana_deriv) + std::fabs(num_deriv));
+  rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / (1.0e-8 + std::fabs(ana_deriv) + std::fabs(num_deriv));
 
   // Compute the difference between the two derivatives
-  printf("Derivatives: ANA: %12.8g  NUM: %12.8g  RELDIF: %12.8f\n", ana_deriv, num_deriv, rel_diff);
+  printf("Derivatives (Warp): ANA: %12.8g  NUM: %12.8g  RELDIF: %12.8f\n", ana_deriv, num_deriv, rel_diff);
 
   return rel_diff < 1.0e-4;
 }

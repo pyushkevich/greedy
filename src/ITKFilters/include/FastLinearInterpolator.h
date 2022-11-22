@@ -205,7 +205,8 @@ public:
 
   TFloat GetMaskAndGradient(RealType *itkNotUsed(mask_gradient)) { return 0.0; }
 
-  void Splat(RealType *itkNotUsed(cix), const InputComponentType *itkNotUsed(value)) {}
+  InOut Splat(RealType *itkNotUsed(cix), const InputComponentType *itkNotUsed(value))
+    { return Superclass::INSIDE; }
 
   void GetIndexAndRemainer(int *itkNotUsed(index), RealType *itkNotUsed(remainder)) { }
 
@@ -481,7 +482,7 @@ public:
     else return Superclass::OUTSIDE;
   }
 
-  void Splat(RealType *cix, const InputComponentType *value)
+  InOut Splat(RealType *cix, const InputComponentType *value)
   {
     // Compute the corners
     this->ComputeCorners(cix);
@@ -541,6 +542,8 @@ public:
           }
         }
       }
+
+    return this->status;
   }
 
   template <class THistContainer>
@@ -937,7 +940,7 @@ public:
     else return Superclass::OUTSIDE;
   }
 
-  void Splat(RealType *cix, const InputComponentType *value)
+  InOut Splat(RealType *cix, const InputComponentType *value)
   {
     // Compute the corners
     this->ComputeCorners(cix);
@@ -984,6 +987,8 @@ public:
           }
         }
       }
+
+    return this->status;
   }
 
   template <class THistContainer>

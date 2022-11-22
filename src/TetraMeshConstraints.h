@@ -87,6 +87,10 @@ public:
   // Compute initial quantities - should be run after changing mesh or ref space
   void Initialize();
 
+  // Compute the regularization term and its gradient with respect to a set of per-vertex
+  // displacements specified in RAS coordinates
+  double ComputeObjectiveAndGradientDisp(const vnl_matrix<double> &disp_ras, vnl_matrix<double> &grad, double weight);
+
   // Compute the regularization term and its gradient with respect to the voxel-space
   // displacement field phi
   double ComputeObjectiveAndGradientPhi(VectorImageType *phi_vox, VectorImageType *grad, double weight = 1.0);
@@ -108,7 +112,8 @@ protected:
   std::vector< std::pair<int, int> > m_TetraNbr;
 
   // List of all tetrahedral vertex coordinates
-  vnl_matrix<double> m_TetraX_Vox, m_TetraX_RAS, m_TetraX_RAS_Warped, m_D_TetraX_RAS_Warped;
+  vnl_matrix<double> m_TetraX_Vox, m_TetraX_RAS;
+  vnl_matrix<double> m_TetraX_RAS_Disp, m_TetraX_RAS_Warped, m_D_TetraX_RAS_Warped;
 
   // Network layer used for volume computation and backprop
   std::vector< TetraVolumeLayer<VDim> > m_TetraVolumeLayer;
