@@ -307,8 +307,6 @@ double TetraMeshConstraints<TFloat, VDim>
       n_outside++;
     }
 
-  printf("Inside: %d, Border: %d, Outside: %d\n", n_inside, n_outside, n_border);
-
   return obj;
 }
 

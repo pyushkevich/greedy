@@ -1575,7 +1575,16 @@ void GreedyApproach<VDim, TReal>
                                             param.background,
                                             out_metric_image,
                                             group_report, out_metric_gradient, eps);
-      group_report.Scale(1.0 / eps);
+
+      // TODO: work this into the main filter
+      if(minimization_mode)
+        {
+        LDDMMType::vimg_scale_in_place(out_metric_gradient, -2.0 / group_report.MaskVolume);
+        }
+      else
+        {
+        group_report.Scale(1.0 / eps);
+        }
       }
 
     else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
@@ -2149,6 +2158,7 @@ public:
   {
     m_Dphi_loss = LDDMMType::new_vimg(u);
     m_MetricImage = LDDMMType::new_img(u);
+    // m_SmoothU = LDDMMType::new_vimg(u);
   }
 
   double ComputeObjectiveAndGradient(
@@ -2158,6 +2168,9 @@ public:
       MultiComponentMetricReport &metric_report,
       GreedyRegularizationReport &reg_report)
   {
+    // Convolution with a Gaussian
+    LDDMMType::vimg_smooth(u, m_SmoothU, m_Sigma);
+
     m_SSQLayer.Forward(u, phi);
     m_Dphi_loss->FillBuffer(typename LDDMMType::Vec(0.0));
 
@@ -2173,6 +2186,9 @@ public:
     // Backpropagate the metric gradient through to the SVF
     Du_loss->FillBuffer(typename LDDMMType::Vec(0.0));
     m_SSQLayer.Backward(u, m_Dphi_loss, Du_loss);
+
+    // Smooth the backprop
+    // LDDMMType::vimg_smooth(Du_loss, Du_loss, m_Sigma);
 
     // Compute the smoothness regularization term
     double w_obj_smooth = m_Param->defopt_svf_smoothness_weight == 0.0 ? 1000.0 : m_Param->defopt_svf_smoothness_weight;
@@ -2195,8 +2211,9 @@ protected:
   SSQLayer m_SSQLayer;
   SmoothnessLossLayer m_SmoothnessLayer;
   TetraMeshConstraintsType *m_TMC;
-  typename VectorImageType::Pointer m_Dphi_loss;
+  typename VectorImageType::Pointer m_Dphi_loss, m_SmoothU;
   typename ImageType::Pointer m_MetricImage;
+  double m_Sigma = 2.0;
 };
 
 /**
@@ -2315,10 +2332,17 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::vimg_scale_in_place(uk, 2.0);
       uLevel = uk;
       }
-    else
+    else if(param.initial_warp.size())
       {
       this->LoadInitialTransform(param, of_helper, level, uk);
       uLevel = uk;
+      }
+    else
+      {
+      // Start with a little bit of noise (displacements on the order of 0.1 voxels)
+      // so that the derivatives are more accurate
+      LDDMMType::vimg_add_gaussian_noise_in_place(uk, 0.01);
+      LDDMMType::vimg_smooth(uk, uk, 2.0);
       }
 
     // Initialize the optimization problem
@@ -2386,6 +2410,14 @@ int GreedyApproach<VDim, TReal>
         problem.ComputeObjectiveAndGradient(uk, phi, Duk_loss, metric_report, reg_report);
         }
 
+      // Report the RMS displacement
+      if(iter == 0)
+        {
+        // Report the RMS of the initial SVF
+        double rms = sqrt(LDDMMType::vimg_euclidean_norm_sq(phi) / phi->GetBufferedRegion().GetNumberOfPixels());
+        printf("Initial transform RMS displacement: %f\n", rms);
+        }
+
       // Print a report for this iteration
       std::cout << this->PrintIter(level, iter, metric_report, reg_report) << std::endl;
       fflush(stdout);
@@ -2411,9 +2443,10 @@ int GreedyApproach<VDim, TReal>
 
       // Perform Adam iteration, updating the SVF uk
       tm_Update.Start();
-      // adam.Compute(iter, Duk_loss, m_k, v_k, uk);
+      adam.Compute(iter, Duk_loss, m_k, v_k, uk);
+
       // Plain old gradient descent
-      LDDMMType::vimg_add_scaled_in_place(uk, Duk_loss, -param.epsilon_per_level[level]);
+      // LDDMMType::vimg_add_scaled_in_place(uk, Duk_loss, -param.epsilon_per_level[level]);
       tm_Update.Stop();
 
       tm_Iteration.Stop();
