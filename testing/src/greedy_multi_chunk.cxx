@@ -955,7 +955,7 @@ int main(int argc, char *argv[])
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
     "-threads", "-d", "-m", "-i", "-n", "-a", "-dof", "-bg", "-ia", "-wncc-mask-dilate", "-search", "-dump-pyramid", "-dump-metric",
-    "-it", "-sv", "-s", "-ref-pad", "-e", "-rf", "-rm", "-rb", "-ri", "-metric"
+    "-it", "-sv", "-s", "-ref-pad", "-e", "-rf", "-rm", "-rb", "-ri", "-metric", "-z"
   };
 
   CommandLineHelper cl(argc, argv);
