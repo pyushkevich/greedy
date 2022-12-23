@@ -88,7 +88,7 @@ public:
   void Backward(VectorImageType *u, VectorImageType *Dv_f, VectorImageType *Du_f);
 
   // Test
-  static bool TestDerivatives();
+  static bool TestDerivatives(double noise_amplitude = 8.0, double noise_sigma = 1.0);
 
 protected:
   CompositionLayer m_CompositionLayer;

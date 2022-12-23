@@ -485,10 +485,10 @@ void ScalingAndSquaringLayer<VDim, TReal>
 }
 
 template<unsigned int VDim, typename TReal>
-bool ScalingAndSquaringLayer<VDim, TReal>::TestDerivatives()
+bool ScalingAndSquaringLayer<VDim, TReal>::TestDerivatives(double noise_amplitude, double noise_sigma)
 {
   // Create the stationary velocity field
-  typename VectorImageType::Pointer u = CompositionLayer::MakeTestDisplacement(96, 8.0, 1.0);
+  typename VectorImageType::Pointer u = CompositionLayer::MakeTestDisplacement(96, noise_amplitude, noise_sigma);
   typename VectorImageType::Pointer v_reference = LDDMMType::new_vimg(u);
   typename VectorImageType::Pointer v_test = LDDMMType::new_vimg(u);
   typename VectorImageType::Pointer work = LDDMMType::new_vimg(u);
@@ -514,6 +514,10 @@ bool ScalingAndSquaringLayer<VDim, TReal>::TestDerivatives()
   LDDMMType::vimg_subtract_in_place(v_reference, v_test);
   double err1 = LDDMMType::vimg_euclidean_norm_sq(v_reference);
   printf("Error Test vs Reference: %12.8f\n", err1);
+
+  // Report the RMS length of the field
+  double rms = sqrt(LDDMMType::vimg_euclidean_norm_sq(v_test) / v_test->GetBufferedRegion().GetNumberOfPixels());
+  printf("RMS displacement: %12.8f\n", rms);
 
   // Let's define the objective function as just the norm of the vector field
   double nvox = u->GetBufferedRegion().GetNumberOfPixels();

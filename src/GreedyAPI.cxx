@@ -75,7 +75,7 @@ public:
   : m_Verbosity(verbosity), m_Output(f_out ? f_out : stdout)
   {
   }
-  
+
   void printf(const char *format, ...)
   {
     if(m_Verbosity > GreedyParameters::VERB_NONE)
@@ -85,24 +85,24 @@ public:
       va_start (args, format);
       vsprintf (buffer,format, args);
       va_end (args);
-      
+
       fprintf(m_Output, "%s", buffer);
       }
   }
-  
+
   void flush()
   {
     fflush(m_Output);
   }
-  
+
 private:
   GreedyParameters::Verbosity m_Verbosity;
   FILE *m_Output;
-  
+
 };
 
 
-// Helper function to get the RAS coordinate of the center of 
+// Helper function to get the RAS coordinate of the center of
 // an image
 template <unsigned int VDim>
 vnl_vector<double>
@@ -1273,7 +1273,7 @@ int GreedyApproach<VDim, TReal>
 
   // Create an optical flow helper object
   OFHelperType of_helper;
-  
+
   // Object for text output
   GreedyStdOut gout(param.verbosity);
 
@@ -1351,7 +1351,7 @@ int GreedyApproach<VDim, TReal>
         {
         // Set up the optimizer
         vnl_lbfgs *optimizer = new vnl_lbfgs(*acf);
-        
+
         // Using defaults from scipy
         double ftol = (param.lbfgs_param.ftol == 0.0) ? 2.220446049250313e-9 : param.lbfgs_param.ftol;
         double gtol = (param.lbfgs_param.gtol == 0.0) ? 1e-05 : param.lbfgs_param.gtol;
@@ -1689,7 +1689,7 @@ int GreedyApproach<VDim, TReal>
 {
   // Create an optical flow helper object
   OFHelperType of_helper;
-  
+
   // Object for text output
   GreedyStdOut gout(param.verbosity);
 
@@ -1784,7 +1784,7 @@ int GreedyApproach<VDim, TReal>
     // A pointer to the full warp image - either uk in greedy mode, or uk_exp in diff demons mdoe
     VectorImageType *uFull;
 
-    // Matrix work image (for Lie Bracket) 
+    // Matrix work image (for Lie Bracket)
     typedef typename LDDMMType::MatrixImageType MatrixImageType;
     typename MatrixImageType::Pointer work_mat = MatrixImageType::New();
 
@@ -1943,7 +1943,7 @@ int GreedyApproach<VDim, TReal>
         // Vercauteren (2008) suggests using the following expressions
         // v' = v + u (so-so)
         // v' = v + u + [v, u]/2 (this is the Lie bracket)
-        
+
         // Scale the update by 1 / 2^exponent (tiny update, first order approximation)
         double scale_upd = minimization_mode ? -1.0 / (2 << param.warp_exponent) : 1.0 / (2 << param.warp_exponent);
         LDDMMType::vimg_scale_in_place(viTemp, scale_upd);
@@ -1953,7 +1953,7 @@ int GreedyApproach<VDim, TReal>
           {
           // Use the Lie Bracket approximation (v + u + [v,u])
           LDDMMType::lie_bracket(uk, viTemp, work_mat, uk1);
-          LDDMMType::vimg_scale_in_place(uk1, 0.5); 
+          LDDMMType::vimg_scale_in_place(uk1, 0.5);
           LDDMMType::vimg_add_in_place(uk1, uk);
           LDDMMType::vimg_add_in_place(uk1, viTemp);
           }
@@ -2044,7 +2044,7 @@ int GreedyApproach<VDim, TReal>
       std::string iter_line = this->PrintIter(level, -1, metric_report, reg_report);
       gout.printf("%s\n", iter_line.c_str());
       gout.flush();
-      
+
       // Print timing information
       double n_it = param.iter_per_level[level];
       double t_total = tm_Iteration.GetTotal() / n_it;
@@ -2158,7 +2158,12 @@ public:
   {
     m_Dphi_loss = LDDMMType::new_vimg(u);
     m_MetricImage = LDDMMType::new_img(u);
-    // m_SmoothU = LDDMMType::new_vimg(u);
+    m_SmoothU = LDDMMType::new_vimg(u);
+
+    m_Sigma = m_OF_Helper->GetSmoothingSigmasInPhysicalUnits(
+          m_Level, m_Param->sigma_pre.sigma,
+          m_Param->sigma_pre.physical_units,
+          m_Param->flag_zero_last_dim);
   }
 
   double ComputeObjectiveAndGradient(
@@ -2169,31 +2174,47 @@ public:
       GreedyRegularizationReport &reg_report)
   {
     // Convolution with a Gaussian
-    LDDMMType::vimg_smooth(u, m_SmoothU, m_Sigma);
+    // LDDMMType::vimg_write(u, "do_raw_u.nii.gz");
+    LDDMMType::vimg_smooth(u, m_SmoothU, m_Sigma, LDDMMType::FAST_ZEROPAD);
+    // LDDMMType::vimg_write(m_SmoothU, "do_smooth_u.nii.gz");
 
-    m_SSQLayer.Forward(u, phi);
+    // Forward convolution computed by exponentiating the smoothed field
+    m_SSQLayer.Forward(m_SmoothU, phi);
+    // LDDMMType::vimg_write(phi, "do_phi.nii.gz");
+
+    // Compute the metric and the gradient of the metric with respect to phi
     m_Dphi_loss->FillBuffer(typename LDDMMType::Vec(0.0));
-
     m_API->EvaluateMetricForDeformableRegistration(
           *m_Param, *m_OF_Helper, m_Level, phi, metric_report, m_MetricImage, m_Dphi_loss, 1.0, true);
+    // LDDMMType::vimg_write(m_Dphi_loss, "do_Dphi_metric.nii.gz");
 
     if(m_TMC)
     {
+      // Compute the mesh regularization term using phi
       double obj_reg = m_TMC->ComputeObjectiveAndGradientPhi(phi, m_Dphi_loss, m_Param->tjr_param.weight);
       reg_report.terms["MeshTetJac"] = std::make_pair(m_Param->tjr_param.weight, obj_reg / m_Param->tjr_param.weight);
     }
 
     // Backpropagate the metric gradient through to the SVF
     Du_loss->FillBuffer(typename LDDMMType::Vec(0.0));
-    m_SSQLayer.Backward(u, m_Dphi_loss, Du_loss);
+    m_SSQLayer.Backward(m_SmoothU, m_Dphi_loss, Du_loss);
+    // LDDMMType::vimg_write(Du_loss, "do_Dsvf_metric.nii.gz");
 
-    // Smooth the backprop
-    // LDDMMType::vimg_smooth(Du_loss, Du_loss, m_Sigma);
-
-    // Compute the smoothness regularization term
+    // Compute the smoothness regularization term, as a function of the SVF
     double w_obj_smooth = m_Param->defopt_svf_smoothness_weight == 0.0 ? 1000.0 : m_Param->defopt_svf_smoothness_weight;
-    double obj_smooth = m_SmoothnessLayer.ComputeLossAndGradient(u, Du_loss, w_obj_smooth) * w_obj_smooth;
+
+    // To be compatible with the Python code I am basing this on, where the SVF is divided by 2^K before
+    // the scaling/squaring operation, we multiply the weight by 2^(2K), which is equivalent to scaling
+    // m_SmoothU itself by 2^K, assuming that the regularization term is quadratic
+    double svf_squared_scale_factor = 1 << (m_Param->warp_exponent * 2);
+    double obj_smooth = m_SmoothnessLayer.ComputeLossAndGradient(m_SmoothU, Du_loss, w_obj_smooth * svf_squared_scale_factor)
+        * w_obj_smooth * svf_squared_scale_factor;
     reg_report.terms["SVFSmooth"] = std::make_pair(w_obj_smooth, obj_smooth / w_obj_smooth);
+    // LDDMMType::vimg_write(Du_loss, "do_Dsvf_metric_and_svfsmooth.nii.gz");
+
+    // Backpropagate back onto u, by smoothing the gradient
+    LDDMMType::vimg_smooth(Du_loss, Du_loss, m_Sigma, LDDMMType::FAST_ZEROPAD);
+    // LDDMMType::vimg_write(Du_loss, "do_Du_metric_and_svfsmooth.nii.gz");
 
     // Compute the objective
     double total = metric_report.TotalPerPixelMetric;
@@ -2213,7 +2234,7 @@ protected:
   TetraMeshConstraintsType *m_TMC;
   typename VectorImageType::Pointer m_Dphi_loss, m_SmoothU;
   typename ImageType::Pointer m_MetricImage;
-  double m_Sigma = 2.0;
+  typename LDDMMType::Vec m_Sigma;
 };
 
 /**
@@ -2374,7 +2395,7 @@ int GreedyApproach<VDim, TReal>
       GreedyRegularizationReport reg_report;
 
       // Derivative check
-      if(iter % 5 == 0)
+      if(iter % 50 == 0)
         {
         MultiComponentMetricReport metric_report_1, metric_report_2;
         GreedyRegularizationReport reg_report_1, reg_report_2;
@@ -2783,7 +2804,7 @@ void GreedyApproach<VDim, TReal>
         double absexp = fabs(tran_chain[i].exponent);
         double n_real = log(absexp) / log(2.0);
         int n = (int) (n_real + 0.5);
-        if(fabs(n - n_real) > 1.0e-4) 
+        if(fabs(n - n_real) > 1.0e-4)
           throw GreedyException("Currently only power of two exponents are supported for warps");
 
         // Bring the transform into voxel space
@@ -3620,12 +3641,12 @@ int GreedyApproach<VDim, TReal>
 {
   MultiComponentMetricReport metric_report;
   this->ComputeMetric(param, metric_report);
-  
+
   printf("Metric Report:\n");
   for (unsigned i = 0; i < metric_report.ComponentPerPixelMetrics.size(); i++)
     printf("  Component %d: %8.6f", i, metric_report.ComponentPerPixelMetrics[i]);
   printf("  Total = %8.6f\n", metric_report.TotalPerPixelMetric);
-	
+
   return 0;
 }
 
@@ -3676,7 +3697,7 @@ void GreedyApproach<VDim, TReal>
 ::ConfigThreads(const GreedyParameters &param)
 {
   GreedyStdOut gout(param.verbosity);
-  
+
   if(param.threads > 0)
     {
     gout.printf("Limiting the number of threads to %d\n", param.threads);

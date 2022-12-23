@@ -165,14 +165,27 @@ public:
   // by making a custom ITK filter
   static void lie_bracket(VectorImageType *v, VectorImageType *u, MatrixImageType *work, VectorImageType *out);
 
-  // Smooth an image in-place
-  static void img_smooth(ImageType *src, ImageType *out, Vec sigma);
-  static void vimg_smooth(VectorImageType *src, VectorImageType *out, double sigma);
-  static void vimg_smooth(VectorImageType *src, VectorImageType *out, Vec sigmas);
-  static void cimg_smooth(CompositeImageType *src, CompositeImageType *out, Vec sigma);
+  // A struct to specify smoothing sigmas
+  struct SmoothingSigmas
+  {
+    SmoothingSigmas(const Vec &sigma, bool world_units = true, TFloat cutoff_in_units_of_sigma = 3.5);
+    SmoothingSigmas(TFloat sigma, bool world_units = true, TFloat cutoff_in_units_of_sigma = 3.5);
 
-  // Smooth a displacement field with a border of zeros around it
-  static void vimg_smooth_withborder(VectorImageType *src, VectorImageType *trg, Vec sigma, int border_size);
+    Vec GetSigmaInWorldUnits(const ImageBaseType *img) const;
+    Vec GetSigmaInVoxelUnits(const ImageBaseType *img) const;
+
+    Vec sigma;
+    bool world_units;
+    TFloat cutoff_in_units_of_sigma;
+  };
+
+  // An enum to specify the smoothing algorithm and options
+  enum SmoothingMode { ITK_RECURSIVE = 0, FAST_ZEROPAD, FAST_REFLECT };
+
+  // Smooth an image in-place or out-of-place
+  static void img_smooth(ImageType *src, ImageType *out, SmoothingSigmas sigma, SmoothingMode mode = ITK_RECURSIVE);
+  static void vimg_smooth(VectorImageType *src, VectorImageType *out, SmoothingSigmas sigmas, SmoothingMode mode = ITK_RECURSIVE);
+  static void cimg_smooth(CompositeImageType *src, CompositeImageType *out, SmoothingSigmas sigma, SmoothingMode mode = ITK_RECURSIVE);
 
   // Take gradient of an image
   static void image_gradient(ImageType *src, VectorImageType *grad, bool use_spacing);
@@ -360,6 +373,9 @@ protected:
   // Functor ops for composite images
   template <class TFunctor>
   static void cimg_apply_binary_functor_in_place(CompositeImageType *trg, CompositeImageType *a);
+
+  // Implementation of fast convolution with a Gaussian kernel
+  static void cimg_fast_convolution_smooth_inplace(CompositeImageType *img, SmoothingSigmas sigma, SmoothingMode mode);
 
   // A vector image for in-place interpolation operations
   VectorImagePointer vtmp;

@@ -15,6 +15,7 @@
 #include "DifferentiableScalingAndSquaring.h"
 #include "GreedyMeshIO.h"
 #include "vtkUnstructuredGrid.h"
+#include "itkTimeProbe.h"
 
 // Global variable storing the test data root
 std::string data_root;
@@ -35,7 +36,7 @@ int usage()
   printf("          0 for unweighted, 1 for weighted\n");
   printf("  grad_metric_phi <2|3> <eps> <tol> <greedy_opts>\n");
   printf("        : check gradients of various metrics with respect to phi\n");
-  printf("          Greedy options: -i, -it, -m, -gm, -mm \n");
+  printf("          Greedy options: -i, -it, -id, -m, -gm, -mm \n");
   printf("  grad_metric_aff <2|3> <eps> <tol> <greedy_opts>\n");
   printf("        : check gradients of various metrics with respect to affine transforms\n");
   printf("          Greedy options: -i, -ia, -m, -gm, -mm \n");
@@ -46,10 +47,12 @@ int usage()
   printf("        : Test derivatives of the tetrahedral jacobian regularization term\n");
   printf("  comp_layer <2|3> \n");
   printf("        : Test derivatives of the warp composition layer\n");
-  printf("  ssq_layer <2|3 \n");
+  printf("  ssq_layer <2|3> [noise_amplitude==8.0] [noise_sigma=1.0] \n");
   printf("        : Test derivatives of the scaling and squaring layer\n");
-  printf("  svf_smoothness_reg <2|3 \n");
+  printf("  svf_smoothness_reg <2|3>\n");
   printf("        : Test derivatives of SVF smoothness regularizer\n");
+  printf("  fast_smoothing <2|3> <fn_src> <fn_target> <sigma>\n");
+  printf("        : Test fast smoothing code\n");
   return -1;
 }
 
@@ -615,7 +618,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
 
   // List of greedy commands that are recognized by this test command
   std::set<std::string> greedy_cmd {
-    "-m", "-threads", "-i", "-it", "-gm", "-mm", "-ia", "-bg"
+    "-m", "-threads", "-i", "-it", "-gm", "-mm", "-ia", "-bg", "-id"
   };
 
   // Parse the parameters
@@ -630,6 +633,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
 
   // Create a helper
   typedef GreedyApproach<VDim> GreedyAPI;
+  typedef typename GreedyAPI::LDDMMType LDDMMType;
   GreedyAPI api;
   typename GreedyAPI::OFHelperType of_helper;
 
@@ -651,6 +655,10 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
 
   // Initialize phi to some dummy value
   api.LoadInitialTransform(gp, of_helper, 0, phi);
+
+  // Report RMS displacement
+  double rms = sqrt(LDDMMType::vimg_euclidean_norm_sq(phi) / phi->GetBufferedRegion().GetNumberOfPixels());
+  printf("RMS displacement: %12.8f\n", rms);
 
   // Compute the metric and gradient, using minimization mode, which should ensure that
   // the gradient is scaled correctly relative to the metric
@@ -771,7 +779,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
 
     // Print the comparison
     const char *status_names[] = { "INSIDE", "OUTSIDE", "BORDER" };
-    printf("Sample [%s] (%7s)  Num: %s  Anl: %s   Err: %8.5f\n",
+    printf("Sample [%s] (%7s)  Num: %s  Anl: %s   Err: %12.9f\n",
            printf_index("%03ld", s.pos).c_str(),
            status_names[s.status],
            printf_vec<VDim,double>("%12.9f", s.df_numeric.GetVnlVector().data_block()).c_str(),
@@ -983,10 +991,10 @@ RunTetraJacobianRegularizationTest(std::string fn_refspace, std::string fn_mesh)
 
 template <unsigned int VDim>
 int
-RunDifferentiableScalingAndSquaringTest()
+RunDifferentiableScalingAndSquaringTest(double noise_amplitude = 8.0, double noise_sigma = 1.0)
 {
   typedef ScalingAndSquaringLayer<VDim, double> SSQLayer;
-  return SSQLayer::TestDerivatives() ? 0 : -1;
+  return SSQLayer::TestDerivatives(noise_amplitude, noise_sigma) ? 0 : -1;
 }
 
 template <unsigned int VDim>
@@ -1003,6 +1011,39 @@ RunSVFSmoothnessRegularizerTest()
 {
   typedef DisplacementFieldSmoothnessLoss<VDim, double> Layer;
   return Layer::TestDerivatives() ? 0 : -1;
+}
+
+#include <itkTimeProbe.h>
+
+template <unsigned int VDim>
+int
+RunFastGaussianSmoothingTest(std::string fn_source, std::string fn_target, double sigma_vox)
+{
+  typedef LDDMMData<double, VDim> LDDMMType;
+  typename LDDMMType::Vec sigma; sigma.Fill(sigma_vox);
+  itk::TimeProbe probe_fast, probe_baseline;
+
+  // Create a sigma specification
+  typename LDDMMType::SmoothingSigmas sigma_spec(sigma_vox, false);
+
+  // Run the baseline filter
+  auto src_bl = LDDMMType::cimg_read(fn_source.c_str());
+  probe_baseline.Start();
+  LDDMMType::cimg_smooth(src_bl, src_bl, sigma_spec, LDDMMType::ITK_RECURSIVE);
+  probe_baseline.Stop();
+
+  // Run the experimental code
+  auto src = LDDMMType::cimg_read(fn_source.c_str());
+  probe_fast.Start();
+  LDDMMType::cimg_smooth(src, src, sigma_spec, LDDMMType::FAST_ZEROPAD);
+  probe_fast.Stop();
+  LDDMMType::cimg_write(src, fn_target.c_str());
+
+  // Report times
+  std::cout << "Baseline time: " << probe_baseline.GetTotal() << std::endl;
+  std::cout << "Fast code time: " << probe_fast.GetTotal() << std::endl;
+
+  return 0;
 }
 
 int main(int argc, char *argv[])
@@ -1079,10 +1120,12 @@ int main(int argc, char *argv[])
   else if(cmd == "ssq_layer")
     {
     int dim = cl.read_integer();
+    double noise_ampl = cl.is_at_end() ? 8.0 : cl.read_double();
+    double noise_sigma = cl.is_at_end() ? 1.0 : cl.read_double();
     if(dim == 2)
-      return RunDifferentiableScalingAndSquaringTest<2>();
+      return RunDifferentiableScalingAndSquaringTest<2>(noise_ampl, noise_sigma);
     else if(dim == 3)
-      return RunDifferentiableScalingAndSquaringTest<3>();
+      return RunDifferentiableScalingAndSquaringTest<3>(noise_ampl, noise_sigma);
     else return -1;
     }
   else if(cmd == "svf_smoothness_reg")
@@ -1092,6 +1135,18 @@ int main(int argc, char *argv[])
       return RunSVFSmoothnessRegularizerTest<2>();
     else if(dim == 3)
       return RunSVFSmoothnessRegularizerTest<3>();
+    else return -1;
+    }
+  else if(cmd == "fast_smoothing")
+    {
+    int dim = cl.read_integer();
+    std::string fn_src = cl.read_existing_filename();
+    std::string fn_trg = cl.read_output_filename();
+    double sigma = cl.read_double();
+    if(dim == 2)
+      return RunFastGaussianSmoothingTest<2>(fn_src, fn_trg, sigma);
+    else if(dim == 3)
+      return RunFastGaussianSmoothingTest<3>(fn_src, fn_trg, sigma);
     else return -1;
     }
   else return usage();
