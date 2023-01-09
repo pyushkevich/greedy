@@ -2174,19 +2174,19 @@ public:
       GreedyRegularizationReport &reg_report)
   {
     // Convolution with a Gaussian
-    // LDDMMType::vimg_write(u, "do_raw_u.nii.gz");
+    LDDMMType::vimg_write(u, "do_raw_u.nii.gz");
     LDDMMType::vimg_smooth(u, m_SmoothU, m_Sigma, LDDMMType::FAST_ZEROPAD);
-    // LDDMMType::vimg_write(m_SmoothU, "do_smooth_u.nii.gz");
+    LDDMMType::vimg_write(m_SmoothU, "do_smooth_u.nii.gz");
 
     // Forward convolution computed by exponentiating the smoothed field
     m_SSQLayer.Forward(m_SmoothU, phi);
-    // LDDMMType::vimg_write(phi, "do_phi.nii.gz");
+    LDDMMType::vimg_write(phi, "do_phi.nii.gz");
 
     // Compute the metric and the gradient of the metric with respect to phi
     m_Dphi_loss->FillBuffer(typename LDDMMType::Vec(0.0));
     m_API->EvaluateMetricForDeformableRegistration(
           *m_Param, *m_OF_Helper, m_Level, phi, metric_report, m_MetricImage, m_Dphi_loss, 1.0, true);
-    // LDDMMType::vimg_write(m_Dphi_loss, "do_Dphi_metric.nii.gz");
+    LDDMMType::vimg_write(m_Dphi_loss, "do_Dphi_metric.nii.gz");
 
     if(m_TMC)
     {
@@ -2198,7 +2198,7 @@ public:
     // Backpropagate the metric gradient through to the SVF
     Du_loss->FillBuffer(typename LDDMMType::Vec(0.0));
     m_SSQLayer.Backward(m_SmoothU, m_Dphi_loss, Du_loss);
-    // LDDMMType::vimg_write(Du_loss, "do_Dsvf_metric.nii.gz");
+    LDDMMType::vimg_write(Du_loss, "do_Dsvf_metric.nii.gz");
 
     // Compute the smoothness regularization term, as a function of the SVF
     double w_obj_smooth = m_Param->defopt_svf_smoothness_weight == 0.0 ? 1000.0 : m_Param->defopt_svf_smoothness_weight;
@@ -2210,11 +2210,11 @@ public:
     double obj_smooth = m_SmoothnessLayer.ComputeLossAndGradient(m_SmoothU, Du_loss, w_obj_smooth * svf_squared_scale_factor)
         * w_obj_smooth * svf_squared_scale_factor;
     reg_report.terms["SVFSmooth"] = std::make_pair(w_obj_smooth, obj_smooth / w_obj_smooth);
-    // LDDMMType::vimg_write(Du_loss, "do_Dsvf_metric_and_svfsmooth.nii.gz");
+    LDDMMType::vimg_write(Du_loss, "do_Dsvf_metric_and_svfsmooth.nii.gz");
 
     // Backpropagate back onto u, by smoothing the gradient
     LDDMMType::vimg_smooth(Du_loss, Du_loss, m_Sigma, LDDMMType::FAST_ZEROPAD);
-    // LDDMMType::vimg_write(Du_loss, "do_Du_metric_and_svfsmooth.nii.gz");
+    LDDMMType::vimg_write(Du_loss, "do_Du_metric_and_svfsmooth.nii.gz");
 
     // Compute the objective
     double total = metric_report.TotalPerPixelMetric;
