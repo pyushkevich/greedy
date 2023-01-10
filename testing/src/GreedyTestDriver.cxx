@@ -668,7 +668,6 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
   api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0, minimization_mode);
 
   // Interpolator to figure out what kind of sample it is
-  typedef LDDMMData<double, VDim> LDDMMType;
   typedef FastLinearInterpolator<
       typename LDDMMType::CompositeImageType, double, VDim,
       typename LDDMMType::ImageType> InterpType;
