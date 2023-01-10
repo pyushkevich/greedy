@@ -312,6 +312,15 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     ResliceMeshSpec rp;
     rp.fixed = cl.read_existing_filename();
     rp.output = cl.read_output_filename();
+    rp.jacobian_mode = false;
+    this->reslice_param.meshes.push_back(rp);
+    }
+  else if(cmd == "-rsj")
+    {
+    ResliceMeshSpec rp;
+    rp.fixed = cl.read_existing_filename();
+    rp.output = cl.read_output_filename();
+    rp.jacobian_mode = true;
     this->reslice_param.meshes.push_back(rp);
     }
   else if(cmd == "-rf")
@@ -777,7 +786,10 @@ std::string GreedyParameters::GenerateCommandLine()
 
     for(const ResliceMeshSpec &rm : this->reslice_param.meshes)
       {
-      oss << " -rs " << rm.fixed << " " << rm.output;
+      if(rm.jacobian_mode)
+        oss << " -rsj " << rm.fixed << " " << rm.output;
+      else
+        oss << " -rs " << rm.fixed << " " << rm.output;
       }
 
     if(this->reslice_param.transforms.size())

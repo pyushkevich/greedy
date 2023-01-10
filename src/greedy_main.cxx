@@ -162,12 +162,13 @@ int usage()
   printf("Specific to reslice mode (-r): \n");
   printf("  -rf fixed.nii          : fixed image for reslicing\n");
   printf("  -rm mov.nii out.nii    : moving/output image pair (may be repeated)\n");
-  printf("  -rs mov.vtk out.vtk    : moving/output surface pair (vertices are warped from fixed space to moving)\n");
+  printf("  -rs mesh.vtk out.vtk   : fixed/output surface pair (vertices are warped from fixed space to moving)\n");
   printf("  -ri interp_mode        : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
   printf("  -rb value              : background (i.e. outside) intensity for the next pair (default 0)\n");
   printf("  -rt format             : data type for the next pair (auto|double|float|uint|int|ushort|short|uchar|char)\n");
   printf("  -rc outwarp            : write composed transforms to outwarp \n");
   printf("  -rj outjacobian        : write Jacobian determinant image to outjacobian \n");
+  printf("  -rsj mesh.vtk out.vtk  : Compute Jacobian determinant for a simplex mesh in fixed space \n");
   printf("  -rk mask.nii           : a binary mask for the fixed image; zero values will be overwritten with background\n");
   printf("Specific to metric computation mode (-metric): \n");
   printf("  -og out.nii            : write the gradient of the metric to file\n");

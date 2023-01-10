@@ -3166,7 +3166,7 @@ int GreedyApproach<VDim, TReal>
      && !r_param.out_composed_warp.size()
      && !r_param.out_jacobian_image.size())
     throw GreedyException("No operation specified for reslice mode. "
-                          "Use one of -rm, -rs or -rc commands.");
+                          "Use one of -rm, -rs, -rsj, or -rc commands.");
 
   // Read the fixed as a plain image (we don't care if it's composite)
   typename ImageBaseType::Pointer ref = ReadImageBaseViaCache(r_param.ref_image);
@@ -3176,10 +3176,23 @@ int GreedyApproach<VDim, TReal>
   if(r_param.ref_image_mask.size())
     ref_mask = ReadImageViaCache<ImageType>(r_param.ref_image_mask);
 
+  // Read meshes - for each mesh store a copy in case we want to perform Jacobian computation
   typedef vtkSmartPointer<vtkPointSet> MeshPointer;
-  std::vector<MeshPointer> meshes;
+  std::vector<MeshPointer> meshes, original_meshes;
   for(unsigned int i = 0; i < r_param.meshes.size(); i++)
-    meshes.push_back(ReadMesh(r_param.meshes[i].fixed.c_str()));
+    {
+    vtkSmartPointer<vtkPointSet> mesh = ReadMesh(r_param.meshes[i].fixed.c_str());
+    meshes.push_back(mesh);
+
+    if(r_param.meshes[i].jacobian_mode)
+      {
+      original_meshes.push_back(DeepCopyMesh(mesh));
+      }
+    else
+      {
+      original_meshes.push_back(nullptr);
+      }
+    }
 
   // Read the transform chain
   VectorImagePointer warp;
@@ -3338,7 +3351,12 @@ int GreedyApproach<VDim, TReal>
 
   // Save the meshes
   for(unsigned int i = 0; i < r_param.meshes.size(); i++)
-    WriteMesh(meshes[i], r_param.meshes[i].output.c_str());
+    {
+    if(r_param.meshes[i].jacobian_mode)
+      WriteJacobianMesh(original_meshes[i], meshes[i], r_param.meshes[i].output.c_str());
+    else
+      WriteMesh(meshes[i], r_param.meshes[i].output.c_str());
+    }
 
 
   // Process meshes

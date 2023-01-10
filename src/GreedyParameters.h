@@ -112,6 +112,7 @@ struct ResliceMeshSpec
 {
   std::string fixed;
   std::string output;
+  bool jacobian_mode = false;
 };
 
 struct TransformSpec
