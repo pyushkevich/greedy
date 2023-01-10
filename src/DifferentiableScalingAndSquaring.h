@@ -28,6 +28,8 @@
 #define DIFFERENTIABLESCALINGANDSQUARING_H
 
 #include "lddmm_data.h"
+#include <functional>
+#include <deque>
 
 /**
  * A layer implementing composition of a displacement field with itself
@@ -133,6 +135,64 @@ public:
 
 protected:
   double alpha, beta_1, beta_2, eps;
+};
+
+/**
+ * LBFGS implementation - modeled on Pytorch but works with images
+ */
+template <unsigned int VDim, typename TReal>
+class ImageLBFGS
+{
+public:
+
+  // Optimization is performed over deformation fields and such - which are of type VectorImage
+  typedef LDDMMData<TReal, VDim> LDDMMType;
+  typedef typename LDDMMType::VectorImageType VectorImageType;
+  typedef typename LDDMMType::VectorImagePointer VectorImagePointer;
+
+  ImageLBFGS(double lr = 1.0, double tolerance_grad=1e-07, double tolerance_change=1e-09,
+             int history_size=10, bool strong_wolfe = false);
+
+  /**
+   * Typedef of the closure that must be passed to the step function. Parameters are x, grad
+   */
+  typedef std::function<double(const VectorImageType *, VectorImageType *)> Closure;
+
+  /**
+   * Perform a step, updating the x vector, passing in the storage for the gradient. The memory
+   * for history will be allocated by the class. Returns true if convergence criteria are met.
+   */
+  bool Step(Closure closure, VectorImageType *x, double &obj, VectorImageType *grad);
+
+protected:
+  double lr, tolerance_grad, tolerance_change;
+  int history_size = 10;
+  bool strong_wolfe;
+  int n_iter = 0;
+
+  // History storage
+  std::deque<VectorImagePointer> s_i, y_i;
+
+  // Scalar history
+  std::deque<double> rho_i;
+
+  // Alphas and betas
+  std::vector<double> alpha, beta;
+
+  // Last gradient computed
+  VectorImagePointer g_last;
+
+  // Last update direction
+  VectorImagePointer d;
+
+  // Hessian scalar value
+  double H_diag;
+
+  // Last step size
+  double t;
+
+  // Rotate history
+  VectorImagePointer rotate_history(std::deque<VectorImagePointer> &hist, VectorImageType *ref);
 };
 
 #endif // DIFFERENTIABLESCALINGANDSQUARING_H

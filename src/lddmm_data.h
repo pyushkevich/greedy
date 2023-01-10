@@ -201,6 +201,7 @@ public:
   static void vimg_scale(const VectorImageType *src, TFloat s, VectorImageType *trg);
   static void vimg_multiply_in_place(VectorImageType *trg, ImageType *s);
   static void vimg_multiply_in_place(VectorImageType *trg, VectorImageType *s);
+  static double vimg_dot_product(VectorImageType *a, VectorImageType *b);
   static void vimg_euclidean_inner_product(ImagePointer &trg, VectorImageType *a, VectorImageType *b);
   static TFloat vimg_euclidean_norm_sq(VectorImageType *trg);
 
@@ -210,6 +211,12 @@ public:
 
   // Masking
   static void cimg_mask_in_place(CompositeImageType *trg, ImageType *s, TFloat background = 0.);
+
+  // Compute the maximum absolute value across all vector components
+  static double vimg_component_abs_max(VectorImageType *v);
+
+  // Compute the sum of absolute value across all vector components
+  static double vimg_component_abs_sum(VectorImageType *v);
 
   // Compute the range of the norm of a vector field
   static void vimg_norm_min_max(VectorImageType *image, ImageType *normsqr,

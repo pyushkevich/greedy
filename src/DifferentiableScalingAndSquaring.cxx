@@ -705,8 +705,11 @@ public:
       {
       m_k_i[d] = m_k_i[d] * beta_1 + grad_i[d] * (1.0 - beta_1);
       v_k_i[d] = v_k_i[d] * beta_2 + (grad_i[d] * grad_i[d]) * (1.0 - beta_2);
-      TReal denom = eps + sqrt(v_k_i[d] / (1.0 - beta_2_t));
-      theta_i[d] -= m_k_i[d] * alpha / (denom * (1.0 - beta_1_t));
+      TReal mt_hat = m_k_i[d] / (1.0 - beta_1_t);
+      TReal vt_hat = v_k_i[d] / (1.0 - beta_2_t);
+      theta_i[d] -= alpha * mt_hat / (sqrt(vt_hat) + eps);
+      // TReal denom = eps + sqrt(v_k_i[d] / (1.0 - beta_2_t));
+      // theta_i[d] -= m_k_i[d] * alpha / (denom * (1.0 - beta_1_t));
       }
     }
 };
@@ -751,3 +754,145 @@ template class AdamStep< typename LDDMMData<double, 4>::VectorImageType >;
 template class AdamStep< typename LDDMMData<float, 2>::VectorImageType >;
 template class AdamStep< typename LDDMMData<float, 3>::VectorImageType >;
 template class AdamStep< typename LDDMMData<float, 4>::VectorImageType >;
+
+template<unsigned int VDim, typename TReal>
+ImageLBFGS<VDim, TReal>
+::ImageLBFGS(double lr, double tolerance_grad, double tolerance_change, int history_size, bool strong_wolfe)
+  : lr(lr), tolerance_grad(tolerance_grad), tolerance_change(tolerance_change),
+    history_size(history_size), strong_wolfe(strong_wolfe)
+{
+  this->alpha.resize(history_size);
+  this->beta.resize(history_size);
+}
+
+template <unsigned int VDim, typename TReal>
+bool ImageLBFGS<VDim, TReal>::Step(Closure closure, VectorImageType *x, double &obj, VectorImageType *grad)
+  {
+  // Run the closure
+  obj = closure(x, grad);
+
+  // Check for convergence here
+  if(LDDMMType::vimg_component_abs_max(grad) <= this->tolerance_grad)
+    return true;
+
+  // Increase the iteration counter
+  n_iter++;
+
+  // If this is the first iteration, there is no history
+  if(n_iter == 1)
+    {
+    // Allocate the last gradient image
+    this->g_last = LDDMMType::new_vimg(grad);
+
+    // Allocate the update direction and set it to negative gradient
+    this->d = LDDMMType::new_vimg(grad);
+    LDDMMType::vimg_add_scaled_in_place(this->d, grad, -1.0);
+
+    this->H_diag = 1;
+    }
+  else
+    {
+    // We can compute ys without allocating anything
+    double ys = this->t * (LDDMMType::vimg_dot_product(grad, this->d) - LDDMMType::vimg_dot_product(this->g_last, this->d));
+    if(ys > 1e-10)
+      {
+      // Find a place to store the next y. It will need to either be allocated
+      // or memory at the back of the stack should be reused
+      VectorImagePointer y = this->rotate_history(this->y_i, grad);
+      LDDMMType::vimg_copy(grad, y);
+      LDDMMType::vimg_subtract_in_place(y, this->g_last);
+
+      // Find a place to store the next s
+      VectorImagePointer s = this->rotate_history(this->s_i, grad);
+
+      // Populate it with the last update direction scaled by the last step size
+      LDDMMType::vimg_copy(this->d, s);
+      LDDMMType::vimg_scale_in_place(s, this->t);
+
+      // Store the rho
+      this->rho_i.push_front(1.0 / ys);
+
+      // Compute H_diag
+      this->H_diag = ys / LDDMMType::vimg_dot_product(y, y);
+      }
+
+    // Initialize the update direction to the negative gradient
+    LDDMMType::vimg_scale(grad, -1.0, this->d);
+
+    // First loop
+    unsigned int m = this->s_i.size();
+    for(int i = 0; i < m; i++)
+      {
+      this->alpha[i] = LDDMMType::vimg_dot_product(this->s_i[i], this->d) * this->rho_i[i];
+      LDDMMType::vimg_add_scaled_in_place(this->d, this->y_i[i], -this->alpha[i]);
+      }
+
+    // Scale by the Hessian
+    LDDMMType::vimg_scale_in_place(this->d, this->H_diag);
+
+    // Second loop, work in opposite direction
+    for(int i = m-1; i >= 0; i--)
+      {
+      this->beta[i] = LDDMMType::vimg_dot_product(this->y_i[i], this->d) * this->rho_i[i];
+      LDDMMType::vimg_add_scaled_in_place(this->d, this->s_i[i], this->alpha[i] - this->beta[i]);
+      }
+    }
+
+  // Remember the last gradient for the next iteration
+  LDDMMType::vimg_copy(grad, this->g_last);
+
+  // At this point, d stores the update direction, grad stores the current gradient and the
+  // history has been updated. Focus on computing the step size
+  if(n_iter == 1)
+    this->t = std::min(1.0, 1.0 / LDDMMType::vimg_component_abs_sum(grad)) * this->lr;
+  else
+    this->t = this->lr;
+
+  // Another convergence check
+  double gtd = LDDMMType::vimg_dot_product(grad, this->d);
+  if(gtd > -this->tolerance_change)
+    return true;
+
+  // Perform line search
+  if(this->strong_wolfe)
+    {
+    // TODO: write code for the Strong Wolfe line search function
+    return false;
+    }
+  else
+    {
+    // Update x by adding the gradient with the current t
+    LDDMMType::vimg_add_scaled_in_place(x, this->d, this->t);
+
+    // We have not yet converged
+    return false;
+    }
+}
+
+template<unsigned int VDim, typename TReal>
+typename ImageLBFGS<VDim, TReal>::VectorImagePointer
+ImageLBFGS<VDim, TReal>::rotate_history(std::deque<VectorImagePointer> &hist, VectorImageType *ref)
+{
+  VectorImagePointer front;
+  if(hist.size() < this->history_size)
+    {
+    front = LDDMMType::new_vimg(ref);
+    hist.push_front(front);
+    }
+  else
+    {
+    front = hist.back();
+    hist.pop_back();
+    hist.push_front(front);
+    }
+
+  return front;
+}
+
+
+template class ImageLBFGS<2, double>;
+template class ImageLBFGS<3, double>;
+template class ImageLBFGS<4, double>;
+template class ImageLBFGS<2, float>;
+template class ImageLBFGS<3, float>;
+template class ImageLBFGS<4, float>;

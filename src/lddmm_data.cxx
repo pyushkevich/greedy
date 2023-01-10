@@ -52,6 +52,7 @@
 #include "vnl/vnl_random.h"
 
 #include "FastWarpCompositeImageFilter.h"
+#include <mutex>
 
 template <class TFloat, uint VDim>
 void
@@ -400,6 +401,40 @@ void LDDMMData<TFloat, VDim>::vimg_multiply_in_place(VectorImageType *trg, Vecto
   flt->SetInput2(s);
   flt->GraftOutput(trg);
   flt->Update();
+  }
+
+template<class TFloat, uint VDim>
+double LDDMMData<TFloat, VDim>::vimg_dot_product(VectorImageType *a, VectorImageType *b)
+{
+  double value = 0.0;
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+  std::mutex pooling_mutex;
+
+  mt->ParallelizeImageRegion<VDim>(
+        a->GetBufferedRegion(),
+        [a, b, &value, &pooling_mutex](const itk::ImageRegion<VDim> &thread_region)
+    {
+
+    // Iterator typdef
+    typedef itk::ImageLinearConstIteratorWithIndex<VectorImageType> IterBase;
+    typedef IteratorExtender<IterBase> Iterator;
+
+    unsigned int line_length = thread_region.GetSize(0);
+    double thread_value = 0.0;
+    for(Iterator it(a, thread_region); !it.IsAtEnd(); it.NextLine())
+      {
+      auto *a_line = it.GetPixelPointer(a), *b_line = it.GetPixelPointer(b);
+      for(unsigned int i = 0; i < line_length; i++)
+        for(unsigned int k = 0; k < VDim; k++)
+          thread_value += a_line[i][k] * b_line[i][k];
+      }
+
+    // Use mutex to update the u range variable
+    std::lock_guard<std::mutex> guard(pooling_mutex);
+    value += thread_value;
+    }, nullptr);
+
+  return value;
 }
 
 template <class TFloat, uint VDim>
@@ -474,7 +509,80 @@ void LDDMMData<TFloat, VDim>::cimg_mask_in_place(CompositeImageType *trg, ImageT
     }, nullptr);
 
   trg->Modified();
+  }
+
+template<class TFloat, uint VDim>
+double
+LDDMMData<TFloat, VDim>
+::vimg_component_abs_max(VectorImageType *v)
+{
+  double value = 0.0;
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+  std::mutex pooling_mutex;
+
+  mt->ParallelizeImageRegion<VDim>(
+        v->GetBufferedRegion(),
+        [v, &value, &pooling_mutex](const itk::ImageRegion<VDim> &thread_region)
+    {
+
+    // Iterator typdef
+    typedef itk::ImageLinearConstIteratorWithIndex<VectorImageType> IterBase;
+    typedef IteratorExtender<IterBase> Iterator;
+
+    unsigned int line_length = thread_region.GetSize(0);
+    TFloat thread_value = 0.0;
+    for(Iterator it(v, thread_region); !it.IsAtEnd(); it.NextLine())
+      {
+      auto *v_line = it.GetPixelPointer(v);
+      for(unsigned int i = 0; i < line_length; i++)
+        for(unsigned int k = 0; k < VDim; k++)
+          thread_value = std::max(thread_value, std::fabs(v_line[i][k]));
+      }
+
+    // Use mutex to update the u range variable
+    std::lock_guard<std::mutex> guard(pooling_mutex);
+    value = std::max((double) thread_value, value);
+    }, nullptr);
+
+  return value;
 }
+
+template<class TFloat, uint VDim>
+double
+LDDMMData<TFloat, VDim>
+::vimg_component_abs_sum(VectorImageType *v)
+{
+  double value = 0.0;
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+  std::mutex pooling_mutex;
+
+  mt->ParallelizeImageRegion<VDim>(
+        v->GetBufferedRegion(),
+        [v, &value, &pooling_mutex](const itk::ImageRegion<VDim> &thread_region)
+    {
+
+    // Iterator typdef
+    typedef itk::ImageLinearConstIteratorWithIndex<VectorImageType> IterBase;
+    typedef IteratorExtender<IterBase> Iterator;
+
+    unsigned int line_length = thread_region.GetSize(0);
+    double thread_value = 0.0;
+    for(Iterator it(v, thread_region); !it.IsAtEnd(); it.NextLine())
+      {
+      auto *v_line = it.GetPixelPointer(v);
+      for(unsigned int i = 0; i < line_length; i++)
+        for(unsigned int k = 0; k < VDim; k++)
+          thread_value += std::fabs(v_line[i][k]);
+      }
+
+    // Use mutex to update the u range variable
+    std::lock_guard<std::mutex> guard(pooling_mutex);
+    value += thread_value;
+    }, nullptr);
+
+  return value;
+}
+
 
 // Scalar math
 
@@ -522,6 +630,7 @@ TFloat
 LDDMMData<TFloat, VDim>
 ::vimg_euclidean_norm_sq(VectorImageType *trg)
 {
+  // TODO: implement by calling dot product (faster code)
   // Add all voxels in the image
   double accum = 0.0;
   typedef itk::ImageRegionIterator<VectorImageType> Iter;

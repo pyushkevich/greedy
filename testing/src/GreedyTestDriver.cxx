@@ -53,6 +53,8 @@ int usage()
   printf("        : Test derivatives of SVF smoothness regularizer\n");
   printf("  fast_smoothing <2|3> <fn_src> <fn_target> <sigma>\n");
   printf("        : Test fast smoothing code\n");
+  printf("  image_lbgfs\n");
+  printf("        : Test image lbgfs code\n");
   return -1;
 }
 
@@ -1046,6 +1048,117 @@ RunFastGaussianSmoothingTest(std::string fn_source, std::string fn_target, doubl
   return 0;
 }
 
+#include <vnl/algo/vnl_lbfgs.h>
+class RosenbrockFunction : public vnl_cost_function
+{
+public:
+  RosenbrockFunction() : vnl_cost_function(100) {}
+
+  virtual void compute(vnl_vector<double> const& x_flat, double *f, vnl_vector<double>* g_flat)
+    {
+    // Compute the function
+    *f = 0.0;
+    for(unsigned int i = 1; i < 100; i++)
+      {
+      // Forward pass
+      double a = x_flat[i] - x_flat[i-1] * x_flat[i-1];
+      double b = 1.0 - x_flat[i-1];
+      *f += 100 * a * a + b * b;
+
+      // Backward pass
+      double df_da = 200 * a;
+      double df_db = 2 * b;
+      if(g_flat)
+        {
+        (*g_flat)[i-1] -= df_db;
+        (*g_flat)[i-1] -= 2 * x_flat[i-1] * df_da;
+        (*g_flat)[i] += df_da;
+        }
+      }
+    }
+};
+
+int RunImageLBGFSTest()
+{
+  typedef ImageLBFGS<2, double> Optimizer;
+  typedef typename Optimizer::VectorImageType VectorImageType;
+  typedef typename Optimizer::VectorImagePointer VectorImagePointer;
+  typedef typename Optimizer::LDDMMType LDDMMType;
+  typedef typename LDDMMType::Vec Vec;
+
+  // Set the number of vectors
+  unsigned int n = 50;
+
+  // The VNL function that we will wrap around
+  RosenbrockFunction rfun;
+
+  // We need a sample optimization problem
+  auto closure = [n, &rfun](const VectorImageType *x, VectorImageType *grad) -> double
+    {
+    // Unpack the image into a flat array of vectors
+    const Vec *x_vec = x->GetBufferPointer();
+    Vec *g_vec = grad->GetBufferPointer();
+
+    vnl_vector<double> x_flat(2 * n), g_flat(2 * n);
+    for(unsigned int i = 0; i < n; i++)
+      {
+      x_flat[i * 2] = x_vec[i][0];
+      x_flat[i * 2 + 1] = x_vec[i][1];
+      g_flat[i * 2] = 0.0;
+      g_flat[i * 2 + 1] = 0.0;
+      }
+
+    // Compute the function
+    double f;
+    rfun.compute(x_flat, &f, &g_flat);
+
+    for(unsigned int i = 0; i < n; i++)
+      {
+      g_vec[i][0] = g_flat[i * 2];
+      g_vec[i][1] = g_flat[i * 2 + 1];
+      }
+
+    return f;
+    };
+
+  // Run VNL optimization
+  vnl_lbfgs vnlopt(rfun);
+  vnlopt.set_trace(true);
+  vnlopt.set_max_function_evals(100);
+  vnl_vector<double> x0(100); x0.fill(0.1);
+  vnlopt.minimize(x0);
+
+
+  // Create a starting point and a gradient vector storage
+  typename LDDMMType::RegionType region;
+  typename LDDMMType::RegionType::SizeType sz = {{n, 1}};
+  region.SetSize(sz);
+  VectorImagePointer x = VectorImageType::New();
+  x->SetRegions(region);
+  x->Allocate();
+  x->FillBuffer(Vec(0.1));
+  VectorImagePointer g = LDDMMType::new_vimg(x);
+
+  // Create the optimizer
+  Optimizer opt;
+  double opt_value;
+  for(unsigned int i = 0; i < 800; i++)
+    {
+    bool converged = opt.Step(closure, x, opt_value, g);
+    printf("Iter: %04d  Obj: %12.8f\n", i, opt_value);
+    if(converged)
+      break;
+    }
+
+  // Check that the solution is correct
+  auto soln = LDDMMType::new_vimg(x, 1.0);
+  LDDMMType::vimg_subtract_in_place(x, soln);
+  double max_error = LDDMMType::vimg_component_abs_max(x);
+  printf("Max deviation from known optimum: %12.8f\n", max_error);
+
+  return max_error < 1.e-4 ? 0 : 1;
+}
+
 int main(int argc, char *argv[])
 {
   // Check for the environment variable of test data
@@ -1148,6 +1261,10 @@ int main(int argc, char *argv[])
     else if(dim == 3)
       return RunFastGaussianSmoothingTest<3>(fn_src, fn_trg, sigma);
     else return -1;
+    }
+  else if(cmd == "image_lbgfs")
+    {
+    return RunImageLBGFSTest();
     }
   else return usage();
 };
