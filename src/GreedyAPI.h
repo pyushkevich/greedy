@@ -309,11 +309,6 @@ protected:
 
   void WriteMeshViaCache(MeshType *mesh, const std::string &filename);
 
-  void ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
-                          ImageBaseType *ref_space,
-                          VectorImagePointer &out_warp,
-                          MeshArray *meshes = nullptr);
-
   // Compute the moments of a composite image (mean and covariance matrix of coordinate weighted by intensity)
   void ComputeImageMoments(CompositeImageType *image, const vnl_vector<float> &weights, VecFx &m1, MatFx &m2);
 
