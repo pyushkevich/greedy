@@ -100,7 +100,9 @@ int usage()
   printf("                           up to the edge of the tissue and you want the tissue/background edge to count\n");
   printf("                           towards the metric.\n");
   printf("Defining a reference space for registration (primarily in deformable mode): \n");
-  printf("  -ref <image>           : Use supplied image, rather than fixed image to define the reference space\n");
+  printf("  -ref <image>           : Use supplied image, rather than fixed image to define the reference space.\n");
+  printf("                           Note: in affine registration this will cause the moving image to be resliced\n");
+  printf("                           into the moving image space before registration, this is not recommended.\n");
   printf("  -ref-pad <radius>      : Define the reference space by padding the fixed image by radius. Useful when\n");
   printf("                           the stuff you want to register is at the border of the fixed image.\n");
   printf("  -bg <float|NaN>        : When mapping fixed and moving images to reference space, fill missing values\n");
@@ -144,7 +146,7 @@ int usage()
   printf("  -ia-image-side CODE    : initialize affine matrix based on matching center of one image side \n");
   printf("  -ia-moments <1|2>      : initialize affine matrix based on matching moments of inertia\n");
   printf("Specific to affine mode (-a):\n");
-  printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 12=affine\n");
+  printf("  -dof N                 : Degrees of freedom for affine reg. 6=rigid, 7=similarity, 12=affine\n");
   printf("  -jitter sigma          : Jitter (in voxel units) applied to sample points (def: 0.5)\n");
   printf("  -search N <rot> <tran> : Random search over rigid transforms (N iter) before starting optimization\n");
   printf("                           'rot' may be the standard deviation of the random rotation angle (degrees) or \n");
@@ -162,6 +164,7 @@ int usage()
   printf("  -rt format             : data type for the next pair (auto|double|float|uint|int|ushort|short|uchar|char)\n");
   printf("  -rc outwarp            : write composed transforms to outwarp \n");
   printf("  -rj outjacobian        : write Jacobian determinant image to outjacobian \n");
+  printf("  -rk mask.nii           : a binary mask for the fixed image; zero values will be overwritten with background\n");
   printf("Specific to metric computation mode (-metric): \n");
   printf("  -og out.nii            : write the gradient of the metric to file\n");
   printf("For developers: \n");

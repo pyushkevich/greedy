@@ -13,6 +13,7 @@
 #include "itkGradientMagnitudeImageFilter.h"
 #include "itkSLICSuperVoxelImageFilter.h"
 #include "itkCastImageFilter.h"
+#include "itkRegionOfInterestImageFilter.h"
 #include "GreedyMeshIO.h"
 #include "vtkPolyData.h"
 #include "vtkPoints.h"
@@ -21,8 +22,11 @@
 struct ChunkGreedyParameters
 {
   std::string fn_chunk_mask;
-  std::string fn_output_pattern, fn_output_inv_pattern, fn_output_root_pattern;
+  std::string fn_output_pattern, fn_output_inv_pattern, fn_output_root_pattern, fn_output_metric_gradient_pattern;
   std::string fn_init_tran_pattern;
+  std::vector<TransformSpec> transforms_pattern;
+  std::vector<TransformSpec> moving_pre_transforms_pattern;
+  std::vector<int> crop_margin;
   double reg_weight = 0.01;
 };
 
@@ -34,45 +38,82 @@ int usage()
   printf("options for chunk_greedy: \n");
   printf("  -cm <file>      : Chunk mask, each chunk assigned a different label\n");
   printf("  -wreg <value>   : Regularization term weight (default: 0.01)\n");
-  printf("  -o <pattern>    : Like -o in greedy, but a printf pattern \n");
-  printf("  -it <pattern>   : Like -it in greedy, but a printf pattern\n");
-  printf("  -oinv <pattern> : Like -oinv in greedy, but a printf pattern\n");
+  printf("  -crop <margin>  : During registration, crop each chunk by <margin> voxels\n");
   printf("main greedy options accepted: \n");
-  printf("  -d, -i, -m, -n, -a, -dof, -e, -s, -bg, -ia, -wncc-mask-dilate, -search, -ref-pad");
+  printf("  -d, -i, -m, -n, -a, -dof, -e, -s, -bg, -ia, -wncc-mask-dilate, -search, -ref-pad\n");
+  printf("  -rb, -ri, -rf, -rm, -metric\n");
   printf("greedy options modified to accept printf-like pattern (e.g., test%%02d.mat): \n");
-  printf("  -o, -oinv, -oroot, -it");
+  printf("  -o, -oinv, -oroot, -it, -r, -og");
   return -1;
 }
 
-template <typename TImage>
-std::vector<typename TImage::PixelType>
-get_unique_labels(TImage *label_image, unsigned int max_allowed = 31, unsigned int max_value = 31)
+template <unsigned int VDim> struct LabelStats {
+  short value;
+  unsigned int count = 0;
+  itk::Index<VDim> min_index;
+  itk::Index<VDim> max_index;
+  LabelStats() {}
+  LabelStats(short in_value, const itk::Index<VDim> &index)
+    : value(in_value), min_index(index), max_index(index)
+  {}
+
+  void UpdateBounds(const itk::Index<VDim> &index)
+  {
+    for(unsigned int d = 0; d < VDim; d++)
+      {
+      min_index[d] = std::min(min_index[d], index[d]);
+      max_index[d] = std::max(max_index[d], index[d]);
+      }
+  }
+};
+
+template <unsigned int VDim>
+std::map<short, LabelStats<VDim> >
+get_unique_labels(itk::Image<short, VDim> *label_image, unsigned int max_allowed = 31, short max_value = 31)
 {
   // Scan the unique labels in the image
-  typedef typename TImage::PixelType PixelType;
-  std::set<PixelType> label_set;
-  PixelType *labels = label_image->GetBufferPointer();
-  int n_pixels = label_image->GetPixelContainer()->Size();
+  typedef LabelStats<VDim> LStat;
+  typedef itk::Image<short, VDim> ImageType;
+  std::map<short, LStat > stats;
 
-  // Get the list of unique pixels
-  PixelType last_pixel = 0;
-  for(int j = 0; j < n_pixels; j++)
+  // Iterate over the mask image
+  LStat *ls_curr = nullptr;
+  for(itk::ImageRegionIteratorWithIndex<ImageType> it(label_image, label_image->GetBufferedRegion());
+      !it.IsAtEnd(); ++it)
     {
-    PixelType pixel = labels[j];
-    if(last_pixel != pixel || j == 0)
+    short l = it.Value();
+    if(l == 0)
+      continue;
+
+    const auto &index = it.GetIndex();
+    if(!ls_curr || l != ls_curr->value)
       {
-      label_set.insert(pixel);
-      last_pixel = pixel;
-      if(label_set.size() > max_allowed)
-        throw GreedyException("Chunk mask has too many labels");
-      if(pixel > max_value)
-        throw GreedyException("Chunk mask has label greater than allowed maximum ", max_value);
+      auto p = stats.find(l);
+      if(p == stats.end())
+        {
+        auto pair = std::make_pair(l, LStat(l, index));
+        p = stats.insert(pair).first;
+
+        if(stats.size() > max_allowed)
+          throw GreedyException("Chunk mask has too many labels");
+        if(l > max_value)
+          throw GreedyException("Chunk mask has label greater than allowed maximum ", max_value);
+        }
+      ls_curr = &p->second;
       }
+
+    ls_curr->count++;
+    ls_curr->UpdateBounds(index);
     }
 
-  // Turn this set into an array
-  std::vector<PixelType> label_array(label_set.begin(), label_set.end());
-  return label_array;
+  for(auto p : stats)
+    {
+    std::cout << p.second.value << " : " << p.second.count
+              << "   " << p.second.min_index
+              << "   " << p.second.max_index
+              << std::endl;
+    }
+  return stats;
 }
 
 // An 'assembly' for each registration problem
@@ -89,6 +130,7 @@ struct MultiChunkAffineAssembly
   AbstractAffineCF *acf = nullptr;
   typename GreedyAPI::LinearTransformType::Pointer tLevel;
   typename GreedyAPI::ImagePointer mask;
+  typename GreedyAPI::ImagePointer crop_mask;
   vnl_matrix<double> Q_physical;
 };
 
@@ -116,6 +158,8 @@ void initialize_assemblies(ChunkGreedyParameters cgp, GreedyParameters gp,
   typedef LDDMMData<TReal, VDim> LDDMMType;
   typedef GreedyApproach<VDim, TReal> GreedyAPI;
   typedef MultiChunkAffineAssembly<VDim, TReal> Assembly;
+  typedef typename LDDMMType::ImageType ImageType;
+  typedef typename LDDMMType::CompositeImageType CompositeImageType;
 
   // Read the chunked mask as an image of shorts
   typedef itk::Image<short, VDim> ChunkMaskImageType;
@@ -126,13 +170,21 @@ void initialize_assemblies(ChunkGreedyParameters cgp, GreedyParameters gp,
   chunk_mask = cmreader->GetOutput();
 
   // Split the chunked mask into discrete regions
-  chunk_labels = get_unique_labels(chunk_mask.GetPointer());
+  typedef std::map<short, LabelStats<VDim> > LabelMap;
+  LabelMap label_stats = get_unique_labels(chunk_mask.GetPointer());
+
+  // Clear the return chunk_labels array
+  chunk_labels.clear();
 
   // Threshold each chunk
-  for(short label : chunk_labels)
+  for(auto it : label_stats)
     {
+    short label = it.first;
     if(label > 0)
       {
+      // Add to return label list
+      chunk_labels.push_back(label);
+
       // Apply binary threshold
       typedef itk::BinaryThresholdImageFilter<ChunkMaskImageType, typename LDDMMType::ImageType> TFilter;
       typename TFilter::Pointer thresh = TFilter::New();
@@ -152,6 +204,60 @@ void initialize_assemblies(ChunkGreedyParameters cgp, GreedyParameters gp,
       for(auto &ig : label_data[label].gp.input_groups)
         ig.fixed_mask = "label_mask";
       label_data[label].api.AddCachedInputObject("label_mask", label_data[label].mask);
+
+      // Apply the optional crop to the fixed images before
+      /*
+      if(cgp.crop_margin.size())
+        {
+        // Do the cropping
+        itk::Index<VDim> ixcrop;
+        itk::Size<VDim> szcrop;
+        for(unsigned int d = 0; d < VDim; d++)
+          {
+          int pad = cgp.crop_margin.size() == 1 ? cgp.crop_margin[0] : cgp.crop_margin[d];
+          ixcrop[d] = it.second.min_index[d] - pad;
+          szcrop[d] = 1 + 2 * pad + it.second.max_index[d] - it.second.min_index[d];
+          }
+        itk::ImageRegion<VDim> region(ixcrop, szcrop);
+        region.Crop(label_data[label].mask->GetBufferedRegion());
+
+        for(auto &ig : label_data[label].gp.input_groups)
+          {
+          // Crop the fixed images and the masks
+          typedef itk::RegionOfInterestImageFilter<ImageType, ImageType> MaskROIFilter;
+          typename MaskROIFilter::Pointer roi_mask = MaskROIFilter::New();
+          roi_mask->SetInput(label_data[label].mask);
+          roi_mask->SetRegionOfInterest(region);
+          roi_mask->Update();
+
+          // Read the fixed image
+          for(unsigned int i = 0; i < ig.inputs.size(); i++)
+            {
+            CompositeImageType *fix = label_data[label].api.template ReadImageViaCache<CompositeImageType>(ig.inputs[i].fixed);
+            typedef itk::RegionOfInterestImageFilter<ImageType, ImageType> MaskROIFilter;
+            typename MaskROIFilter::Pointer roi_mask = MaskROIFilter::New();
+            roi_mask->SetInput(label_data[label].mask);
+            roi_mask->SetRegionOfInterest(region);
+            roi_mask->Update();
+
+            }
+
+
+          }
+
+        typename ROIFilter::Pointer roi = ROIFilter::New();
+        roi->SetRegionOfInterest(region);
+        roi->Update();
+        label_data[label].crop_mask = roi->GetOutput();
+
+        // Apply the crop to each of the moving images
+
+        // Specify as the reference space
+        label_data[label].gp.reference_space = "ref_space";
+        label_data[label].api.AddCachedInputObject("ref_space", label_data[label].crop_mask);
+        label_data[label].gp.reference_space_padding = cgp.crop_margin;
+        }
+        */
 
       // Set the output filename
       label_data[label].gp.output = ssprintf(cgp.fn_output_pattern.c_str(), label);
@@ -195,7 +301,7 @@ public:
     Vec b, db;
   };
 
-  AffineRegularizer(ChunkMask *chunk_mask, double border_radius_mm)
+  AffineRegularizer(ChunkMask *chunk_mask, const std::vector<short> &labels, double border_radius_mm)
     {
     // Binarize the chunk mask to create a speed image for fast marching
     typedef itk::BinaryThresholdImageFilter<ChunkMask, ImageType> ThreshFilter;
@@ -205,9 +311,6 @@ public:
     tf->SetUpperThreshold(0x7fff);
     tf->SetInsideValue(1.0);
     tf->SetOutsideValue(1.0);
-
-    // Get the list of unique values
-    auto labels = get_unique_labels(chunk_mask);
 
     // For each label, we expand the label outward into the mask (this should be done using fast
     // marching). We can do this at full resolution to always keep using the same set of sample
@@ -486,9 +589,9 @@ public:
   }
 
 protected:
-  double reg_weight;
   LabelData &label_data;
   Regularizer *reg;
+  double reg_weight;
 };
 
 
@@ -530,7 +633,7 @@ int run_affine(ChunkGreedyParameters cgp, GreedyParameters gp)
   unsigned nlevels = gp.iter_per_level.size();
 
   // Create the affine regularizer
-  AffineRegularizer<VDim, TReal> reg(chunk_mask, 0.5);
+  AffineRegularizer<VDim, TReal> reg(chunk_mask, chunk_labels, 0.5);
 
   // Iterate over the resolution levels
   for(unsigned int level = 0; level < nlevels; ++level)
@@ -576,7 +679,7 @@ int run_affine(ChunkGreedyParameters cgp, GreedyParameters gp)
       vnl_vector<double> xGradN(xLevel.size(), 0.0), xGradA(xLevel.size(), 0.0);
       double f, f1, f2, eps=1.0e-4;
       reg.compute(xLevel, &f, &xGradA);
-      for(int i = 0; i < xLevel.size(); i++)
+      for(unsigned int i = 0; i < xLevel.size(); i++)
         {
         double x0 = xLevel[i];
         xLevel[i] = x0 - eps; reg.compute(xLevel, &f1, nullptr);
@@ -585,7 +688,7 @@ int run_affine(ChunkGreedyParameters cgp, GreedyParameters gp)
         xGradN[i] = (f2 - f1) / (2 * eps);
         }
       printf("Derivative check:\n");
-      for(int i = 0; i < xLevel.size(); i++)
+      for(unsigned int i = 0; i < xLevel.size(); i++)
         printf("%d: %8.4f  %8.4f\n", i, xGradA[i], xGradN[i]);
 
       std::cout << "Level: " << level << " XLevel: " << xLevel << std::endl;
@@ -701,7 +804,15 @@ int run_affine(ChunkGreedyParameters cgp, GreedyParameters gp)
   return 0;
 }
 
-
+std::vector<TransformSpec> translate_transform_spec_pattern(
+    const std::vector<TransformSpec> &src_pattern, short label)
+{
+  // Generate the actual moving pre-transforms
+  std::vector<TransformSpec> trg;
+  for(auto &ts : src_pattern)
+    trg.push_back(TransformSpec(ssprintf(ts.filename.c_str(), label), ts.exponent));
+  return trg;
+}
 
 template <unsigned int VDim, typename TReal=double>
 int run_deform(ChunkGreedyParameters cgp, GreedyParameters gp)
@@ -720,12 +831,9 @@ int run_deform(ChunkGreedyParameters cgp, GreedyParameters gp)
   // Peform affine-specific initialization for each label
   for(auto &item : label_data)
     {
-    // Map accepted patterns to item-specific parameters
-    if(cgp.fn_init_tran_pattern.size())
-      {
-      std::string fn_tran = ssprintf(cgp.fn_init_tran_pattern.c_str(), item.first);
-      item.second.gp.input_groups[0].moving_pre_transforms.push_back(TransformSpec(fn_tran, 1.0));
-      }
+    // Generate the actual moving pre-transforms
+    item.second.gp.input_groups[0].moving_pre_transforms =
+        translate_transform_spec_pattern(cgp.moving_pre_transforms_pattern, item.first);
 
     item.second.gp.inverse_warp = ssprintf(cgp.fn_output_inv_pattern.c_str(), item.first);
     item.second.gp.root_warp = ssprintf(cgp.fn_output_root_pattern.c_str(), item.first);
@@ -738,6 +846,90 @@ int run_deform(ChunkGreedyParameters cgp, GreedyParameters gp)
 }
 
 
+template <unsigned int VDim, typename TReal=double>
+int run_reslice(ChunkGreedyParameters cgp, GreedyParameters gp)
+{
+  typedef LDDMMData<TReal, VDim> LDDMMType;
+  typedef GreedyApproach<VDim, TReal> GreedyAPI;
+  typedef MultiChunkAffineAssembly<VDim, TReal> Assembly;
+
+  // Perform the common initialization (mask split, etc)
+  std::map<short, Assembly> label_data;
+  std::vector<short> chunk_labels;
+  typename itk::Image<short, VDim>::Pointer chunk_mask;
+  initialize_assemblies(cgp, gp, label_data, chunk_labels, chunk_mask);
+
+  // Initialize a warp filled with zeros
+  typename LDDMMType::VectorImagePointer chunk_warp = LDDMMType::new_vimg(chunk_mask, 0.0);
+  typename LDDMMType::ImagePointer warp_mask = LDDMMType::new_img(chunk_mask, 0.0);
+
+  // Combine the transform specs into a single joint warp. In the future, it might be a good
+  // idea to somehow interpolate between the adjacent warps - maybe using the stationary fields
+  for(auto &item : label_data)
+    {
+    // Generate the actual transforms
+    item.second.gp.reslice_param.transforms = cgp.transforms_pattern;
+    for(auto &ts : item.second.gp.reslice_param.transforms)
+      ts.filename = ssprintf(ts.filename.c_str(), item.first);
+
+    // Read the transform chain - this gives us a warp for this piece
+    typename LDDMMType::VectorImagePointer warp;
+    item.second.api.ReadTransformChain(item.second.gp.reslice_param.transforms, chunk_mask, warp, nullptr);
+    LDDMMType::vimg_multiply_in_place(warp, item.second.mask);
+    LDDMMType::vimg_add_in_place(chunk_warp, warp);
+    LDDMMType::img_add_in_place(warp_mask, item.second.mask);
+    }
+
+  // Apply the combined warp to the input images
+  GreedyAPI api;
+  api.AddCachedInputObject("chunk_warp", chunk_warp);
+  gp.reslice_param.transforms.push_back(TransformSpec("chunk_warp"));
+
+  // Add a mask to the reslicing so the places without warp are ignored
+  LDDMMType::img_threshold_in_place(warp_mask, 0.5, 1e100, 1, 0);
+  api.AddCachedInputObject("ref_mask", warp_mask);
+  gp.reslice_param.ref_image_mask = "ref_mask";
+
+  // Do the reslicing
+  api.RunReslice(gp);
+  return 0;
+}
+
+
+template <unsigned int VDim, typename TReal=double>
+int run_metric(ChunkGreedyParameters cgp, GreedyParameters gp)
+{
+  typedef LDDMMData<TReal, VDim> LDDMMType;
+  typedef GreedyApproach<VDim, TReal> GreedyAPI;
+  typedef AbstractAffineCostFunction<VDim, TReal> AbstractAffineCF;
+  typedef MultiChunkAffineAssembly<VDim, TReal> Assembly;
+
+  // Perform the common initialization (mask split, etc)
+  std::map<short, Assembly> label_data;
+  std::vector<short> chunk_labels;
+  typename itk::Image<short, VDim>::Pointer chunk_mask;
+  initialize_assemblies(cgp, gp, label_data, chunk_labels, chunk_mask);
+
+  // Peform affine-specific initialization for each label
+  for(auto &item : label_data)
+    {
+    // Generate the actual moving pre-transforms
+    item.second.gp.input_groups[0].moving_pre_transforms =
+        translate_transform_spec_pattern(cgp.moving_pre_transforms_pattern, item.first);
+
+    // Set the outputs
+    if(cgp.fn_output_pattern.length())
+      item.second.gp.output = ssprintf(cgp.fn_output_pattern.c_str(), item.first);
+    if(cgp.fn_output_pattern.length())
+      item.second.gp.output_metric_gradient = ssprintf(cgp.fn_output_metric_gradient_pattern.c_str(), item.first);
+
+    // Run metric computation
+    item.second.api.RunMetric(item.second.gp);
+    }
+
+  return 0;
+}
+
 
 template <unsigned int VDim>
 int run(ChunkGreedyParameters cgp, GreedyParameters gp)
@@ -746,6 +938,10 @@ int run(ChunkGreedyParameters cgp, GreedyParameters gp)
     run_affine<VDim>(cgp, gp);
   else if(gp.mode == GreedyParameters::GREEDY)
     run_deform<VDim>(cgp, gp);
+  else if(gp.mode == GreedyParameters::RESLICE)
+    run_reslice<VDim>(cgp, gp);
+  else if(gp.mode == GreedyParameters::METRIC)
+    run_metric<VDim>(cgp, gp);
   else
     throw GreedyException("Only affine mode is implemented");
   return 0;
@@ -759,7 +955,7 @@ int main(int argc, char *argv[])
   // List of greedy commands that are recognized by this mode
   std::set<std::string> greedy_cmd {
     "-threads", "-d", "-m", "-i", "-n", "-a", "-dof", "-bg", "-ia", "-wncc-mask-dilate", "-search", "-dump-pyramid", "-dump-metric",
-    "-it", "-sv", "-s", "-ref-pad", "-e"
+    "-it", "-sv", "-s", "-ref-pad", "-e", "-rf", "-rm", "-rb", "-ri", "-metric", "-z"
   };
 
   CommandLineHelper cl(argc, argv);
@@ -782,7 +978,16 @@ int main(int argc, char *argv[])
       }
     else if(arg == "-it")
       {
-      cg_param.fn_init_tran_pattern = cl.read_string();
+      int nFiles = cl.command_arg_count();
+      for(int i = 0; i < nFiles; i++)
+        cg_param.moving_pre_transforms_pattern.push_back(cl.read_transform_spec(false));
+      }
+    else if(arg == "-r")
+      {
+      int nFiles = cl.command_arg_count();
+      for(int i = 0; i < nFiles; i++)
+        cg_param.transforms_pattern.push_back(cl.read_transform_spec(false));
+      gp.mode = GreedyParameters::RESLICE;
       }
     else if(arg == "-cm")
       {
@@ -792,12 +997,20 @@ int main(int argc, char *argv[])
       {
       cg_param.reg_weight = cl.read_double();
       }
+    else if(arg == "-crop")
+      {
+      cg_param.crop_margin = cl.read_int_vector();
+      }
+    else if(arg == "-og")
+      {
+      cg_param.fn_output_metric_gradient_pattern = cl.read_string();
+      }
     else if(greedy_cmd.find(arg) != greedy_cmd.end())
       {
       gp.ParseCommandLine(arg, cl);
       }
     else
-      throw GreedyException("Unknown parameter to 'splat': %s", arg.c_str());
+      throw GreedyException("Unknown parameter to 'multi_chunk_greedy': %s", arg.c_str());
     }
 
   // Check the dimension

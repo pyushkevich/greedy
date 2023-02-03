@@ -327,7 +327,8 @@ public:
   typedef vnl_vector_fixed<double, VDim> Vec;
   typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
 
-  virtual vnl_vector<double> forward(const vnl_vector<double> &x, Mat &flip, bool need_backward)
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, Mat &flip,
+                                     bool need_backward, bool uniform_scaling)
     { return vnl_vector<double>(); }
 
   virtual vnl_vector<double> backward(const vnl_vector<double> &g)
@@ -348,11 +349,12 @@ public:
   typedef vnl_vector_fixed<double, 3> Vec;
   typedef vnl_matrix_fixed<double, 3, 3> Mat;
 
-  virtual vnl_vector<double> forward(const vnl_vector<double> &x, Mat &flip, bool need_backward);
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, Mat &flip,
+                                     bool need_backward, bool uniform_scaling);
   virtual vnl_vector<double> backward(const vnl_vector<double> &g);
   static vnl_vector<double> GetAxisAngle(const Mat &R);
   static Mat GetRandomRotation(vnl_random &randy, double alpha);
-  static unsigned int GetNumberOfParameters() { return 6; }
+  static unsigned int GetNumberOfParameters() { return 7; }
 
 protected:
   static void GetRotationMatrix(const Vec &q, double &theta, Mat &R, Mat &Qmat, double &a1, double &a2);
@@ -373,11 +375,12 @@ public:
   typedef vnl_vector_fixed<double, 2> Vec;
   typedef vnl_matrix_fixed<double, 2, 2> Mat;
 
-  virtual vnl_vector<double> forward(const vnl_vector<double> &x, Mat &flip, bool need_backward);
+  virtual vnl_vector<double> forward(const vnl_vector<double> &x, Mat &flip,
+                                     bool need_backward, bool uniform_scaling);
   virtual vnl_vector<double> backward(const vnl_vector<double> &g);
   static vnl_vector<double> GetAxisAngle(const Mat &R);
   static Mat GetRandomRotation(vnl_random &randy, double alpha);
-  static unsigned int GetNumberOfParameters() { return 3; }
+  static unsigned int GetNumberOfParameters() { return 4; }
 
 protected:
   static Mat GetRotationMatrix(double theta);
@@ -388,7 +391,13 @@ protected:
 
 
 
-/** Cost function for rigid registration */
+/**
+ *  Cost function for rigid/similarity registration.
+ *
+ *  Parameters are stored as <optional scaling> <rotation> <translations>
+ *
+ *  Flag uniform_scale activates similarity transform (rigid + scaling)
+ */
 template <unsigned int VDim, typename TReal = double>
 class RigidCostFunction : public AbstractAffineCostFunction<VDim, TReal>
 {
@@ -407,7 +416,8 @@ public:
   typedef vnl_matrix_fixed<double, VDim, VDim> Mat;
 
   RigidCostFunction(GreedyParameters *param, ParentType *parent,
-                    unsigned int group, unsigned int level, OFHelperType *helper);
+                    unsigned int group, unsigned int level, OFHelperType *helper,
+                    bool uniform_scale = false);
   vnl_vector<double> GetCoefficients(LinearTransformType *tran) override;
   void GetTransform(const vnl_vector<double> &coeff, LinearTransformType *tran, bool need_backprop) override;
   virtual vnl_vector<double> BackPropTransform(const LinearTransformType *g_tran) override;
@@ -441,6 +451,9 @@ protected:
   // Flip matrix -- allows rigid registration with flips. If the input matrix has a flip,
   // that flip is maintained during registration
   Mat flip;
+
+  // Allow uniform scaling?
+  bool uniform_scale;
 };
 
 

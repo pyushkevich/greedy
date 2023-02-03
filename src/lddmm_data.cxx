@@ -432,6 +432,38 @@ LDDMMData<TFloat, VDim>
   flt->Update();
 }
 
+template<class TFloat, uint VDim>
+void LDDMMData<TFloat, VDim>::cimg_mask_in_place(CompositeImageType *trg, ImageType *mask, TFloat background)
+{
+  itkAssertOrThrowMacro(trg->GetBufferedRegion() == mask->GetBufferedRegion(),
+                        "Image and mask must be same size");
+
+  // Create a fake region to partition the entire data chunk
+  unsigned int nc = trg->GetNumberOfComponentsPerPixel();
+  unsigned int np = trg->GetBufferedRegion().GetNumberOfPixels();
+  itk::ImageRegion<1> full_region({{0}}, {{np}});
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+
+  mt->ParallelizeImageRegion<1>(
+        full_region,
+        [trg,mask,background,nc](const itk::ImageRegion<1> &thread_region)
+    {
+    TFloat *p = trg->GetBufferPointer() + nc * thread_region.GetIndex(0);
+    TFloat *m = mask->GetBufferPointer() + thread_region.GetIndex(0);
+    TFloat *m_end = m + thread_region.GetSize(0);
+    for(; m < m_end; ++m)
+      {
+      if(*m == 0.0)
+        for(unsigned int i = 0; i < nc; i++)
+          *p++ = background;
+      else
+        p+=nc;
+      }
+    }, nullptr);
+
+  trg->Modified();
+}
+
 // Scalar math
 
 template <class TFloat, uint VDim>
@@ -813,8 +845,8 @@ public:
   Mat operator() (const Mat &M, const Vec &V)
     {
     Mat Q;
-    for(int r = 0; r < VDim; r++)
-      for(int c = 0; c < VDim; c++)
+    for(unsigned int r = 0; r < VDim; r++)
+      for(unsigned int c = 0; c < VDim; c++)
         Q(r, c) = (r == m_Row) ? V[c] : M(r,c);
     return Q;
     }
@@ -1231,7 +1263,7 @@ struct VectorSquareNormFunctor
   template <class TVector> TFloat operator() (const TVector &v)
   {
     TFloat norm_sqr = 0.0;
-    for(int i = 0; i < VDim; i++)
+    for(unsigned int i = 0; i < VDim; i++)
       norm_sqr += v[i] * v[i];
     return norm_sqr;
   }
@@ -2187,7 +2219,7 @@ struct VoxelToPhysicalFunctor
     typedef typename TImage::PointType PtType;
     CIType ci0, ci;
     PtType p0, p;
-    for(int i = 0; i < TImage::ImageDimension; i++)
+    for(unsigned int i = 0; i < TImage::ImageDimension; i++)
       {
       ci[i] = x[i];
       ci0[i] = 0.0;
@@ -2197,7 +2229,7 @@ struct VoxelToPhysicalFunctor
     m_Image->TransformContinuousIndexToPhysicalPoint(ci0, p0);
     PixelType y;
 
-    for(int i = 0; i < TImage::ImageDimension; i++)
+    for(unsigned int i = 0; i < TImage::ImageDimension; i++)
       {
       y[i] = p[i] - p0[i];
       }

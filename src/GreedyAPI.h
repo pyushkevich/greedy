@@ -248,6 +248,12 @@ public:
   /** Apply warp to a mesh */
   static void TransformMeshWarp(vtkPointSet *mesh, VectorImageType *warp);
 
+  // Read a chain of transforms into a single warp, optionally applying to a set of meshes
+  void ReadTransformChain(const std::vector<TransformSpec> &tran_chain,
+                          ImageBaseType *ref_space,
+                          VectorImagePointer &out_warp,
+                          MeshArray *meshes = nullptr);
+
 protected:
 
   struct CacheEntry {

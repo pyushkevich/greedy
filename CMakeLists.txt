@@ -17,7 +17,7 @@ set (CMAKE_CXX_STANDARD 11)
 INCLUDE(CMake/PYVersion.cmake)
 
 # Set the semantic version and version date
-VERSION_VARS(1 2 0 "" "20200112" "Jan 12, 2021")
+VERSION_VARS(1 3 0 "-alpha" "20230928" "Sep 28, 2022")
 
 #--------------------------------------------------------------------------------
 # Build configuration
@@ -360,6 +360,10 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
   ADD_TEST(NAME "Phantom_NMI_Rigid_NoMask"  COMMAND test_greedy phantom 1 2 NMI 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "Phantom_NCC_Rigid_NoMask"  COMMAND test_greedy phantom 1 3 NCC 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "Phantom_WNCC_Rigid_NoMask" COMMAND test_greedy phantom 1 3 WNCC 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_SSD_Sim_NoMask"  COMMAND test_greedy phantom 1 1 SSD 6 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_NMI_Sim_NoMask"  COMMAND test_greedy phantom 1 2 NMI 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_NCC_Sim_NoMask"  COMMAND test_greedy phantom 1 3 NCC 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "Phantom_WNCC_Sim_NoMask" COMMAND test_greedy phantom 1 3 WNCC 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
 
   # Tests for greedy_propagation
   ADD_TEST(NAME "Propagation_API_General" COMMAND test_propagation WORKING_DIRECTORY ${TESTING_DATADIR})

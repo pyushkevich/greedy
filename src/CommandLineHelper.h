@@ -158,7 +158,7 @@ public:
   /**
    * Read a transform specification, format file,number
    */
-  TransformSpec read_transform_spec()
+  TransformSpec read_transform_spec(bool check_file_exists = true)
   {
     std::string spec = read_arg();
     size_t pos = spec.find_first_of(',');
@@ -171,7 +171,7 @@ public:
     if(this->data_root.length())
       ts.filename = itksys::SystemTools::CollapseFullPath(ts.filename, data_root);
 
-    if(!itksys::SystemTools::FileExists(ts.filename.c_str()))
+    if(check_file_exists && !itksys::SystemTools::FileExists(ts.filename.c_str()))
       throw GreedyException("File '%s' does not exist", ts.filename.c_str());
 
     if(pos != std::string::npos)

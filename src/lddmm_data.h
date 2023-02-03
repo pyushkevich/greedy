@@ -194,6 +194,9 @@ public:
   static void mimg_multiply_in_place(MatrixImageType *trg, MatrixImageType *s);
   static void cimg_multiply_in_place(CompositeImageType *trg, ImageType *s);
 
+  // Masking
+  static void cimg_mask_in_place(CompositeImageType *trg, ImageType *s, TFloat background = 0.);
+
   // Compute the range of the norm of a vector field
   static void vimg_norm_min_max(VectorImageType *image, ImageType *normsqr,
     TFloat &min_norm, TFloat &max_norm);

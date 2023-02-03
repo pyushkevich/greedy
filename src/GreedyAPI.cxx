@@ -985,10 +985,11 @@ GreedyApproach<VDim, TReal>
   for(unsigned int g = 0; g < of_helper.GetNumberOfInputGroups(); g++)
     {
     // Define the affine cost function
-    if(param.affine_dof == GreedyParameters::DOF_RIGID)
+    if(param.affine_dof == GreedyParameters::DOF_RIGID || param.affine_dof == GreedyParameters::DOF_SIMILARITY)
       {
       RigidCostFunction *rigid_acf =
-          new RigidCostFunction(&param, this, g, level, &of_helper);
+          new RigidCostFunction(&param, this, g, level, &of_helper,
+                                param.affine_dof == GreedyParameters::DOF_SIMILARITY);
       components.push_back(
             new ScalingCostFunction(
               rigid_acf,
@@ -2745,6 +2746,11 @@ int GreedyApproach<VDim, TReal>
   // Read the fixed as a plain image (we don't care if it's composite)
   typename ImageBaseType::Pointer ref = ReadImageBaseViaCache(r_param.ref_image);
 
+  // If a mask is specified, read it
+  typename ImageType::Pointer ref_mask = nullptr;
+  if(r_param.ref_image_mask.size())
+    ref_mask = ReadImageViaCache<ImageType>(r_param.ref_image_mask);
+
   typedef vtkSmartPointer<vtkPointSet> MeshPointer;
   std::vector<MeshPointer> meshes;
   for(unsigned int i = 0; i < r_param.meshes.size(); i++)
@@ -2871,7 +2877,11 @@ int GreedyApproach<VDim, TReal>
       // Run this big pipeline
       fltVoting->Update();
 
-      // Save
+      // TODO: Mask if masking is required
+      // if(ref_mask)
+      //  LDDMMType::cimg_mask_in_place(vote, ref_mask, r_param.images[i].interp.outside_value);
+
+      // Save the image
       WriteImageViaCache(fltVoting->GetOutput(), r_param.images[i].output.c_str(), r_param.images[i].save_format);
       }
     else
@@ -2891,6 +2901,10 @@ int GreedyApproach<VDim, TReal>
       LDDMMType::interp_cimg(moving, warp, warped,
                              r_param.images[i].interp.mode == InterpSpec::NEAREST,
                              true, r_param.images[i].interp.outside_value);
+
+      // Mask if masking is required
+      if(ref_mask)
+        LDDMMType::cimg_mask_in_place(warped, ref_mask, r_param.images[i].interp.outside_value);
 
       // Write, casting to the input component type
       WriteImageViaCache(warped.GetPointer(), r_param.images[i].output.c_str(), comp);

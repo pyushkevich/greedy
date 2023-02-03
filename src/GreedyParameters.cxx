@@ -138,9 +138,11 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     int dof = cl.read_integer();
     if(dof == 6)
       this->affine_dof = GreedyParameters::DOF_RIGID;
+    else if(dof == 7)
+      this->affine_dof = GreedyParameters::DOF_SIMILARITY;
     else if(dof == 12)
         this->affine_dof = GreedyParameters::DOF_AFFINE;
-    else throw GreedyException("DOF parameter only accepts 6 and 12 as values");
+    else throw GreedyException("DOF parameter only accepts 6, 7 and 12 as values");
     }
   else if(cmd == "-jitter")
     {
@@ -314,6 +316,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
   else if(cmd == "-rf")
     {
     this->reslice_param.ref_image = cl.read_existing_filename();
+    }
+  else if(cmd == "-rk")
+    {
+    this->reslice_param.ref_image_mask = cl.read_existing_filename();
     }
   else if(cmd == "-rc")
     {
@@ -755,6 +761,9 @@ std::string GreedyParameters::GenerateCommandLine()
     {
     if(this->reslice_param.ref_image.size())
       oss << " -rf " << this->reslice_param.ref_image;
+
+    if(this->reslice_param.ref_image_mask.size())
+      oss << " -rk " << this->reslice_param.ref_image;
 
     if(this->reslice_param.out_composed_warp.size())
       oss << " -rc " << this->reslice_param.out_composed_warp;
