@@ -83,7 +83,7 @@ public:
       char buffer[4096];
       va_list args;
       va_start (args, format);
-      vsprintf (buffer,format, args);
+      vsnprintf (buffer, 4096, format, args);
       va_end (args);
 
       fprintf(m_Output, "%s", buffer);
@@ -1194,7 +1194,7 @@ int GreedyApproach<VDim, TReal>
       /*
       ImageType *metric = acf->GetMetricImage();
       char buffer[256];
-      sprintf(buffer, "/tmp/grad_metric_param_%02d_off_%d.nii.gz", i, j);
+      snprintf(buffer, 256, "/tmp/grad_metric_param_%02d_off_%d.nii.gz", i, j);
       LDDMMType::img_write(metric, buffer);
       */
       }
@@ -1248,7 +1248,7 @@ GreedyApproach<VDim, TReal>
   char buffer[4096];
   va_list args;
   va_start (args, pattern);
-  vsprintf (buffer,pattern, args);
+  vsnprintf (buffer, 4096, pattern, args);
   va_end (args);
 
   // Prepend dump path
@@ -1389,8 +1389,8 @@ int GreedyApproach<VDim, TReal>
             printf("%12.8f\t", f);
 
             ImageType *metric = acf->GetMetricImage();
-            char buffer[256];
-            sprintf(buffer, "/tmp/debug_aff_obj_%03d_par_%02d.nii.gz", k, i);
+            char buffer[4096];
+            snprintf(buffer, 4096, "/tmp/debug_aff_obj_%03d_par_%02d.nii.gz", k, i);
             LDDMMType::img_write(metric, buffer);
             }
           printf("\n");
@@ -1509,26 +1509,26 @@ GreedyApproach<VDim, TReal>
   char b_level[64], b_iter[64], b_metrics[512], b_line[1024];
 
   if(level < 0)
-    sprintf(b_level, "LastLevel");
+    snprintf(b_level, 64, "LastLevel");
   else
-    sprintf(b_level, "Level %03d", level);
+    snprintf(b_level, 64, "Level %03d", level);
 
   if(iter < 0)
-    sprintf(b_iter, "LastIter");
+    snprintf(b_iter, 64, "LastIter");
   else
-    sprintf(b_iter, "Iter %05d", iter);
+    snprintf(b_iter, 64, "Iter %05d", iter);
 
   // Accumulate the metrics
   int pos = 0;
   double total = metric.TotalPerPixelMetric;
   if(metric.ComponentPerPixelMetrics.size() + reg.terms.size() > 1)
     {
-    pos = sprintf(b_metrics, "Metrics");
+    pos = snprintf(b_metrics, 512, "Metrics");
     for (unsigned i = 0; i < metric.ComponentPerPixelMetrics.size(); i++)
-      pos += sprintf(b_metrics + pos, "  %8.6f", metric.ComponentPerPixelMetrics[i]);
+      pos += snprintf(b_metrics + pos, 512 - pos, "  %8.6f", metric.ComponentPerPixelMetrics[i]);
     }
   else
-    sprintf(b_metrics, "");
+    snprintf(b_metrics, 512, "");
 
   // Accumulate the regularization terms
   for(const auto &it : reg.terms)
@@ -1537,7 +1537,7 @@ GreedyApproach<VDim, TReal>
     total += it.second.first * it.second.second;
     }
 
-  sprintf(b_line, "%s  %s  %s  Energy = %8.6f", b_level, b_iter, b_metrics, total);
+  snprintf(b_line, 1024, "%s  %s  %s  Energy = %8.6f", b_level, b_iter, b_metrics, total);
   std::string result = b_line;
 
   return b_line;
@@ -1997,7 +1997,7 @@ int GreedyApproach<VDim, TReal>
         if(param.flag_dump_moving && 0 == iter % param.dump_frequency)
           {
           char fname[256];
-          sprintf(fname, "dump_divv_pre_lev%02d_iter%04d.nii.gz", level, iter);
+          snprintf(fname, 256, "dump_divv_pre_lev%02d_iter%04d.nii.gz", level, iter);
           LDDMMType::img_write(iTemp, fname);
           }
 
