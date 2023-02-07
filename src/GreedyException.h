@@ -43,7 +43,7 @@ public:
     buffer = new char[4096];
     va_list args;
     va_start (args, format);
-    vsprintf (buffer,format, args);
+    vsnprintf (buffer, 4096, format, args);
     va_end (args);
     }
 
