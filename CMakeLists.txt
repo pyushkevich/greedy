@@ -258,7 +258,7 @@ SET(PROPAGATION_SRC
 )
 
 # List of installable targets
-SET(GREEDY_INSTALL_TARGETS greedy greedy_template_average multi_chunk_greedy)
+SET(GREEDY_INSTALL_TARGETS greedy greedy_template_average multi_chunk_greedy greedy_propagation)
 
 # The executables are only compiled when the software is built as its own project
 IF(BUILD_CLI)
