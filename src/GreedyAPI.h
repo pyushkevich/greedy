@@ -37,6 +37,7 @@
 #include <map>
 #include "itkCommand.h"
 #include <vtkSmartPointer.h>
+#include <vtkObject.h>
 
 template <typename T, unsigned int V> class MultiImageOpticalFlowHelper;
 
@@ -83,6 +84,7 @@ public:
   };
 
   // Mesh data structures
+  typedef vtkPointSet MeshType;
   typedef vtkSmartPointer<vtkPointSet> MeshPointer;
   typedef std::vector<MeshPointer> MeshArray;
 
@@ -138,6 +140,7 @@ public:
    * the API is being used.
    */
   void AddCachedInputObject(std::string key, itk::Object *object);
+  void AddCachedInputObject(std::string key, vtkObject *object);
 
   /**
    * Add an image/matrix to the output cache. This has the same behavior as
@@ -147,6 +150,7 @@ public:
    * the cache and write it to a filename specified in the key
    */
   void AddCachedOutputObject(std::string key, itk::Object *object, bool force_write = false);
+  void AddCachedOutputObject(std::string key, vtkObject *object, bool force_write = false);
 
   /**
    * Get the metric log - values of metric per level. Can be called from
@@ -257,8 +261,16 @@ protected:
     bool force_write;
   };
 
+  struct VTKCacheEntry {
+    vtkObject *target;
+    bool force_write;
+  };
+
   typedef std::map<std::string, CacheEntry> ImageCache;
   ImageCache m_ImageCache;
+
+  typedef std::map<std::string, VTKCacheEntry> MeshCache;
+  MeshCache m_MeshCache;
 
   // A log of metric values used during registration - so metric can be looked up
   // in the callbacks to RunAffine, etc.
@@ -273,6 +285,8 @@ protected:
   template <class TImage>
   itk::SmartPointer<TImage> ReadImageViaCache(const std::string &filename,
                                               itk::IOComponentEnum *comp_type = NULL);
+
+  MeshPointer ReadMeshViaCache(const std::string &filename);
 
   template<class TObject> TObject *CheckCache(const std::string &filename) const;
 
@@ -292,6 +306,8 @@ protected:
   // Write a compressed warp via cache (in float format)
   void WriteCompressedWarpInPhysicalSpaceViaCache(
     ImageBaseType *moving_ref_space, VectorImageType *warp, const char *filename, double precision);
+
+  void WriteMeshViaCache(MeshType *mesh, const std::string &filename);
 
   // Compute the moments of a composite image (mean and covariance matrix of coordinate weighted by intensity)
   void ComputeImageMoments(CompositeImageType *image, const vnl_vector<float> &weights, VecFx &m1, MatFx &m2);

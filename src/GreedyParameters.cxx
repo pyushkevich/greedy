@@ -27,6 +27,9 @@
 #include "GreedyParameters.h"
 #include "CommandLineHelper.h"
 
+const SmoothingParameters GreedyParameters::default_sigma_pre = { 1.7320508076, false };
+const SmoothingParameters GreedyParameters::default_sigma_post = { 0.7071067812, false };
+
 GreedyParameters::GreedyParameters()
 {
   input_groups.push_back(GreedyInputGroup());
@@ -426,7 +429,7 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     int level = cl.read_integer();
     if(level < 0 || level >= VERB_INVALID)
       throw GreedyException("Invalid verbosity level %d", level);
-    
+
     this->verbosity = (Verbosity)(level);
     }
   else if(cmd == "-lbfgs-ftol")
@@ -469,6 +472,65 @@ operator << (std::ostream &oss, const SmoothingParameters &sp)
   std::string unit = sp.physical_units ? "mm" : "vox";
   oss << sp.sigma << unit;
   return oss;
+}
+
+// Copy affine registration settings
+void
+GreedyParameters
+::CopyAffineSettings(const GreedyParameters &other)
+{
+  this->affine_dof = other.affine_dof;
+  this->affine_init_mode = other.affine_init_mode;
+  this->rigid_search = other.rigid_search;
+  this->affine_jitter = other.affine_jitter;
+  this->metric = other.metric;
+  this->metric_radius = other.metric_radius;
+  this->iter_per_level = other.iter_per_level;
+}
+
+// Copy deformable registration settings
+void
+GreedyParameters
+::CopyDeformableSettings(const GreedyParameters &other)
+{
+  this->metric = other.metric;
+  this->metric_radius = other.metric_radius;
+  this->iter_per_level = other.iter_per_level;
+  this->epsilon_per_level = other.epsilon_per_level;
+  this->time_step_mode = other.time_step_mode;
+  this->warp_precision = other.warp_precision;
+}
+
+// Copy reslicing settings
+void
+GreedyParameters
+::CopyReslicingSettings(const GreedyParameters &other)
+{
+  this->current_interp = other.current_interp;
+}
+
+// Copy general settings
+void
+GreedyParameters
+::CopyGeneralSettings(const GreedyParameters &other)
+{
+  // Common Debug Settings
+  this->flag_debug_deriv = other.flag_debug_deriv;
+  this->deriv_epsilon = other.deriv_epsilon;
+  this->flag_debug_aff_obj = other.flag_debug_aff_obj;
+  this->flag_dump_pyramid = other.flag_dump_pyramid;
+  this->flag_dump_moving = other.flag_dump_moving;
+  this->dump_frequency = other.dump_frequency;
+  this->dump_prefix = other.dump_prefix;
+  this->flag_powell = other.flag_powell;
+  this->verbosity = other.verbosity;
+
+  // General Settings
+  this->flag_float_math = other.flag_float_math;
+  this->dim = other.dim;
+  this->threads = other.threads;
+  this->sigma_pre = other.sigma_pre;
+  this->sigma_post = other.sigma_post;
 }
 
 std::string GreedyParameters::GenerateCommandLine()

@@ -63,7 +63,15 @@ FIND_PACKAGE(ITK 5.1.2 REQUIRED)
 INCLUDE(${ITK_USE_FILE})
 
 # VTK - required for quality mesh transformations
-FIND_PACKAGE(VTK 9.1.0 REQUIRED COMPONENTS CommonCore IOCore IOLegacy IOPLY IOGeometry)
+FIND_PACKAGE(VTK 9.1.0 REQUIRED COMPONENTS
+  CommonCore
+  IOCore
+  IOLegacy
+  IOPLY
+  IOGeometry
+  IOImage
+  FiltersCore
+  FiltersGeneral)
 SET(GREEDY_VTK_LIBRARIES ${VTK_LIBRARIES})
 
 # Deal with FFTW - only used by experimental LDDMM code
@@ -219,8 +227,38 @@ SET(GREEDY_API_LIBS greedyapi
   ${FFTWF_LIB} ${FFTWF_THREADS_LIB}
   ${SPARSE_LIBRARY})
 
+# propagation api
+SET(PROPAGATION_LIB_HDR
+  src/propagation/PropagationAPI.h
+  src/propagation/PropagationCommon.h
+  src/propagation/PropagationTools.h
+  src/propagation/PropagationData.h
+  src/propagation/PropagationData.txx
+  src/propagation/PropagationTools.txx
+  src/propagation/PropagationIO.h
+  src/propagation/PropagationParameters.h
+)
+
+SET(PROPAGATION_LIB_SRC
+  src/propagation/PropagationAPI.cxx
+  src/propagation/PropagationIO.cxx
+  src/propagation/PropagationParameters.cxx
+)
+
+SET(PROPAGATION_INCLUDE_DIRS
+  ${GREEDY_SOURCE_DIR}/src/propagation
+)
+
+ADD_LIBRARY(propagationapi ${PROPAGATION_LIB_SRC} ${PROPAGATION_LIB_HDR})
+#TARGET_INCLUDE_DIRECTORIES(propagationapi PUBLIC ${GREEDY_INCLUDE_DIRS})
+TARGET_LINK_LIBRARIES(propagationapi PUBLIC ${GREEDY_API_LIBS})
+
+SET(PROPAGATION_SRC
+  src/propagation/greedy_propagation.cxx
+)
+
 # List of installable targets
-SET(GREEDY_INSTALL_TARGETS greedy greedy_template_average multi_chunk_greedy)
+SET(GREEDY_INSTALL_TARGETS greedy greedy_template_average multi_chunk_greedy greedy_propagation)
 
 # The executables are only compiled when the software is built as its own project
 IF(BUILD_CLI)
@@ -256,8 +294,17 @@ IF(BUILD_CLI)
   ADD_EXECUTABLE(test_greedy testing/src/GreedyTestDriver.cxx)
   TARGET_LINK_LIBRARIES(test_greedy ${GREEDY_API_LIBS})
 
+  ADD_EXECUTABLE(test_propagation testing/src/propagation/propagation_test.cxx)
+  TARGET_LINK_LIBRARIES(test_propagation propagationapi)
+  TARGET_INCLUDE_DIRECTORIES(test_propagation PUBLIC ${PROPAGATION_INCLUDE_DIRS} )
+
   ADD_EXECUTABLE(multi_chunk_greedy ${CHUNK_GREEDY_SRC})
   TARGET_LINK_LIBRARIES(multi_chunk_greedy ${GREEDY_API_LIBS})
+
+  ADD_EXECUTABLE(greedy_propagation ${PROPAGATION_SRC})
+  TARGET_LINK_LIBRARIES(greedy_propagation PUBLIC propagationapi)
+  TARGET_INCLUDE_DIRECTORIES(greedy_propagation PUBLIC ${GREEDY_SOURCE_DIR}/src/propagation)
+
 ENDIF(BUILD_CLI)
 
 # Install command-line executables
@@ -317,5 +364,8 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
   ADD_TEST(NAME "Phantom_NMI_Sim_NoMask"  COMMAND test_greedy phantom 1 2 NMI 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "Phantom_NCC_Sim_NoMask"  COMMAND test_greedy phantom 1 3 NCC 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "Phantom_WNCC_Sim_NoMask" COMMAND test_greedy phantom 1 3 WNCC 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+
+  # Tests for greedy_propagation
+  ADD_TEST(NAME "Propagation_API_General" COMMAND test_propagation WORKING_DIRECTORY ${TESTING_DATADIR})
 
 ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)

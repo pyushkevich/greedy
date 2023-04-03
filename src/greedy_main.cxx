@@ -35,6 +35,7 @@
 #include <string>
 #include <algorithm>
 #include <cerrno>
+#include <memory>
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"
@@ -196,10 +197,6 @@ public:
     return greedy.Run(param);
   }
 };
-
-
-
-
 
 int main(int argc, char *argv[])
 {
