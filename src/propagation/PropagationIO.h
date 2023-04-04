@@ -78,9 +78,11 @@ public:
 
   typedef std::map<unsigned int, TPropagationMeshPointer> TMeshSeries;
   typedef std::map<std::string, TMeshSeries> TMeshSeriesMap;
+  typedef std::map<unsigned int, typename TLabelImage3D::Pointer> TSegmentation3DSeries;
 
   typename TLabelImage4D::Pointer GetSegmentation4D();
   typename TLabelImage3D::Pointer GetSegmentation3D(unsigned int tp);
+  TSegmentation3DSeries GetSegmentation3DSeries();
 
   /** Get the Mesh Series generated from the segmentation image */
   TMeshSeries GetMeshSeries();

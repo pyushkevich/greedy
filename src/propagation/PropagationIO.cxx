@@ -142,6 +142,21 @@ PropagationOutput<TReal>
 }
 
 template<typename TReal>
+typename PropagationOutput<TReal>
+::TSegmentation3DSeries
+PropagationOutput<TReal>
+::GetSegmentation3DSeries()
+{
+  TSegmentation3DSeries ret;
+  for (auto kv : m_Data->tp_data)
+    {
+    ret[kv.first] = kv.second.seg;
+    }
+
+  return ret;
+}
+
+template<typename TReal>
 typename PropagationOutput<TReal>::TLabelImage4D::Pointer
 PropagationOutput<TReal>
 ::GetSegmentation4D()
