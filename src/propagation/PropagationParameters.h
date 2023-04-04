@@ -14,6 +14,7 @@ struct MeshSpec
 {
   std::string fn_mesh;
   std::string fnout_pattern;
+  bool cached = false; // whether input mesh is in the cache
 };
 
 // Parameters for the segmentation propagation

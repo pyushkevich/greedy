@@ -1,6 +1,7 @@
 #ifndef PROPAGATIONDATA_H
 #define PROPAGATIONDATA_H
 
+#include <map>
 #include <itkImage.h>
 #include <itkImageRegionIterator.h>
 #include <vtkSmartPointer.h>
@@ -60,6 +61,10 @@ public:
 	typename TVectorImage3D::Pointer deform_from_prev;
 	typename TVectorImage3D::Pointer deform_from_ref;
   TPropagationMeshPointer seg_mesh; // mesh warped from reference tp
+
+  // extra meshes for warping
+  std::map<std::string, TPropagationMeshPointer> extra_meshes;
+
 	std::vector<TimePointTransformSpec<TReal>> transform_specs;
 	std::vector<TimePointTransformSpec<TReal>> full_res_label_trans_specs;
 };
@@ -79,6 +84,7 @@ public:
   typename TLabelImage3D::Pointer seg_ref;
   typename TLabelImage4D::Pointer seg4d_in;
   typename TLabelImage4D::Pointer seg4d_out;
+  std::map<std::string, TPropagationMeshPointer> extra_mesh_cache;
   std::string outdir;
 	typename TImage3D::Pointer full_res_ref_space;
 };

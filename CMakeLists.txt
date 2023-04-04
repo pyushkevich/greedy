@@ -366,6 +366,7 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
   ADD_TEST(NAME "Phantom_WNCC_Sim_NoMask" COMMAND test_greedy phantom 1 3 WNCC 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
 
   # Tests for greedy_propagation
-  ADD_TEST(NAME "Propagation_API_General" COMMAND test_propagation WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "propagation_basic" COMMAND test_propagation basic WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "propagation_extra_mesh" COMMAND test_propagation extra_mesh WORKING_DIRECTORY ${TESTING_DATADIR})
 
 ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)

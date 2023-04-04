@@ -2,6 +2,7 @@
 #include <string>
 #include <memory>
 #include <exception>
+#include "CommandLineHelper.h"
 #include "PropagationAPI.h"
 #include "PropagationIO.h"
 #include "PropagationCommon.h"
@@ -10,8 +11,16 @@
 
 using namespace propagation;
 
+// Global variable storing the test data root
+std::string data_root;
+
+int usage()
+{
+
+}
+
 template<typename TReal>
-int run_test(int , char *[])
+int run_basic(CommandLineHelper &)
 {
   PROPAGATION_DATA_TYPEDEFS
   using PTools = PropagationTools<TReal>;
@@ -53,23 +62,59 @@ int run_test(int , char *[])
   return rc;
 }
 
+template<typename TReal>
+int run_extra_mesh(CommandLineHelper &)
+{
+  PROPAGATION_DATA_TYPEDEFS
+  using PTools = PropagationTools<TReal>;
+  PropagationInputBuilder<TReal> ib;
+
+  auto img4d = PTools::template ReadImage<TImage4D>("./propagation/img4d.nii.gz");
+  ib.SetImage4D(img4d);
+
+  auto seg3d = PTools::template ReadImage<TLabelImage3D>("./propagation/seg05.nii.gz");
+  ib.SetReferenceSegmentationIn3D(seg3d);
+
+  ib.SetReferenceTimePoint(5);
+  ib.SetTargetTimePoints({1,2,3,4,6,7});
+  ib.SetAffineDOF(GreedyParameters::AffineDOF::DOF_RIGID);
+  ib.SetMultiResolutionSchedule({10,10});
+  ib.SetRegistrationMetric(GreedyParameters::SSD);
+  ib.SetResliceMetricToLabel(0.2, false);
+  ib.SetGreedyVerbosity(GreedyParameters::Verbosity::VERB_NONE);
+  ib.SetPropagationVerbosity(PropagationParameters::Verbosity::VERB_DEFAULT);
+
+  return EXIT_SUCCESS;
+}
+
 int main (int argc, char *argv[])
 {
   std::cout << "========================================" << std::endl;
   std::cout << "-- Propagation Test Driver " << std::endl;
   std::cout << "========================================" << std::endl;
 
+  // Check for the environment variable of test data
+  if(!itksys::SystemTools::GetEnv("GREEDY_TEST_DATA_DIR", data_root))
+    data_root = itksys::SystemTools::GetCurrentWorkingDirectory();
+
+  std::cout << "-- data_root: " << data_root << std::endl;
+
+  CommandLineHelper cl(argc, argv);
+  cl.set_data_root(data_root.c_str());
+
   int rc = EXIT_SUCCESS;
 
-  try
-  {
-    rc = run_test<double>(argc, argv);
-  }
-  catch (std::exception &ex)
-  {
-    std::cerr << "[PROPAGATION TEST EXCEPTION CAUGHT]: " << ex.what() << std::endl;
-    rc = EXIT_FAILURE;
-  }
+  std::string cmd = cl.read_arg();
+
+  if(cmd == "basic")
+    {
+    return run_basic<double>(cl);
+    }
+  else if(cmd == "extra_mesh")
+    {
+    return run_extra_mesh<double>(cl);
+    }
+  else return usage();
 
   return rc;
 }

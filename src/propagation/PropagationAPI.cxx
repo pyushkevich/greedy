@@ -663,18 +663,39 @@ PropagationAPI<TReal>
   // Make a reslice spec with input-output pair and push to the parameter
   ResliceMeshSpec rmspec(mesh_in_name, mesh_out_name);
   param.reslice_param.meshes.push_back(rmspec);
-  tpdata_out.seg_mesh = vtkPolyData::New();
+  tpdata_out.seg_mesh = TPropagationMesh::New();
   GreedyAPI->AddCachedOutputObject(mesh_out_name, tpdata_out.seg_mesh, m_PParam.writeOutputToDisk);
 
   // Add extra meshes to warp
   for (auto &mesh_spec : m_PParam.extra_mesh_list)
     {
     ResliceMeshSpec rms;
-    rms.fixed = mesh_spec.fn_mesh;
-    std::string fn_mesh_ref = GenerateUnaryTPFileName(mesh_spec.fnout_pattern.c_str(), m_PParam.refTP,
-                                                      m_PParam.outdir.c_str(), ".vtk");
-    itksys::SystemTools::CopyAFile(mesh_spec.fn_mesh, fn_mesh_ref);
-    rms.output = GenerateUnaryTPFileName(mesh_spec.fnout_pattern.c_str(), tp_out, m_PParam.outdir.c_str(), ".vtk");
+
+    if (mesh_spec.cached)
+      {
+      auto tag = mesh_spec.fnout_pattern;
+      rms.fixed = tag;
+
+      // add input to cache
+      auto mesh_in = tpdata_in.extra_meshes[tag];
+      GreedyAPI->AddCachedInputObject(tag, mesh_in);
+
+      // configure output
+      tpdata_out.extra_meshes[tag] = TPropagationMesh::New();
+      std::string out_name = GenerateBinaryTPObjectName(tag.c_str(), tp_in, tp_out,
+                                                        nullptr, nullptr, nullptr);
+      GreedyAPI->AddCachedOutputObject(out_name, tpdata_out.extra_meshes[tag], false);
+      }
+    else
+      {
+      auto pattern = mesh_spec.fnout_pattern;
+      rms.fixed = mesh_spec.fn_mesh;
+      std::string fn_mesh_ref = GenerateUnaryTPFileName(pattern.c_str(), m_PParam.refTP,
+                                                        m_PParam.outdir.c_str(), ".vtk");
+      itksys::SystemTools::CopyAFile(mesh_spec.fn_mesh, fn_mesh_ref);
+      rms.output = GenerateUnaryTPFileName(pattern.c_str(), tp_out, m_PParam.outdir.c_str(), ".vtk");
+      }
+
     param.reslice_param.meshes.push_back(rms);
     }
 
