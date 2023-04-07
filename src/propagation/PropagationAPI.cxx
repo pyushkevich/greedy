@@ -678,7 +678,7 @@ PropagationAPI<TReal>
 
       // add input to cache
       auto mesh_in = tpdata_in.extra_meshes[tag];
-      GreedyAPI->AddCachedInputObject(tag, mesh_in);
+      GreedyAPI->AddCachedInputObject(tag, mesh_in.GetPointer());
 
       // configure output
       tpdata_out.extra_meshes[tag] = TPropagationMesh::New();
