@@ -456,6 +456,7 @@ PropagationInputBuilder<TReal>
   MeshSpec meshspec;
   meshspec.fn_mesh = "cached";
   meshspec.fnout_pattern = tag;
+  meshspec.cached = true;
   m_PParam.extra_mesh_list.push_back(meshspec);
   m_Data->extra_mesh_cache[tag] = mesh;
 }
