@@ -188,7 +188,7 @@ PropagationOutput<TReal>
   TMeshSeries ret;
   for (auto &kv : m_Data->tp_data)
     {
-    ret[kv.first] = kv.second.extra_meshes[tag];
+    ret[kv.first] = kv.second.GetExtraMesh(tag);
     }
 
   return ret;
@@ -202,19 +202,14 @@ PropagationOutput<TReal>
 {
   TMeshSeriesMap ret;
   auto firstTP = m_Data->tp_data.begin()->second;
-  std::vector<std::string> tags;
-
-  // get all the tags from the first time point
-  for (auto kv : firstTP.extra_meshes)
-    {
-    tags.push_back(kv.first);
-    }
 
   // populate return map
-  for (auto tag : tags)
+  for (auto tag : firstTP.GetExtraMeshTags())
     {
     ret[tag] = this->GetExtraMeshSeries(tag);
     }
+
+  std::cout << "[GetAllMeshSeries]: tags: " << ret.size() << std::endl;
 
   return ret;
 }
@@ -454,7 +449,7 @@ PropagationInputBuilder<TReal>
 ::AddExtraMeshToWarp(TPropagationMeshPointer mesh, std::string &tag)
 {
   MeshSpec meshspec;
-  meshspec.fn_mesh = "cached";
+  meshspec.fn_mesh = tag; // useless
   meshspec.fnout_pattern = tag;
   meshspec.cached = true;
   m_PParam.extra_mesh_list.push_back(meshspec);

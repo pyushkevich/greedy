@@ -250,6 +250,13 @@ PropagationAPI<TReal>
 
   // Warp ref segmentation mesh to target
   RunPropagationMeshReslice(m_PParam.refTP, target_tp);
+
+  // Copy extra meshes to reference time point data
+  auto &ref_data = m_Data->tp_data[m_PParam.refTP];
+  for (auto kv : m_Data->extra_mesh_cache)
+    {
+    ref_data.AddExtraMesh(kv.first, kv.second);
+    }
 }
 
 template <typename TReal>
@@ -544,7 +551,8 @@ PropagationAPI<TReal>
   TimePointData<TReal> &tpdata_out = m_Data->tp_data[tp_out];
 
 	// API and parameter configuration
-	GreedyApproach<3u, TReal> *GreedyAPI = new GreedyApproach<3u, TReal>();
+  using GreedyAPIType = GreedyApproach<3u, TReal>;
+  std::shared_ptr<GreedyAPIType> GreedyAPI = std::make_shared<GreedyAPIType>();
 	GreedyParameters param;
 	param.mode = GreedyParameters::RESLICE;
   param.CopyGeneralSettings(m_GParam);
@@ -678,14 +686,14 @@ PropagationAPI<TReal>
       rms.fixed = tag;
 
       // add input to cache
-      auto mesh_in = tpdata_in.extra_meshes[tag];
+      auto mesh_in = m_Data->extra_mesh_cache[tag];
       GreedyAPI->AddCachedInputObject(tag, mesh_in);
 
       // configure output
-      tpdata_out.extra_meshes[tag] = TPropagationMesh::New();
+      tpdata_out.AddExtraMesh(tag, TPropagationMesh::New());
       std::string out_name = GenerateBinaryTPObjectName(tag.c_str(), tp_in, tp_out,
                                                         nullptr, nullptr, nullptr);
-      GreedyAPI->AddCachedOutputObject(out_name, tpdata_out.extra_meshes[tag], false);
+      GreedyAPI->AddCachedOutputObject(out_name, tpdata_out.GetExtraMesh(tag), false);
       rms.output = out_name;
       }
     else
@@ -888,7 +896,7 @@ PropagationStdOut
     char buffer[4096];
     va_list args;
     va_start (args, format);
-    vsprintf (buffer,format, args);
+    vsnprintf (buffer, 4096, format,  args);
     va_end (args);
 
     fprintf(m_Output, "%s", buffer);

@@ -11,6 +11,11 @@
 
 using namespace propagation;
 
+typedef double TReal;
+PROPAGATION_DATA_TYPEDEFS
+typedef PropagationAPI<TReal> PropagationAPIType;
+using PTools = PropagationTools<TReal>;
+
 // Global variable storing the test data root
 std::string data_root;
 
@@ -22,7 +27,6 @@ int usage()
 template<typename TReal>
 int run_basic(CommandLineHelper &)
 {
-  PROPAGATION_DATA_TYPEDEFS
   using PTools = PropagationTools<TReal>;
   PropagationInputBuilder<TReal> ib;
 
@@ -65,8 +69,6 @@ int run_basic(CommandLineHelper &)
 template<typename TReal>
 int run_extra_mesh(CommandLineHelper &)
 {
-  PROPAGATION_DATA_TYPEDEFS
-  using PTools = PropagationTools<TReal>;
   PropagationInputBuilder<TReal> ib;
 
   auto img4d = PTools::template ReadImage<TImage4D>("./propagation/img4d.nii.gz");
@@ -75,14 +77,45 @@ int run_extra_mesh(CommandLineHelper &)
   auto seg3d = PTools::template ReadImage<TLabelImage3D>("./propagation/seg05.nii.gz");
   ib.SetReferenceSegmentationIn3D(seg3d);
 
+  auto mesh_e0 = PTools::GetMeshFromLabelImage(seg3d);
+  std::string meshTag = "mesh_e0";
+
   ib.SetReferenceTimePoint(5);
-  ib.SetTargetTimePoints({1,2,3,4,6,7});
+  ib.SetTargetTimePoints({6});
   ib.SetAffineDOF(GreedyParameters::AffineDOF::DOF_RIGID);
   ib.SetMultiResolutionSchedule({10,10});
   ib.SetRegistrationMetric(GreedyParameters::SSD);
   ib.SetResliceMetricToLabel(0.2, false);
   ib.SetGreedyVerbosity(GreedyParameters::Verbosity::VERB_NONE);
   ib.SetPropagationVerbosity(PropagationParameters::Verbosity::VERB_DEFAULT);
+  ib.AddExtraMeshToWarp(mesh_e0, meshTag);
+
+  // build input and run
+  PropagationAPIType api(ib.BuildPropagationInput());
+  api.Run();
+
+  // validate results
+  auto propaOut = api.GetOutput();
+  auto meshSeries = propaOut->GetMeshSeries();
+  std::cout << std::endl << std::endl;
+  std::cout << "[Extra Mesh Test] Segmentation Meshes" << std::endl;
+  for (auto kv : meshSeries)
+    {
+    std::cout << "-- key: " << kv.first << "; value: " << kv.second << std::endl;
+    }
+
+  std::cout << "[Extra Mesh Test] Extra Meshes" << std::endl;
+  auto extraMeshSeries = propaOut->GetAllExtraMeshSeries();
+  for (auto tagKv : extraMeshSeries)
+    {
+    std::cout << "-- tag: " << tagKv.first << std::endl;
+    for (auto tpKv : tagKv.second)
+      {
+      std::cout << "---- key: " << tpKv.first << "; value: " << tpKv.second << std::endl;
+      }
+    }
+
+
 
   return EXIT_SUCCESS;
 }
