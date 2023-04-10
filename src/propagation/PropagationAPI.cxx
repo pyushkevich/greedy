@@ -639,7 +639,8 @@ PropagationAPI<TReal>
   TimePointData<TReal> &tpdata_out = m_Data->tp_data[tp_out];
 
   // API and parameter configuration
-  GreedyApproach<3u, TReal> *GreedyAPI = new GreedyApproach<3u, TReal>();
+  using GreedyAPIType = GreedyApproach<3u, TReal>;
+  std::shared_ptr<GreedyAPIType> GreedyAPI = std::make_shared<GreedyAPIType>();
   GreedyParameters param;
   param.mode = GreedyParameters::RESLICE;
   param.CopyGeneralSettings(m_GParam);
@@ -678,13 +679,14 @@ PropagationAPI<TReal>
 
       // add input to cache
       auto mesh_in = tpdata_in.extra_meshes[tag];
-      GreedyAPI->AddCachedInputObject(tag, mesh_in.GetPointer());
+      GreedyAPI->AddCachedInputObject(tag, mesh_in);
 
       // configure output
       tpdata_out.extra_meshes[tag] = TPropagationMesh::New();
       std::string out_name = GenerateBinaryTPObjectName(tag.c_str(), tp_in, tp_out,
                                                         nullptr, nullptr, nullptr);
       GreedyAPI->AddCachedOutputObject(out_name, tpdata_out.extra_meshes[tag], false);
+      rms.output = out_name;
       }
     else
       {
