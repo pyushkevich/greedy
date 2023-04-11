@@ -209,8 +209,6 @@ PropagationOutput<TReal>
     ret[tag] = this->GetExtraMeshSeries(tag);
     }
 
-  std::cout << "[GetAllMeshSeries]: tags: " << ret.size() << std::endl;
-
   return ret;
 }
 

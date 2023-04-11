@@ -8,6 +8,7 @@
 #include "PropagationCommon.h"
 #include "PropagationTools.h"
 #include "itkLabelOverlapMeasuresImageFilter.h"
+#include <vtkDecimatePro.h>
 
 using namespace propagation;
 
@@ -77,8 +78,16 @@ int run_extra_mesh(CommandLineHelper &)
   auto seg3d = PTools::template ReadImage<TLabelImage3D>("./propagation/seg05.nii.gz");
   ib.SetReferenceSegmentationIn3D(seg3d);
 
-  auto mesh_e0 = PTools::GetMeshFromLabelImage(seg3d);
-  std::string meshTag = "mesh_e0";
+  auto mesh_dc = PTools::GetMeshFromLabelImage(seg3d);
+  vtkNew<vtkDecimatePro> fltDecimate;
+  fltDecimate->AddInputData(mesh_dc);
+  fltDecimate->SetTargetReduction(0.7);
+  fltDecimate->Update();
+  mesh_dc = fltDecimate->GetOutput();
+
+  auto dc_count = mesh_dc->GetNumberOfPoints();
+
+  std::string meshTag = "mesh_dc";
 
   ib.SetReferenceTimePoint(5);
   ib.SetTargetTimePoints({6});
@@ -88,7 +97,7 @@ int run_extra_mesh(CommandLineHelper &)
   ib.SetResliceMetricToLabel(0.2, false);
   ib.SetGreedyVerbosity(GreedyParameters::Verbosity::VERB_NONE);
   ib.SetPropagationVerbosity(PropagationParameters::Verbosity::VERB_DEFAULT);
-  ib.AddExtraMeshToWarp(mesh_e0, meshTag);
+  ib.AddExtraMeshToWarp(mesh_dc, meshTag);
 
   // build input and run
   PropagationAPIType api(ib.BuildPropagationInput());
@@ -96,22 +105,25 @@ int run_extra_mesh(CommandLineHelper &)
 
   // validate results
   auto propaOut = api.GetOutput();
-  auto meshSeries = propaOut->GetMeshSeries();
-  std::cout << std::endl << std::endl;
-  std::cout << "[Extra Mesh Test] Segmentation Meshes" << std::endl;
-  for (auto kv : meshSeries)
-    {
-    std::cout << "-- key: " << kv.first << "; value: " << kv.second << std::endl;
-    }
-
-  std::cout << "[Extra Mesh Test] Extra Meshes" << std::endl;
   auto extraMeshSeries = propaOut->GetAllExtraMeshSeries();
   for (auto tagKv : extraMeshSeries)
     {
     std::cout << "-- tag: " << tagKv.first << std::endl;
     for (auto tpKv : tagKv.second)
       {
-      std::cout << "---- key: " << tpKv.first << "; value: " << tpKv.second << std::endl;
+      std::cout << "---- tp: " << tpKv.first << "; pointCnt: "
+                << tpKv.second->GetNumberOfPoints()
+                << std::endl;
+
+      if (tpKv.second->GetNumberOfPoints() != dc_count)
+        {
+        std::cout << "[Extra Mesh Test] tag: " << tagKv.first
+                  << " ; tp: " << tpKv.first
+                  << " ; pointCnt: " << tpKv.second->GetNumberOfPoints()
+                  << " ; expected: " << dc_count << std::endl;
+
+        return EXIT_FAILURE;
+        }
       }
     }
 

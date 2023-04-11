@@ -567,7 +567,7 @@ GreedyApproach<VDim, TReal>
     if (!cached)
       throw GreedyException("Cached mesh %s cannot be cast to %s",
                             filename.c_str(), typeid(MeshType*).name());
-    cached = mesh;
+    cached->DeepCopy(mesh);
     }
 
   if (it == m_MeshCache.end() || it->second.force_write)
