@@ -90,7 +90,7 @@ int run_extra_mesh(CommandLineHelper &)
   std::string meshTag = "mesh_dc";
 
   ib.SetReferenceTimePoint(5);
-  ib.SetTargetTimePoints({6});
+  ib.SetTargetTimePoints({1, 3, 4, 6, 7});
   ib.SetAffineDOF(GreedyParameters::AffineDOF::DOF_RIGID);
   ib.SetMultiResolutionSchedule({10,10});
   ib.SetRegistrationMetric(GreedyParameters::SSD);
