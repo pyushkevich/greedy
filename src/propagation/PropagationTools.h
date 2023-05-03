@@ -18,7 +18,7 @@ template <typename TReal>
 class PropagationTools
 {
 public:
-	PROPAGATION_DATA_TYPEDEFS
+PROPAGATION_DATA_TYPEDEFS
 
 	PropagationTools();
 	~PropagationTools();
