@@ -11,6 +11,11 @@
 #include <FastLinearInterpolator.h>
 #include <MultiComponentWeightedNCCImageMetric.h>
 #include <itkMultiThreaderBase.h>
+#include "TetraMeshConstraints.h"
+#include "DifferentiableScalingAndSquaring.h"
+#include "GreedyMeshIO.h"
+#include "vtkUnstructuredGrid.h"
+#include "itkTimeProbe.h"
 
 // Global variable storing the test data root
 std::string data_root;
@@ -31,13 +36,25 @@ int usage()
   printf("          0 for unweighted, 1 for weighted\n");
   printf("  grad_metric_phi <2|3> <eps> <tol> <greedy_opts>\n");
   printf("        : check gradients of various metrics with respect to phi\n");
-  printf("          Greedy options: -i, -it, -m, -gm, -mm \n");
+  printf("          Greedy options: -i, -it, -id, -m, -gm, -mm \n");
   printf("  grad_metric_aff <2|3> <eps> <tol> <greedy_opts>\n");
   printf("        : check gradients of various metrics with respect to affine transforms\n");
   printf("          Greedy options: -i, -ia, -m, -gm, -mm \n");
   printf("  reg_2d_3d <aff|def> <metric_value> <tol> <greedy_opts>\n");
   printf("        : Test 2D/3D registration using phantom images\n");
   printf("          Greedy options: -i, -ia, -m, -n \n");
+  printf("  tet_jac_reg <2|3> [refimage] [mesh] \n");
+  printf("        : Test derivatives of the tetrahedral jacobian regularization term\n");
+  printf("  comp_layer <2|3> \n");
+  printf("        : Test derivatives of the warp composition layer\n");
+  printf("  ssq_layer <2|3> [noise_amplitude==8.0] [noise_sigma=1.0] \n");
+  printf("        : Test derivatives of the scaling and squaring layer\n");
+  printf("  svf_smoothness_reg <2|3>\n");
+  printf("        : Test derivatives of SVF smoothness regularizer\n");
+  printf("  fast_smoothing <2|3> <fn_src> <fn_target> <sigma>\n");
+  printf("        : Test fast smoothing code\n");
+  printf("  image_lbgfs\n");
+  printf("        : Test image lbgfs code\n");
   return -1;
 }
 
@@ -599,9 +616,11 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
   double epsilon = cl.read_double();
   double tol = cl.read_double();
 
+  bool minimization_mode = true;
+
   // List of greedy commands that are recognized by this test command
   std::set<std::string> greedy_cmd {
-    "-m", "-threads", "-i", "-it", "-gm", "-mm", "-ia", "-bg"
+    "-m", "-threads", "-i", "-it", "-gm", "-mm", "-ia", "-bg", "-id"
   };
 
   // Parse the parameters
@@ -616,6 +635,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
 
   // Create a helper
   typedef GreedyApproach<VDim> GreedyAPI;
+  typedef typename GreedyAPI::LDDMMType LDDMMType;
   GreedyAPI api;
   typename GreedyAPI::OFHelperType of_helper;
 
@@ -638,12 +658,16 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
   // Initialize phi to some dummy value
   api.LoadInitialTransform(gp, of_helper, 0, phi);
 
-  // Compute the metric and gradient
+  // Report RMS displacement
+  double rms = sqrt(LDDMMType::vimg_euclidean_norm_sq(phi) / phi->GetBufferedRegion().GetNumberOfPixels());
+  printf("RMS displacement: %12.8f\n", rms);
+
+  // Compute the metric and gradient, using minimization mode, which should ensure that
+  // the gradient is scaled correctly relative to the metric
   MultiComponentMetricReport metric_report;
-  api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0);
+  api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0, minimization_mode);
 
   // Interpolator to figure out what kind of sample it is
-  typedef LDDMMData<double, VDim> LDDMMType;
   typedef FastLinearInterpolator<
       typename LDDMMType::CompositeImageType, double, VDim,
       typename LDDMMType::ImageType> InterpType;
@@ -710,12 +734,14 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
         break;
       }
 
+    s.mask_vol = metric_report.MaskVolume;
+
     // Some scaling is unaccounted for
     s.df_analytic = grad_metric->GetPixel(s.pos);
-    if(gp.metric == GreedyParameters::SSD)
-      s.df_analytic *= -2.0;
 
-    s.mask_vol = metric_report.MaskVolume;
+    // if(gp.metric == GreedyParameters::SSD)
+    //  s.df_analytic *= -2.0;
+
     }
 
   // Compute numerical derivative approximation
@@ -728,33 +754,38 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
       auto def1 = orig, def2 = orig;
       def1[k] -= epsilon;
       phi->SetPixel(s.pos, def1);
-      api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0);
+      api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0, minimization_mode);
       double v1 = metric_report.TotalPerPixelMetric;
 
       def2[k] += epsilon;
       phi->SetPixel(s.pos, def2);
-      api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_2, grad_metric, 1.0);
+      api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_2, grad_metric, 1.0, minimization_mode);
       double v2 = metric_report.TotalPerPixelMetric;
 
       // We scale by the central mask volume (so that we are actually testing the TotalPerPixelMetric
       // but reporting in units of the whole metric
-      s.df_numeric[k] = s.mask_vol * ((v2-v1) / (2 * epsilon));
+      if(minimization_mode)
+        s.df_numeric[k] = (v2 - v1) / (2 * epsilon);
+      else
+        s.df_numeric[k] = s.mask_vol * ((v2-v1) / (2 * epsilon));
 
       phi->SetPixel(s.pos, orig);
       }
 
-    // Compute the error
-    auto err_vec = (s.df_analytic - s.df_numeric).GetVnlVector();
-    double del = err_vec.inf_norm();
+    // Compute the relative error
+    vnl_vector<double> rel_err_comp(VDim);
+    for(unsigned int d = 0; d < VDim; d++)
+      rel_err_comp[d] = fabs(s.df_analytic[d] - s.df_numeric[d]) / (0.5 * (fabs(s.df_analytic[d]) + fabs(s.df_numeric[d])) + 1e-6);
+    double rel_err_sup = rel_err_comp.inf_norm();
 
     // Print the comparison
     const char *status_names[] = { "INSIDE", "OUTSIDE", "BORDER" };
-    printf("Sample [%s] (%7s)  Num: %s  Anl: %s   Err: %8.2e\n",
+    printf("Sample [%s] (%7s)  Num: %s  Anl: %s   Err: %12.9f\n",
            printf_index("%03ld", s.pos).c_str(),
            status_names[s.status],
-           printf_vec<VDim,double>("%12.4f", s.df_numeric.GetVnlVector().data_block()).c_str(),
-           printf_vec<VDim,double>("%12.4f", s.df_analytic.GetVnlVector().data_block()).c_str(),
-           del);
+           printf_vec<VDim,double>("%12.9f", s.df_numeric.GetVnlVector().data_block()).c_str(),
+           printf_vec<VDim,double>("%12.9f", s.df_analytic.GetVnlVector().data_block()).c_str(),
+           rel_err_sup);
 
     /*
     std::cout << "W      : " << s.weight_value << std::endl;
@@ -763,7 +794,52 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
     std::cout << "Grad-WM: " << s.grad_WM << std::endl;
     */
 
-    if(del > tol)
+    if(rel_err_sup > tol)
+      retval = -1;
+    }
+
+  // Check using variational derivatives
+  vnl_random randy;
+  for(unsigned int i = 0; i < 5; i++)
+    {
+    // Compute the gradient - previous calls have corrupted it
+    grad_metric->FillBuffer(typename LDDMMType::Vec(0.0));
+    api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0, minimization_mode);
+
+    // Create a variation
+    typename GreedyAPI::VectorImagePointer variation = GreedyAPI::LDDMMType::new_vimg(refspace);
+    LDDMMType::vimg_add_gaussian_noise_in_place(variation, 6.0);
+    LDDMMType::vimg_smooth(variation, variation, 8.0);
+    typename LDDMMType::ImagePointer idot = LDDMMType::new_img(phi, 0.0);
+    LDDMMType::vimg_euclidean_inner_product(idot, grad_metric, variation);
+    double ana_deriv = LDDMMType::img_voxel_sum(idot);
+
+    char buffer[256];
+    sprintf(buffer, "/tmp/variation%d.nii.gz", i);
+    LDDMMType::vimg_write(variation, buffer);
+
+    // Compute numeric derivatives
+    LDDMMType::vimg_add_scaled_in_place(phi, variation, epsilon);
+    api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0, minimization_mode);
+    double v2 = metric_report.TotalPerPixelMetric;
+    LDDMMType::vimg_add_scaled_in_place(phi, variation, -2.0 * epsilon);
+    api.EvaluateMetricForDeformableRegistration(gp, of_helper, 0, phi, metric_report, img_metric_1, grad_metric, 1.0, minimization_mode);
+    double v1 = metric_report.TotalPerPixelMetric;
+    LDDMMType::vimg_add_scaled_in_place(phi, variation, epsilon);
+
+    // We scale by the central mask volume (so that we are actually testing the TotalPerPixelMetric
+    // but reporting in units of the whole metric
+    double num_deriv = (minimization_mode)
+      ? (v2 - v1) / (2 * epsilon)
+      : metric_report.MaskVolume * ((v2-v1) / (2 * epsilon));
+
+    // Compute relative difference
+    double rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / (std::fabs(ana_deriv) + std::fabs(num_deriv));
+
+    // Compute the difference between the two derivatives
+    printf("Variation %d  ANA: %12.8g  NUM: %12.8g  RELDIF: %12.8f\n", i, ana_deriv, num_deriv, rel_diff);
+
+    if(rel_diff > tol)
       retval = -1;
     }
 
@@ -896,6 +972,191 @@ int RunReg2D3D(CommandLineHelper &cl)
   return rc;
 }
 
+template <unsigned int VDim>
+int
+RunTetraJacobianRegularizationTest(std::string fn_refspace, std::string fn_mesh)
+{
+  typedef TetraMeshConstraints<double, VDim> TMC;
+  vtkSmartPointer<vtkUnstructuredGrid> tetra;
+  typename TMC::ImageBaseType::Pointer refspace;
+  if(fn_refspace.size())
+    refspace = LDDMMData<double, VDim>::cimg_read(fn_refspace.c_str());
+  if(fn_mesh.size())
+    {
+    vtkSmartPointer<vtkPointSet> point_set = ReadMesh(fn_mesh.c_str());
+    tetra = dynamic_cast<vtkUnstructuredGrid *>(point_set.GetPointer());
+    }
+
+  return TMC::TestDerivatives(refspace, tetra) ? 0 : -1;
+}
+
+template <unsigned int VDim>
+int
+RunDifferentiableScalingAndSquaringTest(double noise_amplitude = 8.0, double noise_sigma = 1.0)
+{
+  typedef ScalingAndSquaringLayer<VDim, double> SSQLayer;
+  return SSQLayer::TestDerivatives(noise_amplitude, noise_sigma) ? 0 : -1;
+}
+
+template <unsigned int VDim>
+int
+RunDifferentiableSelfCompositionTest()
+{
+  typedef DisplacementSelfCompositionLayer<VDim, double> CompLayer;
+  return CompLayer::TestDerivatives() ? 0 : -1;
+}
+
+template <unsigned int VDim>
+int
+RunSVFSmoothnessRegularizerTest()
+{
+  typedef DisplacementFieldSmoothnessLoss<VDim, double> Layer;
+  return Layer::TestDerivatives() ? 0 : -1;
+}
+
+#include <itkTimeProbe.h>
+
+template <unsigned int VDim>
+int
+RunFastGaussianSmoothingTest(std::string fn_source, std::string fn_target, double sigma_vox)
+{
+  typedef LDDMMData<double, VDim> LDDMMType;
+  typename LDDMMType::Vec sigma; sigma.Fill(sigma_vox);
+  itk::TimeProbe probe_fast, probe_baseline;
+
+  // Create a sigma specification
+  typename LDDMMType::SmoothingSigmas sigma_spec(sigma_vox, false);
+
+  // Run the baseline filter
+  auto src_bl = LDDMMType::cimg_read(fn_source.c_str());
+  probe_baseline.Start();
+  LDDMMType::cimg_smooth(src_bl, src_bl, sigma_spec, LDDMMType::ITK_RECURSIVE);
+  probe_baseline.Stop();
+
+  // Run the experimental code
+  auto src = LDDMMType::cimg_read(fn_source.c_str());
+  probe_fast.Start();
+  LDDMMType::cimg_smooth(src, src, sigma_spec, LDDMMType::FAST_ZEROPAD);
+  probe_fast.Stop();
+  LDDMMType::cimg_write(src, fn_target.c_str());
+
+  // Report times
+  std::cout << "Baseline time: " << probe_baseline.GetTotal() << std::endl;
+  std::cout << "Fast code time: " << probe_fast.GetTotal() << std::endl;
+
+  return 0;
+}
+
+#include <vnl/algo/vnl_lbfgs.h>
+class RosenbrockFunction : public vnl_cost_function
+{
+public:
+  RosenbrockFunction() : vnl_cost_function(100) {}
+
+  virtual void compute(vnl_vector<double> const& x_flat, double *f, vnl_vector<double>* g_flat)
+    {
+    // Compute the function
+    *f = 0.0;
+    for(unsigned int i = 1; i < 100; i++)
+      {
+      // Forward pass
+      double a = x_flat[i] - x_flat[i-1] * x_flat[i-1];
+      double b = 1.0 - x_flat[i-1];
+      *f += 100 * a * a + b * b;
+
+      // Backward pass
+      double df_da = 200 * a;
+      double df_db = 2 * b;
+      if(g_flat)
+        {
+        (*g_flat)[i-1] -= df_db;
+        (*g_flat)[i-1] -= 2 * x_flat[i-1] * df_da;
+        (*g_flat)[i] += df_da;
+        }
+      }
+    }
+};
+
+int RunImageLBGFSTest()
+{
+  typedef ImageLBFGS<2, double> Optimizer;
+  typedef typename Optimizer::VectorImageType VectorImageType;
+  typedef typename Optimizer::VectorImagePointer VectorImagePointer;
+  typedef typename Optimizer::LDDMMType LDDMMType;
+  typedef typename LDDMMType::Vec Vec;
+
+  // Set the number of vectors
+  unsigned int n = 50;
+
+  // The VNL function that we will wrap around
+  RosenbrockFunction rfun;
+
+  // We need a sample optimization problem
+  auto closure = [n, &rfun](const VectorImageType *x, VectorImageType *grad) -> double
+    {
+    // Unpack the image into a flat array of vectors
+    const Vec *x_vec = x->GetBufferPointer();
+    Vec *g_vec = grad->GetBufferPointer();
+
+    vnl_vector<double> x_flat(2 * n), g_flat(2 * n);
+    for(unsigned int i = 0; i < n; i++)
+      {
+      x_flat[i * 2] = x_vec[i][0];
+      x_flat[i * 2 + 1] = x_vec[i][1];
+      g_flat[i * 2] = 0.0;
+      g_flat[i * 2 + 1] = 0.0;
+      }
+
+    // Compute the function
+    double f;
+    rfun.compute(x_flat, &f, &g_flat);
+
+    for(unsigned int i = 0; i < n; i++)
+      {
+      g_vec[i][0] = g_flat[i * 2];
+      g_vec[i][1] = g_flat[i * 2 + 1];
+      }
+
+    return f;
+    };
+
+  // Run VNL optimization
+  vnl_lbfgs vnlopt(rfun);
+  vnlopt.set_trace(true);
+  vnlopt.set_max_function_evals(100);
+  vnl_vector<double> x0(100); x0.fill(0.1);
+  vnlopt.minimize(x0);
+
+
+  // Create a starting point and a gradient vector storage
+  typename LDDMMType::RegionType region;
+  typename LDDMMType::RegionType::SizeType sz = {{n, 1}};
+  region.SetSize(sz);
+  VectorImagePointer x = VectorImageType::New();
+  x->SetRegions(region);
+  x->Allocate();
+  x->FillBuffer(Vec(0.1));
+  VectorImagePointer g = LDDMMType::new_vimg(x);
+
+  // Create the optimizer
+  Optimizer opt;
+  double opt_value;
+  for(unsigned int i = 0; i < 800; i++)
+    {
+    bool converged = opt.Step(closure, x, opt_value, g);
+    printf("Iter: %04d  Obj: %12.8f\n", i, opt_value);
+    if(converged)
+      break;
+    }
+
+  // Check that the solution is correct
+  auto soln = LDDMMType::new_vimg(x, 1.0);
+  LDDMMType::vimg_subtract_in_place(x, soln);
+  double max_error = LDDMMType::vimg_component_abs_max(x);
+  printf("Max deviation from known optimum: %12.8f\n", max_error);
+
+  return max_error < 1.e-4 ? 0 : 1;
+}
 
 int main(int argc, char *argv[])
 {
@@ -947,6 +1208,62 @@ int main(int argc, char *argv[])
     else if(dim == 3)
       return RunMaskedInterpolationTest<3>();
     else return -1;
+    }
+  else if(cmd == "tet_jac_reg")
+    {
+    int dim = cl.read_integer();
+    std::string refspace = cl.is_at_end() ? std::string() : cl.read_existing_filename();
+    std::string mesh = cl.is_at_end() ? std::string() : cl.read_existing_filename();
+    if(dim == 2)
+      return RunTetraJacobianRegularizationTest<2>(refspace, mesh);
+    else if(dim == 3)
+      return RunTetraJacobianRegularizationTest<3>(refspace, mesh);
+    else return -1;
+    }
+  else if(cmd == "comp_layer")
+    {
+    int dim = cl.read_integer();
+    if(dim == 2)
+      return RunDifferentiableSelfCompositionTest<2>();
+    else if(dim == 3)
+      return RunDifferentiableSelfCompositionTest<3>();
+    else return -1;
+    }
+  else if(cmd == "ssq_layer")
+    {
+    int dim = cl.read_integer();
+    double noise_ampl = cl.is_at_end() ? 8.0 : cl.read_double();
+    double noise_sigma = cl.is_at_end() ? 1.0 : cl.read_double();
+    if(dim == 2)
+      return RunDifferentiableScalingAndSquaringTest<2>(noise_ampl, noise_sigma);
+    else if(dim == 3)
+      return RunDifferentiableScalingAndSquaringTest<3>(noise_ampl, noise_sigma);
+    else return -1;
+    }
+  else if(cmd == "svf_smoothness_reg")
+    {
+    int dim = cl.read_integer();
+    if(dim == 2)
+      return RunSVFSmoothnessRegularizerTest<2>();
+    else if(dim == 3)
+      return RunSVFSmoothnessRegularizerTest<3>();
+    else return -1;
+    }
+  else if(cmd == "fast_smoothing")
+    {
+    int dim = cl.read_integer();
+    std::string fn_src = cl.read_existing_filename();
+    std::string fn_trg = cl.read_output_filename();
+    double sigma = cl.read_double();
+    if(dim == 2)
+      return RunFastGaussianSmoothingTest<2>(fn_src, fn_trg, sigma);
+    else if(dim == 3)
+      return RunFastGaussianSmoothingTest<3>(fn_src, fn_trg, sigma);
+    else return -1;
+    }
+  else if(cmd == "image_lbgfs")
+    {
+    return RunImageLBGFSTest();
     }
   else return usage();
 };

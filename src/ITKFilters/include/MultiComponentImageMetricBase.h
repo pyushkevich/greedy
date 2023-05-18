@@ -217,6 +217,15 @@ public:
   itkGetMacro(AffineTransformMaskGradient, TransformType *)
 
   /**
+   * Whether the metric is set up for gradient descent minimization (as opposed to Demons
+   * style algorithms). When setting up for gradient descent, smaller values of the metric
+   * correspond to better registration quality, and the gradient returned is appropriately
+   * scaled so that for any variation v on phi, <v, grad> == Dv(MetricValue).
+   */
+  itkSetMacro(GradientDescentMinimizationMode, bool)
+  itkGetMacro(GradientDescentMinimizationMode, bool)
+
+  /**
    * Get the gradient scaling factor. To get the actual gradient of the metric, multiply the
    * gradient output of this filter by the scaling factor. Explanation: for efficiency, the
    * metrics return an arbitrarily scaled vector, such that adding the gradient to the
@@ -296,6 +305,9 @@ protected:
 
   // Accumulated metric value
   double m_MetricValue, m_MaskValue;
+
+  // How metric and gradient are computed and scaled
+  bool m_GradientDescentMinimizationMode = false;
 
   // Affine transform
   typename TransformType::Pointer m_AffineTransform;

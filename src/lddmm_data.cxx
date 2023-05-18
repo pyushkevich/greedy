@@ -52,9 +52,10 @@
 #include "vnl/vnl_random.h"
 
 #include "FastWarpCompositeImageFilter.h"
+#include <mutex>
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::new_vf(VelocityField &vf, uint nt, ImageBaseType *ref)
 {
@@ -64,7 +65,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::alloc_vimg(VectorImageType *img, ImageBaseType *ref, TFloat fill_value)
 {
@@ -85,7 +86,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::alloc_mimg(MatrixImageType *img, ImageBaseType *ref)
 {
@@ -132,7 +133,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::alloc_img(ImageType *img, ImageBaseType *ref, TFloat fill_value)
 {
@@ -153,10 +154,10 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
-::init(LDDMMData<TFloat, VDim> &p, 
-  ImageType *fix, ImageType *mov, 
+::init(LDDMMData<TFloat, VDim> &p,
+  ImageType *fix, ImageType *mov,
   uint nt, double alpha, double gamma, double sigma)
 {
   p.fix = fix;
@@ -199,7 +200,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::compute_navier_stokes_kernel(ImageType *kernel, double alpha, double gamma)
 {
@@ -218,7 +219,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::interp_vimg(VectorImageType *data, VectorImageType *field,
   TFloat def_scale, VectorImageType *out, bool use_nn, bool phys_space)
@@ -288,7 +289,7 @@ LDDMMData<TFloat, VDim>
 
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::interp_mimg(MatrixImageType *data, VectorImageType *field,
   MatrixImageType *out, bool use_nn, bool phys_space)
@@ -316,9 +317,9 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
-::interp_img(ImageType *data, VectorImageType *field, ImageType *out, 
+::interp_img(ImageType *data, VectorImageType *field, ImageType *out,
   bool use_nn, bool phys_space, TFloat outside_value)
 {
   typedef FastWarpCompositeImageFilter<ImageType, ImageType, VectorImageType> WF;
@@ -350,7 +351,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::vimg_add_in_place(VectorImageType *trg, VectorImageType *a)
 {
@@ -363,7 +364,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::vimg_subtract_in_place(VectorImageType *trg, VectorImageType *a)
 {
@@ -377,7 +378,7 @@ LDDMMData<TFloat, VDim>
 
 // Scalar math
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::vimg_multiply_in_place(VectorImageType *trg, ImageType *s)
 {
@@ -388,6 +389,52 @@ LDDMMData<TFloat, VDim>
   flt->SetInput2(s);
   flt->GraftOutput(trg);
   flt->Update();
+}
+
+template<class TFloat, uint VDim>
+void LDDMMData<TFloat, VDim>::vimg_multiply_in_place(VectorImageType *trg, VectorImageType *s)
+{
+  typedef itk::MultiplyImageFilter<
+    VectorImageType, VectorImageType, VectorImageType> MultiplyFilter;
+  typename MultiplyFilter::Pointer flt = MultiplyFilter::New();
+  flt->SetInput1(trg);
+  flt->SetInput2(s);
+  flt->GraftOutput(trg);
+  flt->Update();
+  }
+
+template<class TFloat, uint VDim>
+double LDDMMData<TFloat, VDim>::vimg_dot_product(VectorImageType *a, VectorImageType *b)
+{
+  double value = 0.0;
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+  std::mutex pooling_mutex;
+
+  mt->ParallelizeImageRegion<VDim>(
+        a->GetBufferedRegion(),
+        [a, b, &value, &pooling_mutex](const itk::ImageRegion<VDim> &thread_region)
+    {
+
+    // Iterator typdef
+    typedef itk::ImageLinearConstIteratorWithIndex<VectorImageType> IterBase;
+    typedef IteratorExtender<IterBase> Iterator;
+
+    unsigned int line_length = thread_region.GetSize(0);
+    double thread_value = 0.0;
+    for(Iterator it(a, thread_region); !it.IsAtEnd(); it.NextLine())
+      {
+      auto *a_line = it.GetPixelPointer(a), *b_line = it.GetPixelPointer(b);
+      for(unsigned int i = 0; i < line_length; i++)
+        for(unsigned int k = 0; k < VDim; k++)
+          thread_value += a_line[i][k] * b_line[i][k];
+      }
+
+    // Use mutex to update the u range variable
+    std::lock_guard<std::mutex> guard(pooling_mutex);
+    value += thread_value;
+    }, nullptr);
+
+  return value;
 }
 
 template <class TFloat, uint VDim>
@@ -405,7 +452,7 @@ LDDMMData<TFloat, VDim>
 
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::mimg_multiply_in_place(MatrixImageType *trg, MatrixImageType *s)
 {
@@ -462,7 +509,80 @@ void LDDMMData<TFloat, VDim>::cimg_mask_in_place(CompositeImageType *trg, ImageT
     }, nullptr);
 
   trg->Modified();
+  }
+
+template<class TFloat, uint VDim>
+double
+LDDMMData<TFloat, VDim>
+::vimg_component_abs_max(VectorImageType *v)
+{
+  double value = 0.0;
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+  std::mutex pooling_mutex;
+
+  mt->ParallelizeImageRegion<VDim>(
+        v->GetBufferedRegion(),
+        [v, &value, &pooling_mutex](const itk::ImageRegion<VDim> &thread_region)
+    {
+
+    // Iterator typdef
+    typedef itk::ImageLinearConstIteratorWithIndex<VectorImageType> IterBase;
+    typedef IteratorExtender<IterBase> Iterator;
+
+    unsigned int line_length = thread_region.GetSize(0);
+    TFloat thread_value = 0.0;
+    for(Iterator it(v, thread_region); !it.IsAtEnd(); it.NextLine())
+      {
+      auto *v_line = it.GetPixelPointer(v);
+      for(unsigned int i = 0; i < line_length; i++)
+        for(unsigned int k = 0; k < VDim; k++)
+          thread_value = std::max(thread_value, std::fabs(v_line[i][k]));
+      }
+
+    // Use mutex to update the u range variable
+    std::lock_guard<std::mutex> guard(pooling_mutex);
+    value = std::max((double) thread_value, value);
+    }, nullptr);
+
+  return value;
 }
+
+template<class TFloat, uint VDim>
+double
+LDDMMData<TFloat, VDim>
+::vimg_component_abs_sum(VectorImageType *v)
+{
+  double value = 0.0;
+  itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+  std::mutex pooling_mutex;
+
+  mt->ParallelizeImageRegion<VDim>(
+        v->GetBufferedRegion(),
+        [v, &value, &pooling_mutex](const itk::ImageRegion<VDim> &thread_region)
+    {
+
+    // Iterator typdef
+    typedef itk::ImageLinearConstIteratorWithIndex<VectorImageType> IterBase;
+    typedef IteratorExtender<IterBase> Iterator;
+
+    unsigned int line_length = thread_region.GetSize(0);
+    double thread_value = 0.0;
+    for(Iterator it(v, thread_region); !it.IsAtEnd(); it.NextLine())
+      {
+      auto *v_line = it.GetPixelPointer(v);
+      for(unsigned int i = 0; i < line_length; i++)
+        for(unsigned int k = 0; k < VDim; k++)
+          thread_value += std::fabs(v_line[i][k]);
+      }
+
+    // Use mutex to update the u range variable
+    std::lock_guard<std::mutex> guard(pooling_mutex);
+    value += thread_value;
+    }, nullptr);
+
+  return value;
+}
+
 
 // Scalar math
 
@@ -480,7 +600,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::img_subtract_in_place(ImageType *trg, ImageType *a)
 {
@@ -493,7 +613,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::img_multiply_in_place(ImageType *trg, ImageType *a)
 {
@@ -506,10 +626,11 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-TFloat 
+TFloat
 LDDMMData<TFloat, VDim>
 ::vimg_euclidean_norm_sq(VectorImageType *trg)
 {
+  // TODO: implement by calling dot product (faster code)
   // Add all voxels in the image
   double accum = 0.0;
   typedef itk::ImageRegionIterator<VectorImageType> Iter;
@@ -522,7 +643,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-TFloat 
+TFloat
 LDDMMData<TFloat, VDim>
 ::img_euclidean_norm_sq(ImageType *trg)
 {
@@ -613,7 +734,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-TFloat 
+TFloat
 LDDMMData<TFloat, VDim>
 ::img_voxel_sum(ImageType *trg)
 {
@@ -626,7 +747,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::img_min_max(ImageType *src, TFloat &out_min, TFloat &out_max)
 {
@@ -660,7 +781,7 @@ public:
 };
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::vimg_scale_in_place(VectorImageType *trg, TFloat s)
 {
@@ -678,7 +799,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::vimg_scale(const VectorImageType*src, TFloat s, VectorImageType *trg)
 {
@@ -715,7 +836,7 @@ public:
 };
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::vimg_add_scaled_in_place(VectorImageType *trg, VectorImageType *a, TFloat s)
 {
@@ -756,7 +877,7 @@ public:
 };
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::vimg_euclidean_inner_product(ImagePointer &trg, VectorImageType *a, VectorImageType *b)
 {
@@ -774,7 +895,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::compute_semi_lagrangean_a()
 {
@@ -793,7 +914,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::integrate_phi_t0()
 {
@@ -811,7 +932,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::integrate_phi_t1()
 {
@@ -826,7 +947,7 @@ LDDMMData<TFloat, VDim>
       interp_vimg(f[m+1], a[m], 1.0, f[m]);
       vimg_add_in_place(f[m], a[m]);
       }
-    } 
+    }
 }
 
 template <class TFloat, uint VDim>
@@ -856,7 +977,7 @@ protected:
 };
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::field_jacobian(VectorImageType *vec, MatrixImageType *out)
 {
@@ -890,7 +1011,7 @@ LDDMMData<TFloat, VDim>
     }
 }
 
-/** 
+/**
  * Compute the divergence of a vector field.
  * TODO: this implementation is stupid, splits vector image into components and requires
  * a working image. Write a proper divergence filter!
@@ -948,7 +1069,7 @@ public:
 
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::jacobian_of_composition(
     MatrixImageType *Du, MatrixImageType *Dv, VectorImageType *v, MatrixImageType *out_Dw)
@@ -987,7 +1108,7 @@ public:
     m_LambdaEye *= lambda;
     }
 
-  bool operator != (const MatrixPlusConstDeterminantFunctor<TFloat, VDim> &other) 
+  bool operator != (const MatrixPlusConstDeterminantFunctor<TFloat, VDim> &other)
     { return m_LambdaEye(0,0) != other.m_LambdaEye(0,0); }
 
 protected:
@@ -997,7 +1118,7 @@ protected:
 
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::mimg_det(MatrixImageType *M, double lambda, ImageType *out_det)
 {
@@ -1044,10 +1165,10 @@ protected:
 };
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::mimg_vimg_product_plus_vimg(
-    MatrixImageType *A, VectorImageType *x, VectorImageType *b, 
+    MatrixImageType *A, VectorImageType *x, VectorImageType *b,
     TFloat lambda, TFloat mu, VectorImageType *out)
 {
   typedef MatrixVectorMultiplyAndAddVectorFunctor<TFloat, VDim> Functor;
@@ -1056,7 +1177,7 @@ LDDMMData<TFloat, VDim>
   functor.SetMu(mu);
 
   typedef itk::TernaryFunctorImageFilter<
-    MatrixImageType, VectorImageType, VectorImageType, VectorImageType, 
+    MatrixImageType, VectorImageType, VectorImageType, VectorImageType,
     Functor> FilterType;
 
   typename FilterType::Pointer filter = FilterType::New();
@@ -1071,7 +1192,7 @@ LDDMMData<TFloat, VDim>
 #include "LieBracketFilter.h"
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::lie_bracket(VectorImageType *v, VectorImageType *u, MatrixImageType *work, VectorImageType *out)
 {
@@ -1089,7 +1210,7 @@ LDDMMData<TFloat, VDim>
 
   // Alternative approach
   VectorImagePointer alt = new_vimg(out);
-  
+
   typedef LieBracketFilter<VectorImageType, VectorImageType> LieBracketFilterType;
   typename LieBracketFilterType::Pointer fltLieBracket = LieBracketFilterType::New();
   fltLieBracket->SetFieldU(v);
@@ -1100,7 +1221,7 @@ LDDMMData<TFloat, VDim>
 
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::field_jacobian_det(VectorImageType *vec, ImageType *out)
 {
@@ -1114,7 +1235,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::image_gradient(ImageType *src, VectorImageType *grad, bool use_spacing)
 {
@@ -1148,9 +1269,9 @@ void img_smooth_dim_inplace(TImage *img, unsigned int dim, double sigma)
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::img_smooth(ImageType *src, ImageType *trg, Vec sigma)
+::img_smooth(ImageType *src, ImageType *trg, SmoothingSigmas sigma, SmoothingMode mode)
 {
-  // If the source and target are not the same, copy from source to target
+  // If the source and target are not the same, copy raw data from source to target
   if(src->GetPixelContainer() != trg->GetPixelContainer())
     {
     trg->CopyInformation(src);
@@ -1158,62 +1279,67 @@ LDDMMData<TFloat, VDim>
     img_copy(src, trg);
     }
 
-  // Apply smoothing in each dimension
-  for(unsigned int d = 0; d < VDim; d++)
+  if(mode == ITK_RECURSIVE)
     {
-    std::cout << "Smooth dir " << d << " Sigma " << sigma[d] << " Dim " << trg->GetBufferedRegion().GetSize()[d] << std::endl;
-    if(sigma[d] > 0.0)
-      img_smooth_dim_inplace(trg, d, sigma[d]);
-    }
-}
-
-template <class TFloat, uint VDim>
-void
-LDDMMData<TFloat, VDim>
-::cimg_smooth(CompositeImageType *src, CompositeImageType *trg, Vec sigma)
-{
-  // Handle special case of one component (common, why waste time?)
-  if(src->GetNumberOfComponentsPerPixel() == 1)
-    {
-    ImagePointer src_img = cimg_as_img(src), trg_img = ImageType::New();
-    img_smooth(src_img, trg_img, sigma);
-    trg->SetRegions(trg_img->GetBufferedRegion());
-    trg->CopyInformation(trg_img);
-    trg->SetPixelContainer(trg_img->GetPixelContainer());
-    }
-  else
-    {
-    // If the source and target are not the same, copy from source to target
-    if(src->GetPixelContainer() != trg->GetPixelContainer())
-      {
-      trg->CopyInformation(src);
-      trg->SetRegions(src->GetBufferedRegion());
-      cimg_copy(src, trg);
-      }
+    Vec sigma_phys = sigma.GetSigmaInWorldUnits(src);
 
     // Apply smoothing in each dimension
     for(unsigned int d = 0; d < VDim; d++)
       {
-      if(sigma[d] > 0.0)
-        img_smooth_dim_inplace(trg, d, sigma[d]);
+      if(sigma_phys[d] > 0.0)
+        img_smooth_dim_inplace(trg, d, sigma_phys[d]);
       }
+    }
+  else
+    {
+    // Masquerade as a multi-component image
+    CompositeImagePointer cimg = img_as_cimg(trg);
+    cimg_smooth(cimg, cimg, sigma, mode);
     }
 }
 
-
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::vimg_smooth(VectorImageType *src, VectorImageType *trg, double sigma)
+::cimg_smooth(CompositeImageType *src, CompositeImageType *trg, SmoothingSigmas sigma, SmoothingMode mode)
 {
-  Vec sa; sa.Fill(sigma);
-  vimg_smooth(src, trg, sa);
+  // If the source and target are not the same, copy from source to target
+  if(src->GetPixelContainer() != trg->GetPixelContainer())
+    {
+    trg->CopyInformation(src);
+    trg->SetRegions(src->GetBufferedRegion());
+    cimg_copy(src, trg);
+    }
+
+  if(mode == ITK_RECURSIVE)
+    {
+    // Handle special case of one component (common, why waste time?)
+    if(trg->GetNumberOfComponentsPerPixel() == 1)
+      {
+      ImagePointer img = cimg_as_img(trg);
+      img_smooth(img, img, sigma, mode);
+      }
+    else
+      {
+      // Apply smoothing in each dimension
+      Vec sigma_phys = sigma.GetSigmaInWorldUnits(src);
+      for(unsigned int d = 0; d < VDim; d++)
+        {
+        if(sigma_phys[d] > 0.0)
+          img_smooth_dim_inplace(trg, d, sigma_phys[d]);
+        }
+      }
+    }
+  else
+    {
+    cimg_fast_convolution_smooth_inplace(trg, sigma, mode);
+    }
 }
 
 template <class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
-::vimg_smooth(VectorImageType *src, VectorImageType *trg, Vec sigma)
+::vimg_smooth(VectorImageType *src, VectorImageType *trg, SmoothingSigmas sigma, SmoothingMode mode)
 {
   // If the source and target are not the same, copy from source to target
   if(src->GetPixelContainer() != trg->GetPixelContainer())
@@ -1224,38 +1350,22 @@ LDDMMData<TFloat, VDim>
     }
 
   // Apply smoothing in each dimension
-  for(unsigned int d = 0; d < VDim; d++)
+  if(mode == ITK_RECURSIVE)
     {
-    if(sigma[d] > 0.0)
-      img_smooth_dim_inplace(trg, d, sigma[d]);
-    }
-}
-
-template <class TFloat, uint VDim>
-void
-LDDMMData<TFloat, VDim>
-::vimg_smooth_withborder(VectorImageType *src, VectorImageType *trg, Vec sigma, int border_size)
-{
-
-  // Define a region of interest
-  RegionType region = src->GetBufferedRegion();
-  region.ShrinkByRadius(border_size);
-
-  // Perform smoothing
-  vimg_smooth(src, trg, sigma);
-
-  // Clear the border
-  Vec zerovec; zerovec.Fill(0);
-  typedef itk::ImageRegionIteratorWithIndex<VectorImageType> VIterator;
-  for(VIterator it(trg, trg->GetBufferedRegion()); !it.IsAtEnd(); ++it)
-    {
-    if(!region.IsInside(it.GetIndex()))
+    Vec sigma_phys = sigma.GetSigmaInWorldUnits(src);
+    for(unsigned int d = 0; d < VDim; d++)
       {
-      it.Set(zerovec);
+      if(sigma_phys[d] > 0.0)
+        img_smooth_dim_inplace(trg, d, sigma_phys[d]);
       }
     }
+  else
+    {
+    // Masquerade as a multi-component image
+    CompositeImagePointer cimg = vimg_as_cimg(trg);
+    cimg_smooth(cimg, cimg, sigma, mode);
+    }
 }
-
 
 template <class TFloat, unsigned int VDim>
 struct VectorSquareNormFunctor
@@ -1469,7 +1579,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::img_write(ImageType *src, const char *fn, IOComponentType comp)
 {
@@ -1510,7 +1620,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::vimg_write(VectorImageType *src, const char *fn, IOComponentType comp)
 {
@@ -1523,7 +1633,7 @@ LDDMMData<TFloat, VDim>
 
   // Override the data pointer
   output->GetPixelContainer()->SetImportPointer(
-    (TFloat *) src->GetBufferPointer(), 
+    (TFloat *) src->GetBufferPointer(),
     VDim * src->GetPixelContainer()->Size(), false);
 
   // Write
@@ -1556,7 +1666,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::vfield_read(uint nt, const char *fnpat, VelocityField &v)
 {
@@ -1823,7 +1933,7 @@ LDDMMData<TFloat, VDim>
 
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::img_shrink(ImageType *src, ImageType *trg, int factor)
 {
@@ -1836,7 +1946,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::img_resample_identity(ImageType *src, ImageBaseType *ref, ImageType *trg)
 {
@@ -1963,7 +2073,7 @@ LDDMMData<TFloat, VDim>
 }
 
 template <class TFloat, uint VDim>
-void 
+void
 LDDMMData<TFloat, VDim>
 ::vimg_resample_identity(VectorImageType *src, ImageBaseType *ref, VectorImageType *trg)
 {
@@ -2138,6 +2248,8 @@ LDDMMData<TFloat, VDim>
     }, nullptr);
 }
 
+#include <chrono>
+
 template<class TFloat, uint VDim>
 void LDDMMData<TFloat, VDim>
 ::cimg_add_gaussian_noise_in_place(
@@ -2148,12 +2260,15 @@ void LDDMMData<TFloat, VDim>
   itk::ImageRegion<1> full_region({{0}}, {{npix}});
   itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
 
+  // A number for seeding the individual random generators
+  unsigned long rand_seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
   mt->ParallelizeImageRegion<1>(
         full_region,
-        [img, stride, &sigma](const itk::ImageRegion<1> &thread_region)
+        [img, stride, &sigma, rand_seed](const itk::ImageRegion<1> &thread_region)
     {
     unsigned int nc = img->GetNumberOfComponentsPerPixel();
-    vnl_random randy;
+    vnl_random randy(rand_seed + thread_region.GetIndex()[0]);
 
     TFloat *p = img->GetBufferPointer() + thread_region.GetIndex(0) * nc;
     TFloat *p_end = p + thread_region.GetSize(0) * nc;
@@ -2431,7 +2546,7 @@ LDDMMImageMatchingObjective<TFloat, VDim>
     fft.convolution_fft(p.v[m], p.f_kernel_sq, false, p.a[0]);
 
     // We're sticking the inner product in Jt0
-    LDDMM::vimg_euclidean_inner_product(Jt0, p.a[0], p.v[m]); 
+    LDDMM::vimg_euclidean_inner_product(Jt0, p.a[0], p.v[m]);
     e_field += LDDMM::img_voxel_sum(Jt0) / p.nt;
     }
 
@@ -2450,7 +2565,7 @@ LDDMMImageMatchingObjective<TFloat, VDim>
     // TODO: for ft00 and ft11, don't waste time on interpolation
 
     // Jt1 = lddmm_warp_scalar_field(p.I1, ft1x(:,:,it), ft1y(:,:,it), p);
-    LDDMM::interp_img(p.mov, p.f[m], Jt1); 
+    LDDMM::interp_img(p.mov, p.f[m], Jt1);
 
     // detjac_phi_t1 = lddmm_jacobian_determinant(ft1x(:,:,it), ft1y(:,:,it), p);
     LDDMM::field_jacobian_det(p.f[m], DetPhit1);
@@ -2466,19 +2581,19 @@ LDDMMImageMatchingObjective<TFloat, VDim>
       LDDMM::vimg_subtract_in_place(p.f[m], p.a[m]);
       }
 
-    // Jt0 = lddmm_warp_scalar_field(p.I0, ft0x(:,:,it), ft0y(:,:,it), p); 
-    LDDMM::interp_img(p.fix, p.f[m], Jt0); 
+    // Jt0 = lddmm_warp_scalar_field(p.I0, ft0x(:,:,it), ft0y(:,:,it), p);
+    LDDMM::interp_img(p.fix, p.f[m], Jt0);
 
     // [grad_Jt0_x grad_Jt0_y] = gradient(Jt0);
     LDDMM::image_gradient(Jt0, GradJt0, false);
 
-    // pde_rhs_x = detjac_phi_t1 .* (Jt0 - Jt1) .* grad_Jt0_x; 
-    // pde_rhs_y = detjac_phi_t1 .* (Jt0 - Jt1) .* grad_Jt0_y; 
+    // pde_rhs_x = detjac_phi_t1 .* (Jt0 - Jt1) .* grad_Jt0_x;
+    // pde_rhs_y = detjac_phi_t1 .* (Jt0 - Jt1) .* grad_Jt0_y;
 
     // Here we do some small tricks. We want to retain Jt0 because it's the warped
     // template image, and we want to retain the difference Jt0-Jt1 = (J0-I1) for
-    // calculating the objective at the end. 
-    LDDMM::img_subtract_in_place(Jt1, Jt0);           // 'Jt1' stores Jt1 - Jt0 
+    // calculating the objective at the end.
+    LDDMM::img_subtract_in_place(Jt1, Jt0);           // 'Jt1' stores Jt1 - Jt0
     LDDMM::img_multiply_in_place(DetPhit1, Jt1);      // 'DetPhit1' stores (det Phi_t1)(Jt1-Jt0)
     LDDMM::vimg_multiply_in_place(GradJt0, DetPhit1); // 'GradJt0' stores  GradJt0 * (det Phi_t1)(Jt1-Jt0)
 
@@ -2488,7 +2603,7 @@ LDDMMImageMatchingObjective<TFloat, VDim>
     fft.convolution_fft(GradJt0, p.f_kernel_sq, true, GradJt0); // 'GradJt0' stores K[ GradJt0 * (det Phi_t1)(Jt1-Jt0) ]
 
     // dedvx(:,:,it) = dedvx(:,:,it) - 2 * pde_soln_x / p.sigma^2;
-    // dedvy(:,:,it) = dedvy(:,:,it) - 2 * pde_soln_y / p.sigma^2;        
+    // dedvy(:,:,it) = dedvy(:,:,it) - 2 * pde_soln_y / p.sigma^2;
 
     // Store the update in a[m]
     LDDMM::vimg_scale_in_place(GradJt0, 1.0 / p.sigma_sq); // 'GradJt0' stores 1 / sigma^2 K[ GradJt0 * (det Phi_t1)(Jt1-Jt0) ]
@@ -2546,7 +2661,145 @@ LDDMMData<TFloat, VDim>
   img->SetRegions(src->GetBufferedRegion());
   img->SetPixelContainer(src->GetPixelContainer());
   return img;
+  }
+
+template<class TFloat, uint VDim>
+void LDDMMData<TFloat, VDim>::cimg_fast_convolution_smooth_inplace(CompositeImageType *img, SmoothingSigmas sigma, SmoothingMode mode)
+{
+  itkAssertOrThrowMacro(mode == FAST_ZEROPAD || mode == FAST_REFLECT, "Mode must be FAST_ZEROPAD or FAST_REFLECT");
+
+  // Map the sigmas into voxel units
+  Vec sigma_voxel = sigma.GetSigmaInVoxelUnits(img);
+
+  // Leverage separability of the filter, i.e., repeat for every dimension
+  for(int d = 0; d < VDim; d++)
+    {
+    // Zero sigma means no smoothing
+    if(sigma_voxel[d] == 0.0)
+      continue;
+
+    // Generate the half-kernel for this dimension
+    int m = std::max(2, 1 + (int) std::ceil(sigma_voxel[d] * sigma.cutoff_in_units_of_sigma));
+    TFloat *kernel = new TFloat[m];
+    for(int i = 0; i < m; i++)
+      kernel[i] = std::exp(-0.5 * (i * i) / (sigma_voxel[d] * sigma_voxel[d])) / (2.5066282746 * sigma_voxel[d]);
+
+    // Get the line length
+    int n = img->GetBufferedRegion().GetSize()[d];
+    int k = img->GetNumberOfComponentsPerPixel();
+    int nk = n * k;
+
+    // Generate the sample array - this stores for every target location the list of locations
+    // in the kernel*line matrix that contribute to that location
+    // Sample arrays are generated based on the mode
+    int *sample_k = new int[n];
+    int *sample_offset;
+
+    if(mode == FAST_ZEROPAD)
+      {
+      sample_offset = new int[nk * (2 * m-1) - m * (m - 1)];
+
+      // Compute the sample offsets
+      for(int i = 0, q = 0; i < n; i++)
+        {
+        // How many pixels do I have to the left and right of me
+        int k_left = std::min(i, m-1), k_right = std::min((n-1) - i, m-1);
+        sample_k[i] = 1 + k_left + k_right;
+
+        // Iterate over the components
+        for(int c = 0; c < k; c++)
+          {
+          // Now record the offsets
+          for(int j = -k_left; j <= k_right; j++)
+            {
+            int row = std::abs(j), col = i + j;
+            sample_offset[q++] = row * nk + col * k + c;
+            }
+          }
+        }
+      }
+    else if(mode == FAST_REFLECT)
+      {
+      sample_offset = new int[nk * (2*m-1)];
+
+      // Compute the sample offsets
+      for(int i = 0, q = 0; i < n; i++)
+        {
+        sample_k[i] = 2 * m - 1;
+
+        // Iterate over the components
+        for(int c = 0; c < k; c++)
+          {
+          // Now record the offsets
+          for(int j = -(m-1); j <= (m-1); j++)
+            {
+            int row = std::abs(j);
+            int col = (i + j);
+            if(col < 0 || col >= n)
+              col = i - j;
+            sample_offset[q++] = row * nk + col * k + c;
+            }
+          }
+        }
+      }
+
+    // Parallelize over the image region
+    itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
+    mt->ParallelizeImageRegionRestrictDirection<VDim>(
+          d, img->GetBufferedRegion(),
+          [img, kernel, d, k, m, n, nk, &sample_k, &sample_offset](const itk::ImageRegion<VDim> &thread_region)
+      {
+      // Create a line iterator over the thread region
+      typedef itk::ImageLinearIteratorWithIndex<CompositeImageType> IterBase;
+      typedef IteratorExtenderWithOffset<IterBase> IterType;
+      IterType it(img, thread_region);
+      it.SetDirection(d);
+      int jump = it.GetOffset(d) * k;
+
+      // Allocate a kernel * line matrix
+      TFloat *klm = new TFloat[m * nk];
+
+      // Iterate over the lines in the threaded region
+      for(it.GoToBegin(); !it.IsAtEnd(); it.NextLine())
+        {
+        int i, j, c, q;
+
+        // Get a pointer to the beginning of the line
+        TFloat *p = it.GetPixelPointer(img);
+
+        // Compute the kernel products -- these are all the required multiplications
+        for(i = 0, q = 0; i < m; i++)
+          {
+          const TFloat *pi = p;
+          for(j = 0; j < n; j++, pi+=jump)
+            for(c = 0; c < k; c++)
+              klm[q++] = kernel[i] * pi[c];
+          }
+
+        // Now compute all the sums and send to the output
+        for(j = 0, q = 0; j < n; j++, p+=jump)
+          {
+          for(c = 0; c < k; c++)
+            {
+            p[c] = 0;
+            for(i = 0; i < sample_k[j]; i++)
+              {
+              auto v = klm[sample_offset[q++]];
+              p[c] += v;
+              }
+            }
+          }
+        }
+
+      delete [] klm;
+      }, nullptr);
+
+    delete [] kernel;
+    delete [] sample_k;
+    delete [] sample_offset;
+    }
 }
+
 
 template<class TFloat, uint VDim>
 void
@@ -2635,6 +2888,45 @@ LDDMMData<TFloat, VDim>
     }, nullptr);
 }
 
+template<class TFloat, uint VDim>
+LDDMMData<TFloat, VDim>::SmoothingSigmas::SmoothingSigmas(const Vec &sigma, bool world_units, TFloat cutoff_in_units_of_sigma)
+{
+  this->sigma = sigma;
+  this->world_units = world_units;
+  this->cutoff_in_units_of_sigma = cutoff_in_units_of_sigma;
+}
+
+template<class TFloat, uint VDim>
+LDDMMData<TFloat, VDim>::SmoothingSigmas::SmoothingSigmas(TFloat sigma, bool world_units, TFloat cutoff_in_units_of_sigma)
+{
+  this->sigma.Fill(sigma);
+  this->world_units = world_units;
+  this->cutoff_in_units_of_sigma = cutoff_in_units_of_sigma;
+}
+
+template<class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::Vec
+LDDMMData<TFloat, VDim>::SmoothingSigmas::GetSigmaInWorldUnits(const ImageBaseType *img) const
+{
+  if(this->world_units)
+    return this->sigma;
+  Vec result;
+  for(unsigned int d = 0; d < VDim; d++)
+    result[d] = this->sigma[d] * img->GetSpacing()[d];
+  return result;
+}
+
+template<class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::Vec
+LDDMMData<TFloat, VDim>::SmoothingSigmas::GetSigmaInVoxelUnits(const ImageBaseType *img) const
+{
+  if(!this->world_units)
+    return this->sigma;
+  Vec result;
+  for(unsigned int d = 0; d < VDim; d++)
+    result[d] = this->sigma[d] / img->GetSpacing()[d];
+  return result;
+}
 
 
 template class LDDMMData<float, 2>;
@@ -2653,5 +2945,6 @@ template class LDDMMFFTInterface<double, 4>;
 
 template class LDDMMImageMatchingObjective<myreal, 2>;
 template class LDDMMImageMatchingObjective<myreal, 3>;
+
 
 

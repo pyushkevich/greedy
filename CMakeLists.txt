@@ -63,7 +63,7 @@ FIND_PACKAGE(ITK 5.1.2 REQUIRED)
 INCLUDE(${ITK_USE_FILE})
 
 # VTK - required for quality mesh transformations
-FIND_PACKAGE(VTK 9.1.0 REQUIRED COMPONENTS CommonCore IOCore IOLegacy IOPLY IOGeometry)
+FIND_PACKAGE(VTK 9.1.0 REQUIRED COMPONENTS CommonCore IOCore IOLegacy IOPLY IOGeometry FiltersModeling)
 SET(GREEDY_VTK_LIBRARIES ${VTK_LIBRARIES})
 
 # Deal with FFTW - only used by experimental LDDMM code
@@ -167,6 +167,8 @@ SET(HEADERS
   src/GreedyException.h
   src/GreedyParameters.h
   src/MultiImageRegistrationHelper.h
+  src/TetraMeshConstraints.h
+  src/DifferentiableScalingAndSquaring.h
   src/CommandLineHelper.h
 )
 
@@ -179,6 +181,8 @@ SET(GREEDY_LIB_SRC
   src/GreedyParameters.cxx
   src/MultiImageRegistrationHelper.cxx
   src/AffineCostFunctions.cxx
+  src/TetraMeshConstraints.cxx
+  src/DifferentiableScalingAndSquaring.cxx
 )
 
 SET(LDDMM_SRC src/lddmm_main.cxx)

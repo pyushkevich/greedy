@@ -639,7 +639,8 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
                               FloatImageType *out_metric_image,
                               MultiComponentMetricReport &out_metric_report,
                               VectorImageType *out_gradient,
-                              double result_scaling)
+                              double result_scaling,
+                              bool minimization_mode)
 {
   typedef DefaultMultiComponentImageMetricTraits<TFloat, VDim> TraitsType;
   typedef MultiComponentWeightedNCCImageMetric<TraitsType> FilterType;
@@ -672,6 +673,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
   filter->SetFixedMaskImage(grp.m_FixedPyramid.mask_pyramid[level]);
   filter->SetMovingMaskImage(grp.m_MovingPyramid.mask_pyramid[level]);
   filter->SetWeights(this->GetWeights(group, result_scaling));
+  filter->SetGradientDescentMinimizationMode(minimization_mode);
 
   // Inputs and outputs
   filter->SetDeformationField(def);

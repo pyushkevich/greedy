@@ -112,6 +112,7 @@ struct ResliceMeshSpec
 {
   std::string fixed;
   std::string output;
+  bool jacobian_mode = false;
 };
 
 struct TransformSpec
@@ -279,11 +280,23 @@ struct GreedyInputGroup
   std::vector<TransformSpec> moving_pre_transforms;
 };
 
+/**
+ * Parameters involving tetrahedral jacobian regularization
+ */
+struct GreedyTJRSpec
+{
+  // Tetrahedral mesh
+  std::string tetra_mesh;
+
+  // Weight of the regularization term
+  double weight = 0.0;
+};
+
 struct GreedyParameters
 {
   enum MetricType { SSD = 0, NCC, WNCC, MI, NMI, MAHALANOBIS };
   enum TimeStepMode { CONSTANT=0, SCALE, SCALEDOWN };
-  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, JACOBIAN_WARP, MOMENTS, METRIC };
+  enum Mode { GREEDY=0, AFFINE, BRUTE, RESLICE, INVERT_WARP, ROOT_WARP, JACOBIAN_WARP, MOMENTS, METRIC, DEFORMABLE_OPTIMIZATION };
   enum AffineDOF { DOF_RIGID=6, DOF_SIMILARITY=7, DOF_AFFINE=12 };
   enum Verbosity { VERB_NONE=0, VERB_DEFAULT, VERB_VERBOSE, VERB_INVALID };
 
@@ -316,6 +329,12 @@ struct GreedyParameters
 
   // Root warp parameters
   GreedyWarpRootParameters warproot_param;
+
+  // Tetrahedral mesh jacobian regularization parameters
+  GreedyTJRSpec tjr_param;
+
+  // Weight of the smoothness term in defopt
+  double defopt_svf_smoothness_weight = 0.0;
 
   // Registration mode
   Mode mode = GREEDY;

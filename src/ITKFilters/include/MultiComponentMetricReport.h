@@ -2,6 +2,7 @@
 #define MultiComponentMetricReport_H
 
 #include <vnl/vnl_vector.h>
+#include <map>
 
 /**
  * A structure used to communicate metric information. Meant to be an atomic structure
@@ -30,6 +31,12 @@ struct MultiComponentMetricReport
     ComponentPerPixelMetrics *= scale_factor;
   }
 
+  void Shift(double per_component_amount)
+  {
+    TotalPerPixelMetric += per_component_amount * ComponentPerPixelMetrics.size();
+    ComponentPerPixelMetrics += per_component_amount;
+  }
+
   void Append(MultiComponentMetricReport &other)
   {
     // Add the scalars
@@ -43,6 +50,20 @@ struct MultiComponentMetricReport
     merged.update(other.ComponentPerPixelMetrics, ComponentPerPixelMetrics.size());
     ComponentPerPixelMetrics = merged;
   }
+};
+
+/**
+ * A structure to store regularization information
+ */
+struct GreedyRegularizationReport
+{
+  // A pair of weight and value for a regularization term
+  typedef std::pair<double, double> WeightValuePair;
+
+  // A dictionary of strings mapped to WeightValuePair
+  typedef std::map<std::string, WeightValuePair> TermsMap;
+
+  TermsMap terms;
 };
 
 

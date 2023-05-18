@@ -12,6 +12,10 @@
 #include <vtkBYUReader.h>
 #include <vtkBYUWriter.h>
 #include <vtkOBJReader.h>
+#include <vtkTetra.h>
+#include <vtkTriangle.h>
+#include <vtkDoubleArray.h>
+#include <vtkCellData.h>
 
 namespace greedy_mesh_io {
 
@@ -106,4 +110,66 @@ vtkSmartPointer<vtkPointSet> ReadMesh(const char *fname)
 void WriteMesh(vtkPointSet *mesh, const char *fname)
 {
   greedy_mesh_io::WriteMeshByExtension<vtkPointSet>(mesh, fname);
+}
+
+double GetCellVolumeOrArea(vtkPointSet *mesh, vtkCell *cell)
+{
+  if(cell->GetCellType() == VTK_TETRA)
+    {
+    double p[4][3];
+    mesh->GetPoint(cell->GetPointId(0), p[0]);
+    mesh->GetPoint(cell->GetPointId(1), p[1]);
+    mesh->GetPoint(cell->GetPointId(2), p[2]);
+    mesh->GetPoint(cell->GetPointId(3), p[3]);
+    return vtkTetra::ComputeVolume(p[0], p[1], p[2], p[3]);
+    }
+  else if(cell->GetCellType() == VTK_TRIANGLE)
+    {
+    return dynamic_cast<vtkTriangle *>(cell)->ComputeArea();
+    }
+  else
+    return 0.0;
+}
+
+void WriteJacobianMesh(vtkPointSet *fixed_mesh, vtkPointSet *moving_mesh, const char *fname)
+{
+  // Create a point array to store the Jacobian
+  vtkSmartPointer<vtkPointSet> jac_mesh = DeepCopyMesh(fixed_mesh);
+
+  vtkSmartPointer<vtkDoubleArray> jac_array = vtkNew<vtkDoubleArray>();
+  jac_array->SetNumberOfComponents(1);
+  jac_array->SetNumberOfTuples(fixed_mesh->GetNumberOfCells());
+  jac_array->SetName("jacobian");
+
+  for(vtkIdType i = 0; i < fixed_mesh->GetNumberOfCells(); i++)
+    {
+    vtkCell *c_fixed = fixed_mesh->GetCell(i);
+    double v_fixed = GetCellVolumeOrArea(fixed_mesh, c_fixed);
+    double v_moved = GetCellVolumeOrArea(moving_mesh, c_fixed);
+    double jacobian = v_moved / v_fixed;
+    jac_array->SetTuple1(i, jacobian);
+    }
+
+  jac_mesh->GetCellData()->AddArray(jac_array);
+  WriteMesh(jac_mesh, fname);
+}
+
+vtkSmartPointer<vtkPointSet> DeepCopyMesh(vtkPointSet *mesh)
+{
+  vtkPolyData *pd = dynamic_cast<vtkPolyData *>(mesh);
+  if(pd)
+    {
+    vtkSmartPointer<vtkPolyData> pd_copy = vtkNew<vtkPolyData>();
+    pd_copy->DeepCopy(pd);
+    return pd_copy;
+    }
+  vtkUnstructuredGrid *usg = dynamic_cast<vtkUnstructuredGrid *>(mesh);
+  if(usg)
+    {
+    vtkSmartPointer<vtkUnstructuredGrid> usg_copy = vtkNew<vtkUnstructuredGrid>();
+    usg_copy->DeepCopy(usg);
+    return usg_copy;
+    }
+
+  return nullptr;
 }

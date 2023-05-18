@@ -76,6 +76,7 @@ int usage()
   printf("  -root inwarp outwarp N : Convert 2^N-th root of a warp \n");
   printf("  -jac inwarp outjac     : Compute the Jacobian determinant of the warp \n");
   printf("  -metric                : Compute metric between images\n");
+  printf("  -defopt                : Deformable optimization mode (experimental)\n");
   printf("Options in deformable / affine mode: \n");
   printf("  -w weight              : weight of the next -i pair\n");
   printf("  -m metric              : metric for the entire registration\n");
@@ -137,6 +138,10 @@ int usage()
   printf("  -sv-incompr            : Incompressibility mode, implements Mansi et al. 2011 iLogDemons\n");
   printf("  -id image.nii          : Specifies the initial warp to start iteration from. In stationary mode, this \n");
   printf("                           is the initial stationary velocity field (output by -oroot option)\n");
+  printf("  -tjr mesh.vtk WGT      : Apply a regularization penalty based on the variation of the Jacobian of a tetrahedral\n");
+  printf("                           mesh defined in reference image space. WGT is the weight of the penalty term.\n");
+  printf("Specific to (experimental) deformable optimization mode: \n");
+  printf("  -wr VALUE              : Weight of SVF smoothness regularization term (default: 1000)\n");
   printf("Initial transform specification (for affine mode): \n");
   printf("  -ia filename           : initial affine matrix for optimization (not the same as -it) \n");
   printf("  -ia-identity           : initialize affine matrix based on NIFTI headers (default) \n");
@@ -157,12 +162,13 @@ int usage()
   printf("Specific to reslice mode (-r): \n");
   printf("  -rf fixed.nii          : fixed image for reslicing\n");
   printf("  -rm mov.nii out.nii    : moving/output image pair (may be repeated)\n");
-  printf("  -rs mov.vtk out.vtk    : moving/output surface pair (vertices are warped from fixed space to moving)\n");
+  printf("  -rs mesh.vtk out.vtk   : fixed/output surface pair (vertices are warped from fixed space to moving)\n");
   printf("  -ri interp_mode        : interpolation for the next pair (NN, LINEAR*, LABEL sigma)\n");
   printf("  -rb value              : background (i.e. outside) intensity for the next pair (default 0)\n");
   printf("  -rt format             : data type for the next pair (auto|double|float|uint|int|ushort|short|uchar|char)\n");
   printf("  -rc outwarp            : write composed transforms to outwarp \n");
   printf("  -rj outjacobian        : write Jacobian determinant image to outjacobian \n");
+  printf("  -rsj mesh.vtk out.vtk  : Compute Jacobian determinant for a simplex mesh in fixed space \n");
   printf("  -rk mask.nii           : a binary mask for the fixed image; zero values will be overwritten with background\n");
   printf("Specific to metric computation mode (-metric): \n");
   printf("  -og out.nii            : write the gradient of the metric to file\n");
