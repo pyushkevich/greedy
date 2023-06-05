@@ -1,6 +1,7 @@
 #ifndef PROPAGATIONDATA_H
 #define PROPAGATIONDATA_H
 
+#include <map>
 #include <itkImage.h>
 #include <itkImageRegionIterator.h>
 #include <vtkSmartPointer.h>
@@ -60,8 +61,39 @@ public:
 	typename TVectorImage3D::Pointer deform_from_prev;
 	typename TVectorImage3D::Pointer deform_from_ref;
   TPropagationMeshPointer seg_mesh; // mesh warped from reference tp
+
 	std::vector<TimePointTransformSpec<TReal>> transform_specs;
 	std::vector<TimePointTransformSpec<TReal>> full_res_label_trans_specs;
+
+  void AddExtraMesh(std::string tag, TPropagationMeshPointer mesh)
+  {
+    m_ExtraMeshes.insert({tag, mesh});
+  }
+
+  TPropagationMeshPointer GetExtraMesh(std::string &tag)
+  {
+    TPropagationMeshPointer ret = nullptr;
+    if (m_ExtraMeshes.count(tag))
+      ret = m_ExtraMeshes[tag];
+
+    return ret;
+  }
+
+  std::vector<std::string> GetExtraMeshTags()
+  {
+    std::vector<std::string> ret;
+
+    for (auto kv : m_ExtraMeshes)
+      ret.push_back(kv.first);
+
+    return ret;
+  }
+
+  size_t GetExtraMeshSize() { return m_ExtraMeshes.size(); }
+
+protected:
+  // warped extra meshes, indexed by tags
+  std::map<std::string, TPropagationMeshPointer> m_ExtraMeshes;
 };
 
 template<typename TReal>
@@ -81,6 +113,9 @@ public:
   typename TLabelImage4D::Pointer seg4d_out;
   std::string outdir;
 	typename TImage3D::Pointer full_res_ref_space;
+
+  // extra meshes for warping, indexed by tags
+  std::map<std::string, TPropagationMeshPointer> extra_mesh_cache;
 };
 
 } // end of namespace propagation

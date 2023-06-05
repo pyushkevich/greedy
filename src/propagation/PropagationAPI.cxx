@@ -250,6 +250,13 @@ PropagationAPI<TReal>
 
   // Warp ref segmentation mesh to target
   RunPropagationMeshReslice(m_PParam.refTP, target_tp);
+
+  // Copy extra meshes to reference time point data
+  auto &ref_data = m_Data->tp_data[m_PParam.refTP];
+  for (auto kv : m_Data->extra_mesh_cache)
+    {
+    ref_data.AddExtraMesh(kv.first, kv.second);
+    }
 }
 
 template <typename TReal>
@@ -544,7 +551,8 @@ PropagationAPI<TReal>
   TimePointData<TReal> &tpdata_out = m_Data->tp_data[tp_out];
 
 	// API and parameter configuration
-	GreedyApproach<3u, TReal> *GreedyAPI = new GreedyApproach<3u, TReal>();
+  using GreedyAPIType = GreedyApproach<3u, TReal>;
+  std::shared_ptr<GreedyAPIType> GreedyAPI = std::make_shared<GreedyAPIType>();
 	GreedyParameters param;
 	param.mode = GreedyParameters::RESLICE;
   param.CopyGeneralSettings(m_GParam);
@@ -639,7 +647,8 @@ PropagationAPI<TReal>
   TimePointData<TReal> &tpdata_out = m_Data->tp_data[tp_out];
 
   // API and parameter configuration
-  GreedyApproach<3u, TReal> *GreedyAPI = new GreedyApproach<3u, TReal>();
+  using GreedyAPIType = GreedyApproach<3u, TReal>;
+  std::shared_ptr<GreedyAPIType> GreedyAPI = std::make_shared<GreedyAPIType>();
   GreedyParameters param;
   param.mode = GreedyParameters::RESLICE;
   param.CopyGeneralSettings(m_GParam);
@@ -663,18 +672,40 @@ PropagationAPI<TReal>
   // Make a reslice spec with input-output pair and push to the parameter
   ResliceMeshSpec rmspec(mesh_in_name, mesh_out_name);
   param.reslice_param.meshes.push_back(rmspec);
-  tpdata_out.seg_mesh = vtkPolyData::New();
+  tpdata_out.seg_mesh = TPropagationMesh::New();
   GreedyAPI->AddCachedOutputObject(mesh_out_name, tpdata_out.seg_mesh, m_PParam.writeOutputToDisk);
 
   // Add extra meshes to warp
   for (auto &mesh_spec : m_PParam.extra_mesh_list)
     {
     ResliceMeshSpec rms;
-    rms.fixed = mesh_spec.fn_mesh;
-    std::string fn_mesh_ref = GenerateUnaryTPFileName(mesh_spec.fnout_pattern.c_str(), m_PParam.refTP,
-                                                      m_PParam.outdir.c_str(), ".vtk");
-    itksys::SystemTools::CopyAFile(mesh_spec.fn_mesh, fn_mesh_ref);
-    rms.output = GenerateUnaryTPFileName(mesh_spec.fnout_pattern.c_str(), tp_out, m_PParam.outdir.c_str(), ".vtk");
+
+    if (mesh_spec.cached)
+      {
+      auto tag = mesh_spec.fnout_pattern;
+      rms.fixed = tag;
+
+      // add input to cache
+      auto mesh_in = m_Data->extra_mesh_cache[tag];
+      GreedyAPI->AddCachedInputObject(tag, mesh_in);
+
+      // configure output
+      tpdata_out.AddExtraMesh(tag, TPropagationMesh::New());
+      std::string out_name = GenerateBinaryTPObjectName(tag.c_str(), tp_in, tp_out,
+                                                        nullptr, nullptr, nullptr);
+      GreedyAPI->AddCachedOutputObject(out_name, tpdata_out.GetExtraMesh(tag), false);
+      rms.output = out_name;
+      }
+    else
+      {
+      auto pattern = mesh_spec.fnout_pattern;
+      rms.fixed = mesh_spec.fn_mesh;
+      std::string fn_mesh_ref = GenerateUnaryTPFileName(pattern.c_str(), m_PParam.refTP,
+                                                        m_PParam.outdir.c_str(), ".vtk");
+      itksys::SystemTools::CopyAFile(mesh_spec.fn_mesh, fn_mesh_ref);
+      rms.output = GenerateUnaryTPFileName(pattern.c_str(), tp_out, m_PParam.outdir.c_str(), ".vtk");
+      }
+
     param.reslice_param.meshes.push_back(rms);
     }
 
@@ -865,7 +896,7 @@ PropagationStdOut
     char buffer[4096];
     va_list args;
     va_start (args, format);
-    vsprintf (buffer,format, args);
+    vsnprintf (buffer, 4096, format,  args);
     va_end (args);
 
     fprintf(m_Output, "%s", buffer);

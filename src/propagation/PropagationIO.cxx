@@ -142,6 +142,21 @@ PropagationOutput<TReal>
 }
 
 template<typename TReal>
+typename PropagationOutput<TReal>
+::TSegmentation3DSeries
+PropagationOutput<TReal>
+::GetSegmentation3DSeries()
+{
+  TSegmentation3DSeries ret;
+  for (auto kv : m_Data->tp_data)
+    {
+    ret[kv.first] = kv.second.seg;
+    }
+
+  return ret;
+}
+
+template<typename TReal>
 typename PropagationOutput<TReal>::TLabelImage4D::Pointer
 PropagationOutput<TReal>
 ::GetSegmentation4D()
@@ -149,6 +164,53 @@ PropagationOutput<TReal>
   return m_Data->seg4d_out;
 }
 
+template<typename TReal>
+typename PropagationOutput<TReal>
+::TMeshSeries
+PropagationOutput<TReal>
+::GetMeshSeries()
+{
+  TMeshSeries ret;
+  for (auto &kv : m_Data->tp_data)
+    {
+    ret[kv.first] = kv.second.seg_mesh;
+    }
+
+  return ret;
+}
+
+template<typename TReal>
+typename PropagationOutput<TReal>
+::TMeshSeries
+PropagationOutput<TReal>
+::GetExtraMeshSeries(std::string &tag)
+{
+  TMeshSeries ret;
+  for (auto &kv : m_Data->tp_data)
+    {
+    ret[kv.first] = kv.second.GetExtraMesh(tag);
+    }
+
+  return ret;
+}
+
+template<typename TReal>
+typename PropagationOutput<TReal>
+::TMeshSeriesMap
+PropagationOutput<TReal>
+::GetAllExtraMeshSeries()
+{
+  TMeshSeriesMap ret;
+  auto firstTP = m_Data->tp_data.begin()->second;
+
+  // populate return map
+  for (auto tag : firstTP.GetExtraMeshTags())
+    {
+    ret[tag] = this->GetExtraMeshSeries(tag);
+    }
+
+  return ret;
+}
 
 //==================================================
 // PropagationInputBuilder Definitions
@@ -366,6 +428,38 @@ PropagationInputBuilder<TReal>
 ::GetAffineDOF() const
 {
   return m_GParam.affine_dof;
+}
+
+template<typename TReal>
+void
+PropagationInputBuilder<TReal>
+::AddExtraMeshToWarp(std::string &fnmesh, std::string &outpattern)
+{
+  MeshSpec meshspec;
+  meshspec.fn_mesh = fnmesh;
+  meshspec.fnout_pattern = outpattern;
+  m_PParam.extra_mesh_list.push_back(meshspec);
+}
+
+template<typename TReal>
+void
+PropagationInputBuilder<TReal>
+::AddExtraMeshToWarp(TPropagationMeshPointer mesh, std::string &tag)
+{
+  MeshSpec meshspec;
+  meshspec.fn_mesh = tag; // useless
+  meshspec.fnout_pattern = tag;
+  meshspec.cached = true;
+  m_PParam.extra_mesh_list.push_back(meshspec);
+  m_Data->extra_mesh_cache[tag] = mesh;
+}
+
+template<typename TReal>
+std::vector<MeshSpec>
+PropagationInputBuilder<TReal>
+::GetExtraMeshesToWarp() const
+{
+  return m_PParam.extra_mesh_list;
 }
 
 template<typename TReal>

@@ -35,8 +35,8 @@ int usage()
   printf("                          For example: \"Seg_%%02d_resliced.nii.gz\" will generate \"Seg_05_resliced.nii.gz\" \n");
   printf("                          for timepoint 5. \n");
   printf("                          Filename pattern without %%format will have time point appended\n");
-  printf("  -sps-mop pattern      : Segmentation Mesh output filename pattern. \n");
-  printf("  -spm mesh.vtk pattern : Segmentation mesh for the reference time point of the 4D base image \n");
+  printf("  -sps-mop pattern      : Set the filename pattern for the mesh generated from the provided reference segmentation image. \n");
+  printf("  -spm mesh.vtk pattern : Add an extra segmentation mesh for the referenfe tp. Repeat to add multiple meshes. \n");
   printf("  -spr timepoint        : The reference time point of the given segmentation image \n");
   printf("  -spt <target tp str>  : A comma separated string of target time points for the propagation \n");
   printf("  -sp-debug <outdir>    : Enable debugging mode for propagation: Dump intermediary files to outdir \n");
@@ -86,6 +86,7 @@ void parse_command_line(int argc, char *argv[],
     else if (arg == "-spm")
       {
       MeshSpec meshspec;
+      meshspec.cached = false; // mesh is from a file
       meshspec.fn_mesh = cl.read_existing_filename();
       meshspec.fnout_pattern = cl.read_string();
       pParam.extra_mesh_list.push_back(meshspec);

@@ -76,8 +76,23 @@ public:
   bool IsInitialized() const
   { return m_Data != nullptr; }
 
+  typedef std::map<unsigned int, TPropagationMeshPointer> TMeshSeries;
+  typedef std::map<std::string, TMeshSeries> TMeshSeriesMap;
+  typedef std::map<unsigned int, typename TLabelImage3D::Pointer> TSegmentation3DSeries;
+
   typename TLabelImage4D::Pointer GetSegmentation4D();
   typename TLabelImage3D::Pointer GetSegmentation3D(unsigned int tp);
+  TSegmentation3DSeries GetSegmentation3DSeries();
+
+  /** Get the Mesh Series generated from the segmentation image */
+  TMeshSeries GetMeshSeries();
+
+  /** Get the warped extra Mesh Series by its tag */
+  TMeshSeries GetExtraMeshSeries(std::string &tag);
+
+  /** Get all the warped extra Mesh Series */
+  TMeshSeriesMap GetAllExtraMeshSeries();
+
   size_t GetNumberOfTimePoints();
   std::vector<unsigned int> GetTimePointList();
 
@@ -128,6 +143,11 @@ public:
   void SetResliceMetricToNearestNeighbor();
   void SetResliceMetricToLabel(double sigma, bool is_physical_unit);
   InterpSpec GetResliceMetric() const;
+
+  /** Add Extra Mesh to Warp */
+  void AddExtraMeshToWarp(std::string &fnmesh, std::string &outpattern);
+  void AddExtraMeshToWarp(TPropagationMeshPointer mesh, std::string &tag);
+  std::vector<MeshSpec> GetExtraMeshesToWarp() const;
 
   /** Set Propagation Verbosity */
   void SetPropagationVerbosity(PropagationParameters::Verbosity v);
