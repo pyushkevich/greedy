@@ -69,6 +69,37 @@ struct FastWarpCompositeImageFilterInputImageTraits< itk::VectorImage<TPixel, VD
   }
 };
 
+template <class TAtomic, class TReal>
+struct LinearInterpolateImpl
+{
+  static void lerp(TReal a, const TAtomic &l, const TAtomic &h, TAtomic &result)
+  {
+    result = l+((h-l)*a);
+  }
+};
+
+template <class TReal>
+struct LinearInterpolateImpl<itk::CovariantVector<TReal, 2>, TReal>
+{
+  typedef itk::CovariantVector<TReal, 2> Vec;
+  static void lerp(TReal a, const Vec &l, const Vec &h, Vec &result)
+  {
+    result[0] = l[0] + ((h[0] - l[0]) * a);
+    result[1] = l[1] + ((h[1] - l[1]) * a);
+  }
+};
+
+template <class TReal>
+struct LinearInterpolateImpl<itk::CovariantVector<TReal, 3>, TReal>
+{
+  typedef itk::CovariantVector<TReal, 3> Vec;
+  static void lerp(TReal a, const Vec &l, const Vec &h, Vec &result)
+  {
+    result[0] = l[0] + ((h[0] - l[0]) * a);
+    result[1] = l[1] + ((h[1] - l[1]) * a);
+    result[2] = l[2] + ((h[2] - l[2]) * a);
+  }
+};
 
 /**
  * Base class for the fast linear interpolators
@@ -85,6 +116,7 @@ public:
   typedef typename ImageType::InternalPixelType                   InputComponentType;
   typedef FastLinearInterpolatorOutputTraits<TFloat, InputComponentType>  OutputTraits;
   typedef typename OutputTraits::OutputComponentType              OutputComponentType;
+  typedef typename itk::ImageRegion<VDim>                         RegionType;
 
   /** Determine the image dimension. */
   itkStaticConstMacro(ImageDimension, unsigned int, ImageType::ImageDimension );
@@ -97,10 +129,11 @@ public:
    */
   int GetPointerIncrement() const { return nComp; }
 
-  FastLinearInterpolatorBase(ImageType *image, MaskImageType *mask = NULL)
+  FastLinearInterpolatorBase(ImageType *image, const RegionType &region, MaskImageType *mask = NULL)
   {
-    buffer = image->GetBufferPointer();
     nComp = FastWarpCompositeImageFilterInputImageTraits<TImage>::GetPointerIncrementSize(image);
+    auto region_offset = nComp * image->ComputeOffset(region.GetIndex());
+    buffer = image->GetBufferPointer() + region_offset;
     def_value_store = new InputComponentType[nComp];
     for(int i = 0; i < nComp; i++)
       def_value_store[i] = itk::NumericTraits<InputComponentType>::ZeroValue();
@@ -133,13 +166,6 @@ protected:
   InputComponentType *def_value_store;
 
   InOut status;
-
-
-  template <class TInput>
-  inline OutputComponentType lerp(RealType a, const TInput &l, const TInput &h)
-  {
-    return l+((h-l)*a);
-  }
 };
 
 
@@ -158,30 +184,42 @@ public:
   typedef typename Superclass::OutputComponentType     OutputComponentType;
   typedef typename Superclass::RealType                RealType;
   typedef typename Superclass::InOut                   InOut;
+  typedef typename Superclass::RegionType              RegionType;
 
-  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : Superclass(image, mask) {}
+  FastLinearInterpolator(ImageType *image, MaskImageType *mask = nullptr)
+    : FastLinearInterpolator(image, image->GetLargestPossibleRegion(), mask) {}
 
-  InOut InterpolateWithGradient(RealType *cix, OutputComponentType *out, OutputComponentType **grad)
+  FastLinearInterpolator(ImageType *image, const RegionType &region, MaskImageType *mask = nullptr)
+    : Superclass(image, region, mask) {}
+
+  InOut InterpolateWithGradient(RealType *itkNotUsed(cix), OutputComponentType *itkNotUsed(out), OutputComponentType **itkNotUsed(grad))
     { return Superclass::INSIDE; }
 
-  InOut Interpolate(RealType *cix, OutputComponentType *out)
+  InOut Interpolate(RealType *itkNotUsed(cix), OutputComponentType *itkNotUsed(out))
     { return Superclass::INSIDE; }
 
-  InOut InterpolateNearestNeighbor(RealType *cix, OutputComponentType *out)
+  InOut InterpolateNearestNeighbor(RealType *itkNotUsed(cix), OutputComponentType *itkNotUsed(out))
     { return Superclass::INSIDE; }
 
   TFloat GetMask() { return 0.0; }
 
-  TFloat GetMaskAndGradient(RealType *mask_gradient) { return 0.0; }
+  TFloat GetMaskAndGradient(RealType *itkNotUsed(mask_gradient)) { return 0.0; }
 
-  void Splat(RealType *cix, const InputComponentType *value) {}
+  InOut Splat(RealType *itkNotUsed(cix), const InputComponentType *itkNotUsed(value))
+    { return Superclass::INSIDE; }
+
+  void GetIndexAndRemainer(int *itkNotUsed(index), RealType *itkNotUsed(remainder)) { }
 
   template <class THistContainer>
-  void PartialVolumeHistogramSample(RealType *cix, const InputComponentType *fixptr, THistContainer &hist) {}
+  void PartialVolumeHistogramSample(RealType *itkNotUsed(cix),
+                                    const InputComponentType *itkNotUsed(fixptr),
+                                    THistContainer &itkNotUsed(hist)) {}
 
   template <class THistContainer>
-  void PartialVolumeHistogramGradientSample(RealType *cix, const InputComponentType *fix_ptr, const THistContainer &hist_w, RealType *out_grad) {}
-
+  void PartialVolumeHistogramGradientSample(RealType *itkNotUsed(cix),
+                                            const InputComponentType *itkNotUsed(fix_ptr),
+                                            const THistContainer &itkNotUsed(hist_w),
+                                            RealType *itkNotUsed(out_grad)) {}
 
 protected:
 };
@@ -202,31 +240,52 @@ public:
   typedef typename Superclass::RealType                                    RealType;
   typedef typename Superclass::InOut                                       InOut;
   typedef typename Superclass::MaskPixelType                               MaskPixelType;
+  typedef typename Superclass::RegionType                                  RegionType;
+  typedef LinearInterpolateImpl<OutputComponentType, RealType>             LERP;
+  typedef LinearInterpolateImpl<RealType, RealType>                        MLERP;
 
-  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : Superclass(image, mask)
+
+  FastLinearInterpolator(ImageType *image, const RegionType &region, MaskImageType *mask = nullptr) : Superclass(image, region, mask)
   {
-    xind = image->GetLargestPossibleRegion().GetIndex()[0];
-    yind = image->GetLargestPossibleRegion().GetIndex()[1];
-    zind = image->GetLargestPossibleRegion().GetIndex()[2];
+    xind = region.GetIndex()[0];
+    yind = region.GetIndex()[1];
+    zind = region.GetIndex()[2];
 
-    xsize = image->GetLargestPossibleRegion().GetSize()[0];
-    ysize = image->GetLargestPossibleRegion().GetSize()[1];
-    zsize = image->GetLargestPossibleRegion().GetSize()[2];
+    xsize = region.GetSize()[0];
+    ysize = region.GetSize()[1];
+    zsize = region.GetSize()[2];
+
+    off_x = this->nComp;
+    off_y = xsize * off_x;
+    off_z = ysize * off_y;
+    off_mz = ysize * xsize;
   }
+
+  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : FastLinearInterpolator(image, image->GetLargestPossibleRegion(), mask) {}
 
   /**
    * Compute the pointers to the eight corners of the interpolating cube
    */
   InOut ComputeCorners(RealType *cix)
   {
-    const InputComponentType *dp;
+    // Split index into floor and remainder
+    RealType fl_cx = floor(cix[0]);
+    RealType fl_cy = floor(cix[1]);
+    RealType fl_cz = floor(cix[2]);
+    fx = cix[0] - fl_cx;
+    fy = cix[1] - fl_cy;
+    fz = cix[2] - fl_cz;
+    x0 = ((int) fl_cx) - xind;
+    y0 = ((int) fl_cy) - yind;
+    z0 = ((int) fl_cz) - zind;
 
     // Adjust for non-zero index
+    /*
     RealType px = cix[0] - xind, py = cix[1] - yind, pz = cix[2] - zind;
 
     x0 = (int) floor(px); fx = px - x0;
     y0 = (int) floor(py); fy = py - y0;
-    z0 = (int) floor(pz); fz = pz - z0;
+    z0 = (int) floor(pz); fz = pz - z0; */
 
     x1 = x0 + 1;
     y1 = y0 + 1;
@@ -237,30 +296,27 @@ public:
         z0 >= 0 && z1 < zsize)
       {
       // The sample point is completely inside
-      dp = dens(x0, y0, z0);
-      d000 = dp;
-      d100 = dp+this->nComp;
-      dp += xsize*this->nComp;
-      d010 = dp;
-      d110 = dp+this->nComp;
-      dp += xsize*ysize*this->nComp;
-      d011 = dp;
-      d111 = dp+this->nComp;
-      dp -= xsize*this->nComp;
-      d001 = dp;
-      d101 = dp+this->nComp;
+      d000 = dens(x0, y0, z0);
+      d100 = d000 + off_x;
+      d010 = d000 + off_y;
+      d110 = d010 + off_x;
+      d001 = d000 + off_z;
+      d101 = d001 + off_x;
+      d011 = d010 + off_z;
+      d111 = d011 + off_x;
 
       // Is there a mask? If so, sample the mask
       if(this->mask_buffer)
         {
         // Sample the mask
         const MaskPixelType *mp = mens(x0, y0, z0);
+
         m000 = *mp;
         m100 = *(mp+1);
         mp += xsize;
         m010 = *mp;
         m110 = *(mp+1);
-        mp += xsize*ysize;
+        mp += off_mz;
         m011 = *mp;
         m111 = *(mp+1);
         mp -= xsize;
@@ -319,15 +375,21 @@ public:
     return this->status;
   }
 
+  void GetIndexAndRemainer(int *index, RealType *remainder)
+  {
+    index[0] = this->x0; index[1] = this->y0; index[2] = this->z0;
+    remainder[0] = this->fx; remainder[1] = this->fy; remainder[2] = this->fz;
+  }
+
   /**
    * Interpolate at position cix, placing the intensity values in out and gradient
    * values in grad (in strides of VDim)
    */
   InOut InterpolateWithGradient(RealType *cix, OutputComponentType *out, OutputComponentType **grad)
   {
-    RealType dx00, dx01, dx10, dx11, dxy0, dxy1;
-    RealType dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
-    RealType dxy0_y, dxy1_y;
+    OutputComponentType dx00, dx01, dx10, dx11, dxy0, dxy1;
+    OutputComponentType dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
+    OutputComponentType dxy0_y, dxy1_y;
 
     // Compute the corners
     this->ComputeCorners(cix);
@@ -340,27 +402,27 @@ public:
           d100++, d101++, d110++, d111++)
         {
         // Interpolate the image intensity
-        dx00 = Superclass::lerp(fx, *d000, *d100);
-        dx01 = Superclass::lerp(fx, *d001, *d101);
-        dx10 = Superclass::lerp(fx, *d010, *d110);
-        dx11 = Superclass::lerp(fx, *d011, *d111);
-        dxy0 = Superclass::lerp(fy, dx00, dx10);
-        dxy1 = Superclass::lerp(fy, dx01, dx11);
-        *(out++) = Superclass::lerp(fz, dxy0, dxy1);
+        LERP::lerp(fx, *d000, *d100, dx00);
+        LERP::lerp(fx, *d001, *d101, dx01);
+        LERP::lerp(fx, *d010, *d110, dx10);
+        LERP::lerp(fx, *d011, *d111, dx11);
+        LERP::lerp(fy, dx00, dx10, dxy0);
+        LERP::lerp(fy, dx01, dx11, dxy1);
+        LERP::lerp(fz, dxy0, dxy1, *(out++));
 
         // Interpolate the gradient in x
         dx00_x = *d100 - *d000;
         dx01_x = *d101 - *d001;
         dx10_x = *d110 - *d010;
         dx11_x = *d111 - *d011;
-        dxy0_x = this->lerp(fy, dx00_x, dx10_x);
-        dxy1_x = this->lerp(fy, dx01_x, dx11_x);
-        (*grad)[0] = this->lerp(fz, dxy0_x, dxy1_x);
+        LERP::lerp(fy, dx00_x, dx10_x, dxy0_x);
+        LERP::lerp(fy, dx01_x, dx11_x, dxy1_x);
+        LERP::lerp(fz, dxy0_x, dxy1_x, (*grad)[0]);
 
         // Interpolate the gradient in y
         dxy0_y = dx10 - dx00;
         dxy1_y = dx11 - dx01;
-        (*grad)[1] = this->lerp(fz, dxy0_y, dxy1_y);
+        LERP::lerp(fz, dxy0_y, dxy1_y, (*grad)[1]);
 
         // Interpolate the gradient in z
         (*grad)[2] = dxy1 - dxy0;
@@ -385,13 +447,13 @@ public:
           d100++, d101++, d110++, d111++)
         {
         // Interpolate the image intensity
-        dx00 = Superclass::lerp(fx, *d000, *d100);
-        dx01 = Superclass::lerp(fx, *d001, *d101);
-        dx10 = Superclass::lerp(fx, *d010, *d110);
-        dx11 = Superclass::lerp(fx, *d011, *d111);
-        dxy0 = Superclass::lerp(fy, dx00, dx10);
-        dxy1 = Superclass::lerp(fy, dx01, dx11);
-        *(out++) = Superclass::lerp(fz, dxy0, dxy1);
+        LERP::lerp(fx, *d000, *d100, dx00);
+        LERP::lerp(fx, *d001, *d101, dx01);
+        LERP::lerp(fx, *d010, *d110, dx10);
+        LERP::lerp(fx, *d011, *d111, dx11);
+        LERP::lerp(fy, dx00, dx10, dxy0);
+        LERP::lerp(fy, dx01, dx11, dxy1);
+        LERP::lerp(fz, dxy0, dxy1, *(out++));
         }
       }
 
@@ -420,13 +482,13 @@ public:
     else return Superclass::OUTSIDE;
   }
 
-  void Splat(RealType *cix, const InputComponentType *value)
+  InOut Splat(RealType *cix, const InputComponentType *value)
   {
     // Compute the corners
     this->ComputeCorners(cix);
 
     // When inside, no checks are required
-    if(this->status == Superclass::INSIDE)
+    if(this->status != Superclass::OUTSIDE)
       {
       // Compute the corner weights using 4 multiplications (not 16)
       RealType fxy = fx * fy, fyz = fy * fz, fxz = fx * fz, fxyz = fxy * fz;
@@ -441,22 +503,47 @@ public:
       RealType w000 = 1.0 - fx - fy + fxy - w001;
 
       // Loop over the components
-      for(int iComp = 0; iComp < this->nComp; iComp++,
-          d000++, d001++, d010++, d011++,
-          d100++, d101++, d110++, d111++, value++)
+      if(this->status == Superclass::INSIDE)
         {
-        // Assign the appropriate weight to each part of the histogram
-        InputComponentType val = *value;
-        *const_cast<InputComponentType *>(d000) += w000 * val;
-        *const_cast<InputComponentType *>(d001) += w001 * val;
-        *const_cast<InputComponentType *>(d010) += w010 * val;
-        *const_cast<InputComponentType *>(d011) += w011 * val;
-        *const_cast<InputComponentType *>(d100) += w100 * val;
-        *const_cast<InputComponentType *>(d101) += w101 * val;
-        *const_cast<InputComponentType *>(d110) += w110 * val;
-        *const_cast<InputComponentType *>(d111) += w111 * val;
+        for(int iComp = 0; iComp < this->nComp; iComp++,
+            d000++, d001++, d010++, d011++,
+            d100++, d101++, d110++, d111++, value++)
+          {
+          // Assign the appropriate weight to each part of the histogram
+          InputComponentType val = *value;
+          *const_cast<InputComponentType *>(d000) += w000 * val;
+          *const_cast<InputComponentType *>(d001) += w001 * val;
+          *const_cast<InputComponentType *>(d010) += w010 * val;
+          *const_cast<InputComponentType *>(d011) += w011 * val;
+          *const_cast<InputComponentType *>(d100) += w100 * val;
+          *const_cast<InputComponentType *>(d101) += w101 * val;
+          *const_cast<InputComponentType *>(d110) += w110 * val;
+          *const_cast<InputComponentType *>(d111) += w111 * val;
+          }
+        }
+      else
+        {
+        // Border case - special checks
+        auto *dv = this->def_value;
+        for(int iComp = 0; iComp < this->nComp; iComp++,
+            d000++, d001++, d010++, d011++,
+            d100++, d101++, d110++, d111++, value++, dv++)
+          {
+          // Assign the appropriate weight to each part of the histogram
+          InputComponentType val = *value;
+          if(d000 != dv) *const_cast<InputComponentType *>(d000) += w000 * val;
+          if(d001 != dv) *const_cast<InputComponentType *>(d001) += w001 * val;
+          if(d010 != dv) *const_cast<InputComponentType *>(d010) += w010 * val;
+          if(d011 != dv) *const_cast<InputComponentType *>(d011) += w011 * val;
+          if(d100 != dv) *const_cast<InputComponentType *>(d100) += w100 * val;
+          if(d101 != dv) *const_cast<InputComponentType *>(d101) += w101 * val;
+          if(d110 != dv) *const_cast<InputComponentType *>(d110) += w110 * val;
+          if(d111 != dv) *const_cast<InputComponentType *>(d111) += w111 * val;
+          }
         }
       }
+
+    return this->status;
   }
 
   template <class THistContainer>
@@ -569,27 +656,28 @@ public:
   RealType GetMask()
   {
     // Interpolate the mask
-    RealType dx00, dx01, dx10, dx11, dxy0, dxy1;
-    dx00 = this->lerp(fx, m000, m100);
-    dx01 = this->lerp(fx, m001, m101);
-    dx10 = this->lerp(fx, m010, m110);
-    dx11 = this->lerp(fx, m011, m111);
-    dxy0 = this->lerp(fy, dx00, dx10);
-    dxy1 = this->lerp(fy, dx01, dx11);
-    return this->lerp(fz, dxy0, dxy1);
+    RealType dx00, dx01, dx10, dx11, dxy0, dxy1, mask;
+    MLERP::lerp(fx, m000, m100, dx00);
+    MLERP::lerp(fx, m001, m101, dx01);
+    MLERP::lerp(fx, m010, m110, dx10);
+    MLERP::lerp(fx, m011, m111, dx11);
+    MLERP::lerp(fy, dx00, dx10, dxy0);
+    MLERP::lerp(fy, dx01, dx11, dxy1);
+    MLERP::lerp(fz, dxy0, dxy1, mask);
+    return mask;
   }
 
   RealType GetMaskAndGradient(RealType *mask_gradient)
   {
     // Interpolate the mask
-    RealType dx00, dx01, dx10, dx11, dxy0, dxy1;
-    dx00 = this->lerp(fx, m000, m100);
-    dx01 = this->lerp(fx, m001, m101);
-    dx10 = this->lerp(fx, m010, m110);
-    dx11 = this->lerp(fx, m011, m111);
-    dxy0 = this->lerp(fy, dx00, dx10);
-    dxy1 = this->lerp(fy, dx01, dx11);
-    RealType mask = this->lerp(fz, dxy0, dxy1);
+    RealType dx00, dx01, dx10, dx11, dxy0, dxy1, mask;
+    MLERP::lerp(fx, m000, m100, dx00);
+    MLERP::lerp(fx, m001, m101, dx01);
+    MLERP::lerp(fx, m010, m110, dx10);
+    MLERP::lerp(fx, m011, m111, dx11);
+    MLERP::lerp(fy, dx00, dx10, dxy0);
+    MLERP::lerp(fy, dx01, dx11, dxy1);
+    MLERP::lerp(fz, dxy0, dxy1, mask);
 
     // Compute the gradient of the mask
     RealType dx00_x, dx01_x, dx10_x, dx11_x, dxy0_x, dxy1_x;
@@ -597,14 +685,14 @@ public:
     dx01_x = m101 - m001;
     dx10_x = m110 - m010;
     dx11_x = m111 - m011;
-    dxy0_x = this->lerp(fy, dx00_x, dx10_x);
-    dxy1_x = this->lerp(fy, dx01_x, dx11_x);
-    mask_gradient[0] = this->lerp(fz, dxy0_x, dxy1_x);
+    MLERP::lerp(fy, dx00_x, dx10_x, dxy0_x);
+    MLERP::lerp(fy, dx01_x, dx11_x, dxy1_x);
+    MLERP::lerp(fz, dxy0_x, dxy1_x, mask_gradient[0]);
 
     RealType dxy0_y, dxy1_y;
     dxy0_y = dx10 - dx00;
-    dxy1_y = dx11 - dx01;
-    mask_gradient[1] = this->lerp(fz, dxy0_y, dxy1_y);
+    dxy1_y = dx11 - dx01;    
+    MLERP::lerp(fz, dxy0_y, dxy1_y, mask_gradient[1]);
 
     mask_gradient[2] = dxy1 - dxy0;
 
@@ -640,6 +728,10 @@ protected:
   // Image size
   int xsize, ysize, zsize;
 
+  // Offsets
+  int off_x, off_y, off_z;
+  int off_mx, off_my, off_mz;
+
   // Image index
   int xind, yind, zind;
 
@@ -662,37 +754,44 @@ class FastLinearInterpolator<TImage, TFloat, 2, TMaskImage>
     : public FastLinearInterpolatorBase<TImage, TFloat, 2, TMaskImage>
 {
 public:
-  typedef TImage                                                            ImageType;
-  typedef TMaskImage                                                        MaskImageType;
-  typedef FastLinearInterpolatorBase<ImageType, TFloat, 2, MaskImageType>   Superclass;
-  typedef typename Superclass::InputComponentType                           InputComponentType;
-  typedef typename Superclass::OutputComponentType                          OutputComponentType;
-  typedef typename Superclass::RealType                                     RealType;
-  typedef typename Superclass::InOut                                        InOut;
-  typedef typename Superclass::MaskPixelType                                MaskPixelType;
+  typedef TImage                                                           ImageType;
+  typedef TMaskImage                                                       MaskImageType;
+  typedef FastLinearInterpolatorBase<ImageType, TFloat, 2, MaskImageType>  Superclass;
+  typedef typename Superclass::InputComponentType                          InputComponentType;
+  typedef typename Superclass::OutputComponentType                         OutputComponentType;
+  typedef typename Superclass::RealType                                    RealType;
+  typedef typename Superclass::InOut                                       InOut;
+  typedef typename Superclass::MaskPixelType                               MaskPixelType;
+  typedef typename Superclass::RegionType                                  RegionType;
+  typedef LinearInterpolateImpl<OutputComponentType, RealType>             LERP;
+  typedef LinearInterpolateImpl<RealType, RealType>                        MLERP;
 
-  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : Superclass(image, mask)
+
+  FastLinearInterpolator(ImageType *image, const RegionType &region, MaskImageType *mask = nullptr) : Superclass(image, region, mask)
   {
-    xind = image->GetLargestPossibleRegion().GetIndex()[0];
-    yind = image->GetLargestPossibleRegion().GetIndex()[1];
+    xind = region.GetIndex()[0];
+    yind = region.GetIndex()[1];
 
-    xsize = image->GetLargestPossibleRegion().GetSize()[0];
-    ysize = image->GetLargestPossibleRegion().GetSize()[1];
+    xsize = region.GetSize()[0];
+    ysize = region.GetSize()[1];
+
+    off_x = this->nComp;
+    off_y = xsize * off_x;
   }
+
+  FastLinearInterpolator(ImageType *image, MaskImageType *mask = NULL) : FastLinearInterpolator(image, image->GetLargestPossibleRegion(), mask) {}
 
   /**
    * Compute the pointers to the eight corners of the interpolating cube
    */
   InOut ComputeCorners(RealType *cix)
   {
-    const InputComponentType *dp;
-
-    // Adjust for non-zero index
-    RealType px = cix[0] - xind, py = cix[1] - yind;
-
-    x0 = (int) floor(px); fx = px - x0;
-    y0 = (int) floor(py); fy = py - y0;
-
+    RealType fl_cx = floor(cix[0]);
+    RealType fl_cy = floor(cix[1]);
+    fx = cix[0] - fl_cx;
+    fy = cix[1] - fl_cy;
+    x0 = ((int) fl_cx) - xind;
+    y0 = ((int) fl_cy) - yind;
     x1 = x0 + 1;
     y1 = y0 + 1;
 
@@ -700,12 +799,10 @@ public:
         y0 >= 0 && y1 < ysize)
       {
       // The sample point is completely inside
-      dp = dens(x0, y0);
-      d00 = dp;
-      d10 = dp+this->nComp;
-      dp += xsize*this->nComp;
-      d01 = dp;
-      d11 = dp+this->nComp;
+      d00 = dens(x0, y0);
+      d10 = d00 + off_x;
+      d01 = d00 + off_y;
+      d11 = d01 + off_x;
 
       // Is there a mask? If so, sample the mask
       if(this->mask_buffer)
@@ -763,13 +860,19 @@ public:
     return this->status;
   }
 
+  void GetIndexAndRemainer(int *index, RealType *remainder)
+  {
+    index[0] = this->x0; index[1] = this->y0;
+    remainder[0] = this->fx; remainder[1] = this->fy;
+  }
+
   /**
    * Interpolate at position cix, placing the intensity values in out and gradient
    * values in grad (in strides of VDim)
    */
   InOut InterpolateWithGradient(RealType *cix, OutputComponentType *out, OutputComponentType **grad)
   {
-    RealType dx0, dx1;
+    OutputComponentType dx0, dx1;
 
     // Compute the corners
     this->ComputeCorners(cix);
@@ -781,12 +884,12 @@ public:
           d00++, d01++, d10++, d11++)
         {
         // Interpolate the image intensity
-        dx0 = Superclass::lerp(fx, *d00, *d10);
-        dx1 = Superclass::lerp(fx, *d01, *d11);
-        *(out++) = Superclass::lerp(fy, dx0, dx1);
+        LERP::lerp(fx, *d00, *d10, dx0);
+        LERP::lerp(fx, *d01, *d11, dx1);
+        LERP::lerp(fy, dx0, dx1, *(out++));
 
         // Interpolate the gradient in x
-        (*grad)[0] = this->lerp(fy, *d10 - *d00, *d11 - *d01);
+        LERP::lerp(fy, *d10 - *d00, *d11 - *d01, (*grad)[0]);
 
         // Interpolate the gradient in y
         (*grad)[1] = dx1 - dx0;
@@ -810,9 +913,9 @@ public:
           d00++, d01++, d10++, d11++)
         {
         // Interpolate the image intensity
-        dx0 = Superclass::lerp(fx, *d00, *d10);
-        dx1 = Superclass::lerp(fx, *d01, *d11);
-        *(out++) = Superclass::lerp(fy, dx0, dx1);
+        LERP::lerp(fx, *d00, *d10, dx0);
+        LERP::lerp(fx, *d01, *d11, dx1);
+        LERP::lerp(fy, dx0, dx1, *(out++));
         }
       }
 
@@ -837,13 +940,13 @@ public:
     else return Superclass::OUTSIDE;
   }
 
-  void Splat(RealType *cix, const InputComponentType *value)
+  InOut Splat(RealType *cix, const InputComponentType *value)
   {
     // Compute the corners
     this->ComputeCorners(cix);
 
     // When inside, no checks are required
-    if(this->status == Superclass::INSIDE)
+    if(this->status != Superclass::OUTSIDE)
       {
       // Compute the corner weights using 4 multiplications (not 16)
       RealType fxy = fx * fy;
@@ -854,18 +957,38 @@ public:
       RealType w00 = 1.0 - fx - fy + fxy;
 
       // Loop over the components
-      for(int iComp = 0; iComp < this->nComp; iComp++,
-          d00++, d01++, d10++, d11++, value++)
+      if(this->status == Superclass::INSIDE)
         {
-        // Assign the appropriate weight to each part of the histogram
-        InputComponentType val = *value;
+        for(int iComp = 0; iComp < this->nComp; iComp++,
+            d00++, d01++, d10++, d11++, value++)
+          {
+          // Assign the appropriate weight to each part of the histogram
+          InputComponentType val = *value;
 
-        *const_cast<InputComponentType *>(d00) += w00 * val;
-        *const_cast<InputComponentType *>(d01) += w01 * val;
-        *const_cast<InputComponentType *>(d10) += w10 * val;
-        *const_cast<InputComponentType *>(d11) += w11 * val;
+          *const_cast<InputComponentType *>(d00) += w00 * val;
+          *const_cast<InputComponentType *>(d01) += w01 * val;
+          *const_cast<InputComponentType *>(d10) += w10 * val;
+          *const_cast<InputComponentType *>(d11) += w11 * val;
+          }
+        }
+      else
+        {
+        auto *dv = this->def_value;
+        for(int iComp = 0; iComp < this->nComp; iComp++,
+            d00++, d01++, d10++, d11++, value++, ++dv)
+          {
+          // Assign the appropriate weight to each part of the histogram
+          InputComponentType val = *value;
+
+          if(d00 != dv) *const_cast<InputComponentType *>(d00) += w00 * val;
+          if(d01 != dv) *const_cast<InputComponentType *>(d01) += w01 * val;
+          if(d10 != dv) *const_cast<InputComponentType *>(d10) += w10 * val;
+          if(d11 != dv) *const_cast<InputComponentType *>(d11) += w11 * val;
+          }
         }
       }
+
+    return this->status;
   }
 
   template <class THistContainer>
@@ -953,22 +1076,23 @@ public:
   RealType GetMask()
   {
     // Interpolate the mask
-    RealType dx0, dx1;
-    dx0 = this->lerp(fx, m00, m10);
-    dx1 = this->lerp(fx, m01, m11);
-    return this->lerp(fy, dx0, dx1);
+    RealType dx0, dx1, mask;
+    MLERP::lerp(fx, m00, m10, dx0);
+    MLERP::lerp(fx, m01, m11, dx1);
+    MLERP::lerp(fy, dx0, dx1, mask);
+    return mask;
   }
 
   RealType GetMaskAndGradient(RealType *mask_gradient)
   {
     // Interpolate the mask
-    RealType dx0, dx1;
-    dx0 = this->lerp(fx, m00, m10);
-    dx1 = this->lerp(fx, m01, m11);
-    RealType mask = this->lerp(fy, dx0, dx1);
+    RealType dx0, dx1, mask;
+    MLERP::lerp(fx, m00, m10, dx0);
+    MLERP::lerp(fx, m01, m11, dx1);
+    MLERP::lerp(fy, dx0, dx1, mask);
 
     // Compute the gradient of the mask
-    mask_gradient[0] = this->lerp(fy, m10 - m00, m11 - m01);
+    MLERP::lerp(fy, m10 - m00, m11 - m01, mask_gradient[0]);
     mask_gradient[1] = dx1 - dx0;
 
     return mask;
@@ -1002,6 +1126,7 @@ protected:
 
   // Image size
   int xsize, ysize, xind, yind;
+  int off_x, off_y;
 
   // State of current interpolation
   const InputComponentType *d00, *d01, *d10, *d11;

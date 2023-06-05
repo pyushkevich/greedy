@@ -174,7 +174,8 @@ public:
       VectorImageType *def, const SizeType &radius, bool weighted,
       FloatImageType *out_metric_image,
       MultiComponentMetricReport &out_metric_report,
-      VectorImageType *out_gradient = NULL, double result_scaling = 1.0);
+      VectorImageType *out_gradient = NULL,
+      double result_scaling = 1.0, bool minimization_mode = false);
 
   /** Compute the Mahalanobis metric with gradient */
   void ComputeMahalanobisMetricImage(

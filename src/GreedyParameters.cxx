@@ -254,6 +254,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->mode = GreedyParameters::AFFINE;
     }
+  else if(cmd == "-defopt")
+    {
+    this->mode = GreedyParameters::DEFORMABLE_OPTIMIZATION;
+    }
   else if(cmd == "-moments")
     {
     this->mode = GreedyParameters::MOMENTS;
@@ -311,6 +315,15 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     ResliceMeshSpec rp;
     rp.fixed = cl.read_existing_filename();
     rp.output = cl.read_output_filename();
+    rp.jacobian_mode = false;
+    this->reslice_param.meshes.push_back(rp);
+    }
+  else if(cmd == "-rsj")
+    {
+    ResliceMeshSpec rp;
+    rp.fixed = cl.read_existing_filename();
+    rp.output = cl.read_output_filename();
+    rp.jacobian_mode = true;
     this->reslice_param.meshes.push_back(rp);
     }
   else if(cmd == "-rf")
@@ -444,6 +457,15 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->lbfgs_param.memory = cl.read_integer();
     }
+  else if(cmd == "-tjr")
+    {
+    this->tjr_param.tetra_mesh = cl.read_existing_filename();
+    this->tjr_param.weight = cl.read_double();
+    }
+  else if(cmd == "-wr")
+    {
+    this->defopt_svf_smoothness_weight = cl.read_double();
+    }
   else
     {
     return false;
@@ -574,6 +596,9 @@ std::string GreedyParameters::GenerateCommandLine()
       break;
     case GreedyParameters::METRIC:
       oss << " -metric";
+      break;
+    case GreedyParameters::DEFORMABLE_OPTIMIZATION:
+      oss << " -defopt";
       break;
     }
 
@@ -823,7 +848,10 @@ std::string GreedyParameters::GenerateCommandLine()
 
     for(const ResliceMeshSpec &rm : this->reslice_param.meshes)
       {
-      oss << " -rs " << rm.fixed << " " << rm.output;
+      if(rm.jacobian_mode)
+        oss << " -rsj " << rm.fixed << " " << rm.output;
+      else
+        oss << " -rs " << rm.fixed << " " << rm.output;
       }
 
     if(this->reslice_param.transforms.size())
@@ -891,6 +919,9 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->lbfgs_param.memory != def.lbfgs_param.memory)
     oss << "-lbfgs-memory " << this->lbfgs_param.memory;
+
+  if(this->defopt_svf_smoothness_weight > 0.0)
+    oss << "-wr " << this->defopt_svf_smoothness_weight;
 
   return oss.str();
 }

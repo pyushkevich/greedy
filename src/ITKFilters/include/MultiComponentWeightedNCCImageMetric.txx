@@ -402,6 +402,11 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
   // Set up an iterator for the working image (which contains accumulation results)
   InputIteratorType it(m_WorkingImage, outputRegionForThread);
 
+  // What weights are applied to the components when computing the gradient
+  auto comp_weights = this->m_Weights;
+  if(this->m_GradientDescentMinimizationMode)
+    comp_weights *= - 1.0 / this->m_AccumulatedData.mask;
+
   // Loop over the lines
   for (; !it.IsAtEnd(); it.NextLine())
     {
@@ -472,7 +477,7 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
                 + z6;
 
             // Deal with component weights
-            double w_comp = this->m_Weights[k];
+            double w_comp = comp_weights[k];
 
             // Compute multipliers for the spatial gradients of WM and W
             double mult_grad_wm = w_comp * d_metric_d_x_mov_w;
@@ -520,7 +525,7 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
             // of moving intensity with respect to phi
             double d_metric_d_x_mov = 2 * (z1 * x_fix - z2 * x_mov + z3);
 
-            double w_comp = this->m_Weights[k];
+            double w_comp = comp_weights[k];
             d_metric_d_x_mov *= w_comp; // * n;
 
             double *p_affine_grad = this->m_ComputeAffine ? td.gradient.data_block() : nullptr;
@@ -697,7 +702,15 @@ MultiComponentWeightedNCCImageMetric<TMetricTraits>
     #endif
     }
 
+  // In gradient descent mode, the metric is 1 - AveragePerPixelNCC
+  if(this->m_GradientDescentMinimizationMode)
+    {
+    this->m_AccumulatedData.comp_metric = this->m_AccumulatedData.mask - this->m_AccumulatedData.comp_metric;
+    this->m_AccumulatedData.metric = this->m_AccumulatedData.mask - this->m_AccumulatedData.metric;
+    }
+
   Superclass::AfterThreadedGenerateData();
+
 }
 
 

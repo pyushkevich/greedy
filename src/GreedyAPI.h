@@ -72,6 +72,7 @@ public:
   typedef vnl_matrix_fixed<TReal, VDim, VDim> MatFx;
 
   typedef std::vector< std::vector<MultiComponentMetricReport> > MetricLogType;
+  typedef std::vector< std::vector<GreedyRegularizationReport> > RegularizationLogType;
 
   typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
 
@@ -93,6 +94,8 @@ public:
   int Run(GreedyParameters &param);
 
   int RunDeformable(GreedyParameters &param);
+
+  int RunDeformableOptimization(GreedyParameters &param);
 
   int RunAffine(GreedyParameters &param);
 
@@ -194,7 +197,9 @@ public:
   void RecordMetricValue(const MultiComponentMetricReport &metric);
 
   // Helper method to print iteration reports
-  std::string PrintIter(int level, int iter, const MultiComponentMetricReport &metric) const;
+  std::string PrintIter(int level, int iter,
+                        const MultiComponentMetricReport &metric,
+                        const GreedyRegularizationReport &reg) const;
 
   /**
    * Read images specified in parameters into a helper data structure and initialize
@@ -206,11 +211,18 @@ public:
   /**
    * Compute one of the metrics (specified in the parameters). This code is called by
    * RunDeformable and is provided as a separate public method for testing purposes
+   *
+   * The minimization mode makes sure that that regardless of the metric, the objective
+   * value returned should be minimized (i.e., NCC is mapped to 1-NCC, MI to 2 - MI, etc)
+   * and that the metric gradient is scaled appropriately as well, so that for any variation
+   * v, the dot product <grad, v> is equal to the directional derivative of TotalPerPixelMetric
+   * with respect to v. The value eps is ignored in minimization mode.
    */
   void EvaluateMetricForDeformableRegistration(
       GreedyParameters &param, OFHelperType &of_helper, unsigned int level,
       VectorImageType *phi, MultiComponentMetricReport &metric_report,
-      ImageType *out_metric_image, VectorImageType *out_metric_gradient, double eps);
+      ImageType *out_metric_image, VectorImageType *out_metric_gradient,
+      double eps, bool minimization_mode = false);
 
   /**
    * Load initial transform (affine or deformable) into a deformation field
@@ -254,6 +266,7 @@ public:
                           VectorImagePointer &out_warp,
                           MeshArray *meshes = nullptr);
 
+
 protected:
 
   struct CacheEntry {
@@ -275,6 +288,9 @@ protected:
   // A log of metric values used during registration - so metric can be looked up
   // in the callbacks to RunAffine, etc.
   MetricLogType m_MetricLog;
+
+  // Also a log of regularization values
+  RegularizationLogType m_RegularizationLog;
 
   // This function reads the image from disk, or from a memory location mapped to a
   // string. The first approach is used by the command-line interface, and the second
@@ -322,6 +338,8 @@ protected:
   // friend class PureAffineCostFunction<VDim, TReal>;
 
 };
+
+
 
 
 #endif // GREEDYAPI_H

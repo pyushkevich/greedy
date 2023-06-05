@@ -48,6 +48,7 @@
 #include "FastWarpCompositeImageFilter.h"
 #include "MultiComponentImageMetricBase.h"
 #include "WarpFunctors.h"
+#include "TetraMeshConstraints.h"
 
 #include <vtkPolyData.h>
 #include <vtkUnstructuredGrid.h>
@@ -62,6 +63,8 @@
 #include <vnl/algo/vnl_lbfgs.h>
 #include <vnl/algo/vnl_conjugate_gradient.h>
 
+#include "DifferentiableScalingAndSquaring.h"
+
 
 // A helper class for printing results. Wraps around printf but
 // takes into account the user's verbose settings
@@ -72,7 +75,7 @@ public:
   : m_Verbosity(verbosity), m_Output(f_out ? f_out : stdout)
   {
   }
-  
+
   void printf(const char *format, ...)
   {
     if(m_Verbosity > GreedyParameters::VERB_NONE)
@@ -82,24 +85,24 @@ public:
       va_start (args, format);
       vsnprintf (buffer, 4096, format, args);
       va_end (args);
-      
+
       fprintf(m_Output, "%s", buffer);
       }
   }
-  
+
   void flush()
   {
     fflush(m_Output);
   }
-  
+
 private:
   GreedyParameters::Verbosity m_Verbosity;
   FILE *m_Output;
-  
+
 };
 
 
-// Helper function to get the RAS coordinate of the center of 
+// Helper function to get the RAS coordinate of the center of
 // an image
 template <unsigned int VDim>
 vnl_vector<double>
@@ -1313,7 +1316,7 @@ int GreedyApproach<VDim, TReal>
 
   // Create an optical flow helper object
   OFHelperType of_helper;
-  
+
   // Object for text output
   GreedyStdOut gout(param.verbosity);
 
@@ -1391,7 +1394,7 @@ int GreedyApproach<VDim, TReal>
         {
         // Set up the optimizer
         vnl_lbfgs *optimizer = new vnl_lbfgs(*acf);
-        
+
         // Using defaults from scipy
         double ftol = (param.lbfgs_param.ftol == 0.0) ? 2.220446049250313e-9 : param.lbfgs_param.ftol;
         double gtol = (param.lbfgs_param.gtol == 0.0) ? 1e-05 : param.lbfgs_param.gtol;
@@ -1489,9 +1492,6 @@ int GreedyApproach<VDim, TReal>
 }
 
 
-
-
-
 #include "itkStatisticsImageFilter.h"
 
 /** My own time probe because itk's use of fork is messing up my debugging */
@@ -1546,7 +1546,7 @@ double GreedyTimeProbe::GetTotal() const
 template <unsigned int VDim, typename TReal>
 std::string
 GreedyApproach<VDim, TReal>
-::PrintIter(int level, int iter, const MultiComponentMetricReport &metric) const
+::PrintIter(int level, int iter, const MultiComponentMetricReport &metric, const GreedyRegularizationReport &reg) const
 {
   // Start with a buffer
   char b_level[64], b_iter[64], b_metrics[512], b_line[1024];
@@ -1561,16 +1561,26 @@ GreedyApproach<VDim, TReal>
   else
     snprintf(b_iter, 64, "Iter %05d", iter);
 
-  if(metric.ComponentPerPixelMetrics.size() > 1)
+  // Accumulate the metrics
+  int pos = 0;
+  double total = metric.TotalPerPixelMetric;
+  if(metric.ComponentPerPixelMetrics.size() + reg.terms.size() > 1)
     {
-    int pos = snprintf(b_metrics, 512, "Metrics");
+    pos = snprintf(b_metrics, 512, "Metrics");
     for (unsigned i = 0; i < metric.ComponentPerPixelMetrics.size(); i++)
       pos += snprintf(b_metrics + pos, 512 - pos, "  %8.6f", metric.ComponentPerPixelMetrics[i]);
     }
   else
     snprintf(b_metrics, 512, "");
 
-  snprintf(b_line, 1024, "%s  %s  %s  Energy = %8.6f", b_level, b_iter, b_metrics, metric.TotalPerPixelMetric);
+  // Accumulate the regularization terms
+  for(const auto &it : reg.terms)
+    {
+    pos += sprintf(b_metrics + pos, "  %s  %8.6f", it.first.c_str(), it.second.second);
+    total += it.second.first * it.second.second;
+    }
+
+  snprintf(b_line, 1024, "%s  %s  %s  Energy = %8.6f", b_level, b_iter, b_metrics, total);
   std::string result = b_line;
 
   return b_line;
@@ -1585,7 +1595,7 @@ void GreedyApproach<VDim, TReal>
     MultiComponentMetricReport &metric_report,
     ImageType *out_metric_image,
     VectorImageType *out_metric_gradient,
-    double eps)
+    double eps, bool minimization_mode)
 {
   // Initialize the metric and gradient to zeros
   out_metric_image->FillBuffer(0.0);
@@ -1608,7 +1618,16 @@ void GreedyApproach<VDim, TReal>
                                             param.background,
                                             out_metric_image,
                                             group_report, out_metric_gradient, eps);
-      group_report.Scale(1.0 / eps);
+
+      // TODO: work this into the main filter
+      if(minimization_mode)
+        {
+        LDDMMType::vimg_scale_in_place(out_metric_gradient, -2.0 / group_report.MaskVolume);
+        }
+      else
+        {
+        group_report.Scale(1.0 / eps);
+        }
       }
 
     else if(param.metric == GreedyParameters::MI || param.metric == GreedyParameters::NMI)
@@ -1628,7 +1647,7 @@ void GreedyApproach<VDim, TReal>
 
       // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
       of_helper.ComputeNCCMetricAndGradient(g, level, phi, radius, false,
-                                            out_metric_image, group_report, out_metric_gradient, eps);
+                                            out_metric_image, group_report, out_metric_gradient, eps, minimization_mode);
       group_report.Scale(1.0 / eps);
       }
 
@@ -1639,7 +1658,7 @@ void GreedyApproach<VDim, TReal>
       // Compute the metric - no need to multiply by the mask, this happens already in the NCC metric code
       // TODO: configure weighting
       of_helper.ComputeNCCMetricAndGradient(g, level, phi, radius, true,
-                                            out_metric_image, group_report, out_metric_gradient, eps);
+                                            out_metric_image, group_report, out_metric_gradient, eps, minimization_mode);
       group_report.Scale(1.0 / eps);
       }
 
@@ -1713,7 +1732,7 @@ int GreedyApproach<VDim, TReal>
 {
   // Create an optical flow helper object
   OFHelperType of_helper;
-  
+
   // Object for text output
   GreedyStdOut gout(param.verbosity);
 
@@ -1728,6 +1747,28 @@ int GreedyApproach<VDim, TReal>
   // In deformable mode, we force resampling of moving image to fixed image space
   ReadImages(param, of_helper, true);
 
+  // Whether the metric is computed in minimization mode
+  bool minimization_mode = false;
+
+  // Read the tetrahedral regularization mesh, if specified
+  typedef TetraMeshConstraints<TReal, VDim> TetraMeshConstraintsType;
+  TetraMeshConstraintsType *tmc = nullptr;
+  if(param.tjr_param.weight > 0.0)
+    {
+    // Read the mesh
+    vtkSmartPointer<vtkPointSet> point_set = ReadMesh(param.tjr_param.tetra_mesh.c_str());
+    vtkSmartPointer<vtkUnstructuredGrid> tetra = dynamic_cast<vtkUnstructuredGrid *>(point_set.GetPointer());
+    if(!tetra)
+      throw GreedyException("Mesh %s is not an UnstructuredGrid!", param.tjr_param.tetra_mesh.c_str());
+
+    // Initialize the regularization term
+    tmc = new TetraMeshConstraintsType();
+    tmc->SetMesh(tetra);
+
+    // We need to use minimization mode, otherwise the gradients can't be added correctly
+    minimization_mode = true;
+    }
+
   // An image pointer desribing the current estimate of the deformation
   VectorImagePointer uLevel = nullptr;
 
@@ -1736,15 +1777,21 @@ int GreedyApproach<VDim, TReal>
 
   // Clear the metric log
   m_MetricLog.clear();
+  m_RegularizationLog.clear();
 
   // Iterate over the resolution levels
   for(unsigned int level = 0; level < nlevels; ++level)
     {
-    // Add stage to metric log
+    // Add stage to metric log and regularization log
     m_MetricLog.push_back(std::vector<MultiComponentMetricReport>());
+    m_RegularizationLog.push_back(std::vector<GreedyRegularizationReport>());
 
     // Reference space
     ImageBaseType *refspace = of_helper.GetReferenceSpace(level);
+
+    // Pass reference space to the mesh regularizer if present
+    if(tmc)
+      tmc->SetReferenceImage(refspace);
 
     // Smoothing factors for this level, in physical units
     typename LDDMMType::Vec sigma_pre_phys =
@@ -1780,7 +1827,7 @@ int GreedyApproach<VDim, TReal>
     // A pointer to the full warp image - either uk in greedy mode, or uk_exp in diff demons mdoe
     VectorImageType *uFull;
 
-    // Matrix work image (for Lie Bracket) 
+    // Matrix work image (for Lie Bracket)
     typedef typename LDDMMType::MatrixImageType MatrixImageType;
     typename MatrixImageType::Pointer work_mat = MatrixImageType::New();
 
@@ -1824,6 +1871,10 @@ int GreedyApproach<VDim, TReal>
     // Initialize the deformation field from initial transform or from last iteration
     if(uLevel.IsNotNull())
       {
+      // TODO: need to check if the scaling by 2 below is correct, because with some
+      // of the more recently added code, I think the dimensions of the image do not
+      // necessarily go down by two, so we may need to think about whether this makes
+      // sense or not - for example if the image is NxNx1 size.
       LDDMMType::vimg_resample_identity(uLevel, refspace, uk);
       LDDMMType::vimg_scale_in_place(uk, 2.0);
       uLevel = uk;
@@ -1865,23 +1916,38 @@ int GreedyApproach<VDim, TReal>
 
       // Create a metric report that will be returned by all metrics
       MultiComponentMetricReport metric_report;
+      GreedyRegularizationReport reg_report;
 
       // Begin gradient computation
       tm_Gradient.Start();
 
       // Evaluate the correct metric
-      this->EvaluateMetricForDeformableRegistration(param, of_helper, level, uFull, metric_report, iTemp, uk1, eps);
+      if(minimization_mode)
+        this->EvaluateMetricForDeformableRegistration(param, of_helper, level, uFull, metric_report, iTemp, uk1, 1.0, true);
+      else
+        this->EvaluateMetricForDeformableRegistration(param, of_helper, level, uFull, metric_report, iTemp, uk1, eps);
+
+      // If regularization present, compute the regularization penalty and add its gradient to uk
+      if(tmc)
+        {
+        typename LDDMMType::VectorImagePointer reg = LDDMMType::new_vimg(uk1, 0.0);
+        double obj_reg = tmc->ComputeObjectiveAndGradientPhi(uFull, reg, param.tjr_param.weight);
+        reg_report.terms["MeshTetJac"] = std::make_pair(param.tjr_param.weight, obj_reg / param.tjr_param.weight);
+        LDDMMType::vimg_add_in_place(uk1, reg);
+        if(flag_dump)
+          WriteImageViaCache(reg.GetPointer(), GetDumpFile(param, "dump_jacreg_lev%02d_iter%04d.nii.gz", level, iter));
+        }
 
       // End gradient computation
       tm_Gradient.Stop();
 
       // Print a report for this iteration
-      std::string iter_line = this->PrintIter(level, iter, metric_report);
-      gout.printf("%s\n", iter_line.c_str());
-      gout.flush();
+      std::cout << this->PrintIter(level, iter, metric_report, reg_report) << std::endl;
+      fflush(stdout);
 
       // Record the metric value in the log
       this->RecordMetricValue(metric_report);
+      m_RegularizationLog.back().push_back(reg_report);
 
       // Dump the gradient image if requested
       if(flag_dump)
@@ -1920,16 +1986,17 @@ int GreedyApproach<VDim, TReal>
         // Vercauteren (2008) suggests using the following expressions
         // v' = v + u (so-so)
         // v' = v + u + [v, u]/2 (this is the Lie bracket)
-        
+
         // Scale the update by 1 / 2^exponent (tiny update, first order approximation)
-        LDDMMType::vimg_scale_in_place(viTemp, 1.0 / (2 << param.warp_exponent));
+        double scale_upd = minimization_mode ? -1.0 / (2 << param.warp_exponent) : 1.0 / (2 << param.warp_exponent);
+        LDDMMType::vimg_scale_in_place(viTemp, scale_upd);
 
         // Use appropriate update
         if(param.flag_stationary_velocity_mode_use_lie_bracket)
           {
           // Use the Lie Bracket approximation (v + u + [v,u])
           LDDMMType::lie_bracket(uk, viTemp, work_mat, uk1);
-          LDDMMType::vimg_scale_in_place(uk1, 0.5); 
+          LDDMMType::vimg_scale_in_place(uk1, 0.5);
           LDDMMType::vimg_add_in_place(uk1, uk);
           LDDMMType::vimg_add_in_place(uk1, viTemp);
           }
@@ -2016,10 +2083,11 @@ int GreedyApproach<VDim, TReal>
 
       // Print final metric report
       MultiComponentMetricReport metric_report = this->GetMetricLog()[level].back();
-      std::string iter_line = this->PrintIter(level, -1, metric_report);
+      GreedyRegularizationReport reg_report = m_RegularizationLog[level].back();
+      std::string iter_line = this->PrintIter(level, -1, metric_report, reg_report);
       gout.printf("%s\n", iter_line.c_str());
       gout.flush();
-      
+
       // Print timing information
       double n_it = param.iter_per_level[level];
       double t_total = tm_Iteration.GetTotal() / n_it;
@@ -2042,6 +2110,10 @@ int GreedyApproach<VDim, TReal>
         LDDMMType::poisson_pde_zero_boundary_dealloc(incompressibility_solver);
 
     }
+
+  // Delete the regularization object
+  if(tmc)
+    delete tmc;
 
   // The transformation field is in voxel units. To work with ANTS, it must be mapped
   // into physical offset units - just scaled by the spacing?
@@ -2101,6 +2173,402 @@ int GreedyApproach<VDim, TReal>
       WriteCompressedWarpInPhysicalSpaceViaCache(warp_ref_space, uInverse, param.inverse_warp.c_str(), param.warp_precision);
       }
     }
+  return 0;
+}
+
+template <unsigned int VDim, typename TReal>
+class DeformableRegistrationOptimizationProblem
+{
+public:
+  typedef GreedyApproach<VDim, TReal> GreedyAPI;
+  typedef ScalingAndSquaringLayer<VDim, TReal> SSQLayer;
+  typedef DisplacementFieldSmoothnessLoss<VDim, TReal> SmoothnessLossLayer;
+  typedef typename GreedyAPI::LDDMMType LDDMMType;
+  typedef typename GreedyAPI::VectorImageType VectorImageType;
+  typedef typename GreedyAPI::ImageType ImageType;
+  typedef typename GreedyAPI::OFHelperType OFHelperType;
+  typedef TetraMeshConstraints<TReal, VDim> TetraMeshConstraintsType;
+
+  DeformableRegistrationOptimizationProblem(
+      GreedyAPI *api,
+      GreedyParameters *param,
+      OFHelperType *of_helper,
+      unsigned int level,
+      VectorImageType *u,
+      TetraMeshConstraintsType *tmc = nullptr)
+  : m_API(api), m_Param(param), m_OF_Helper(of_helper),
+    m_Level(level), m_SSQLayer(u), m_TMC(tmc)
+  {
+    m_Dphi_loss = LDDMMType::new_vimg(u);
+    m_MetricImage = LDDMMType::new_img(u);
+    m_SmoothU = LDDMMType::new_vimg(u);
+    m_Phi = LDDMMType::new_vimg(u);
+
+    m_Sigma = m_OF_Helper->GetSmoothingSigmasInPhysicalUnits(
+          m_Level, m_Param->sigma_pre.sigma,
+          m_Param->sigma_pre.physical_units,
+          m_Param->flag_zero_last_dim);
+  }
+
+  double ComputeObjectiveAndGradient(
+      VectorImageType *u,
+      VectorImageType *Du_loss,
+      MultiComponentMetricReport &metric_report,
+      GreedyRegularizationReport &reg_report)
+  {
+    // Convolution with a Gaussian
+    // LDDMMType::vimg_write(u, "do_raw_u.nii.gz");
+    LDDMMType::vimg_smooth(u, m_SmoothU, m_Sigma, LDDMMType::FAST_ZEROPAD);
+    // LDDMMType::vimg_write(m_SmoothU, "do_smooth_u.nii.gz");
+
+    // Forward convolution computed by exponentiating the smoothed field
+    m_SSQLayer.Forward(m_SmoothU, m_Phi);
+    // LDDMMType::vimg_write(phi, "do_phi.nii.gz");
+
+    // Compute the metric and the gradient of the metric with respect to phi
+    m_Dphi_loss->FillBuffer(typename LDDMMType::Vec(0.0));
+    m_API->EvaluateMetricForDeformableRegistration(
+          *m_Param, *m_OF_Helper, m_Level, m_Phi, metric_report, m_MetricImage, m_Dphi_loss, 1.0, true);
+    // LDDMMType::vimg_write(m_Dphi_loss, "do_Dphi_metric.nii.gz");
+
+    if(m_TMC)
+    {
+      // Compute the mesh regularization term using phi
+      double obj_reg = m_TMC->ComputeObjectiveAndGradientPhi(m_Phi, m_Dphi_loss, m_Param->tjr_param.weight);
+      reg_report.terms["MeshTetJac"] = std::make_pair(m_Param->tjr_param.weight, obj_reg / m_Param->tjr_param.weight);
+    }
+
+    // Backpropagate the metric gradient through to the SVF
+    Du_loss->FillBuffer(typename LDDMMType::Vec(0.0));
+    m_SSQLayer.Backward(m_SmoothU, m_Dphi_loss, Du_loss);
+    // LDDMMType::vimg_write(Du_loss, "do_Dsvf_metric.nii.gz");
+
+    // Compute the smoothness regularization term, as a function of the SVF
+    double w_obj_smooth = m_Param->defopt_svf_smoothness_weight == 0.0 ? 1000.0 : m_Param->defopt_svf_smoothness_weight;
+
+    // To be compatible with the Python code I am basing this on, where the SVF is divided by 2^K before
+    // the scaling/squaring operation, we multiply the weight by 2^(2K), which is equivalent to scaling
+    // m_SmoothU itself by 2^K, assuming that the regularization term is quadratic
+    double svf_squared_scale_factor = 1 << (m_Param->warp_exponent * 2);
+    double obj_smooth = m_SmoothnessLayer.ComputeLossAndGradient(m_SmoothU, Du_loss, w_obj_smooth * svf_squared_scale_factor)
+        * w_obj_smooth * svf_squared_scale_factor;
+    reg_report.terms["SVFSmooth"] = std::make_pair(w_obj_smooth, obj_smooth / w_obj_smooth);
+    // LDDMMType::vimg_write(Du_loss, "do_Dsvf_metric_and_svfsmooth.nii.gz");
+
+    // Backpropagate back onto u, by smoothing the gradient
+    LDDMMType::vimg_smooth(Du_loss, Du_loss, m_Sigma, LDDMMType::FAST_ZEROPAD);
+    // LDDMMType::vimg_write(Du_loss, "do_Du_metric_and_svfsmooth.nii.gz");
+
+    // Compute the objective
+    double total = metric_report.TotalPerPixelMetric;
+    for(const auto &it : reg_report.terms)
+      total += it.second.first * it.second.second;
+
+    return total;
+  }
+
+  VectorImageType *GetWarp() const { return m_Phi; }
+  VectorImageType *GetRootWarp() const { return m_SmoothU; }
+  ImageType *GetMetricImage() const { return m_MetricImage; }
+
+protected:
+  GreedyAPI *m_API;
+  GreedyParameters *m_Param;
+  OFHelperType *m_OF_Helper;
+  unsigned int m_Level;
+  SSQLayer m_SSQLayer;
+  SmoothnessLossLayer m_SmoothnessLayer;
+  TetraMeshConstraintsType *m_TMC;
+  typename VectorImageType::Pointer m_Dphi_loss, m_SmoothU, m_Phi;
+  typename ImageType::Pointer m_MetricImage;
+  typename LDDMMType::Vec m_Sigma;
+};
+
+/**
+ * This performs deformable registration using an optimization scheme,
+ * where we actually perform gradient descent with respect to the unknown
+ * SVF u
+ */
+template <unsigned int VDim, typename TReal>
+int GreedyApproach<VDim, TReal>
+::RunDeformableOptimization(GreedyParameters &param)
+{
+  // Create an optical flow helper object
+  OFHelperType of_helper;
+
+  // Object for text output
+  GreedyStdOut gout(param.verbosity);
+
+  // Set the scaling factors for multi-resolution
+  of_helper.SetDefaultPyramidFactors(param.iter_per_level.size());
+
+  // Set the scaling mode depending on the metric
+  if(param.metric == GreedyParameters::MAHALANOBIS)
+    of_helper.SetScaleFixedImageWithVoxelSize(true);
+
+  // Read the image pairs to register
+  // In deformable mode, we force resampling of moving image to fixed image space
+  ReadImages(param, of_helper, true);
+
+  // Read the tetrahedral regularization mesh, if specified
+  typedef TetraMeshConstraints<TReal, VDim> TetraMeshConstraintsType;
+  TetraMeshConstraintsType *tmc = nullptr;
+  if(param.tjr_param.weight > 0.0)
+    {
+    // Read the mesh
+    vtkSmartPointer<vtkPointSet> point_set = ReadMesh(param.tjr_param.tetra_mesh.c_str());
+    vtkSmartPointer<vtkUnstructuredGrid> tetra = dynamic_cast<vtkUnstructuredGrid *>(point_set.GetPointer());
+    if(!tetra)
+      throw GreedyException("Mesh %s is not an UnstructuredGrid!", param.tjr_param.tetra_mesh.c_str());
+
+    // Initialize the regularization term
+    tmc = new TetraMeshConstraintsType();
+    tmc->SetMesh(tetra);
+    }
+
+  // An image pointer desribing the current estimate of the deformation
+  VectorImagePointer uLevel = nullptr;
+
+  // The number of resolution levels
+  unsigned nlevels = param.iter_per_level.size();
+
+  // Clear the metric log
+  m_MetricLog.clear();
+  m_RegularizationLog.clear();
+
+  // Iterate over the resolution levels
+  for(unsigned int level = 0; level < nlevels; ++level)
+    {
+    // Add stage to metric log and regularization log
+    m_MetricLog.push_back(std::vector<MultiComponentMetricReport>());
+    m_RegularizationLog.push_back(std::vector<GreedyRegularizationReport>());
+
+    // Reference space
+    ImageBaseType *refspace = of_helper.GetReferenceSpace(level);
+
+    // Pass reference space to the mesh regularizer if present
+    if(tmc)
+      tmc->SetReferenceImage(refspace);
+
+    // Smoothing factors for this level, in physical units
+    typename LDDMMType::Vec sigma_pre_phys =
+        of_helper.GetSmoothingSigmasInPhysicalUnits(level, param.sigma_pre.sigma,
+                                                    param.sigma_pre.physical_units, param.flag_zero_last_dim);
+
+    typename LDDMMType::Vec sigma_post_phys =
+        of_helper.GetSmoothingSigmasInPhysicalUnits(level, param.sigma_post.sigma,
+                                                    param.sigma_post.physical_units, param.flag_zero_last_dim);
+
+    // Report the smoothing factors used
+    gout.printf("LEVEL %d of %d\n", level+1, nlevels);
+    gout.printf("  Smoothing sigmas (mm):");
+    for(unsigned int d = 0; d < VDim; d++)
+      gout.printf("%s%f", d==0 ? " " : "x", sigma_pre_phys[d]);
+    for(unsigned int d = 0; d < VDim; d++)
+      gout.printf("%s%f", d==0 ? " " : "x", sigma_post_phys[d]);
+    gout.printf("\n");
+
+    // Set up timers for different critical components of the optimization
+    GreedyTimeProbe tm_Gradient, tm_Gaussian1, tm_Gaussian2, tm_Iteration,
+      tm_Integration, tm_Update, tm_UpdatePDE, tm_PDE;
+
+    // This holds the current optimization parameters (which are Gaussian smoothed to obtain the root warp)
+    VectorImagePointer uk = LDDMMType::new_vimg(refspace);
+
+    // This holds the gradient of the objective function with respect to the parameters uk
+    VectorImagePointer Duk_loss = LDDMMType::new_vimg(refspace);
+
+    // Initialize the deformation field from initial transform or from last iteration
+    if(uLevel.IsNotNull())
+      {
+      LDDMMType::vimg_resample_identity(uLevel, refspace, uk);
+      LDDMMType::vimg_scale_in_place(uk, 2.0);
+      uLevel = uk;
+      }
+    else if(param.initial_warp.size())
+      {
+      this->LoadInitialTransform(param, of_helper, level, uk);
+      uLevel = uk;
+      }
+    else
+      {
+      // Start with a little bit of noise (displacements on the order of 0.1 voxels)
+      // so that the derivatives are more accurate
+      LDDMMType::vimg_add_gaussian_noise_in_place(uk, 0.01);
+      LDDMMType::vimg_smooth(uk, uk, 2.0);
+      }
+
+    // Initialize the optimization problem
+    typedef DeformableRegistrationOptimizationProblem<VDim, TReal> Problem;
+    Problem problem(this, &param, &of_helper, level, uk, tmc);
+
+    // For Adam optimization
+    // typedef AdamStep<VectorImageType> AdamStepType;
+    // AdamStepType adam(param.epsilon_per_level[level]);
+
+    // Setup L-BFGS
+    typedef ImageLBFGS<VDim, TReal> Optimizer;
+    Optimizer optimizer;
+
+    // Create a variation for derivative debugging
+    VectorImagePointer variation = LDDMMType::new_vimg(refspace);
+    typename LDDMMType::ImagePointer idot = LDDMMType::new_img(uk, 0.0);
+
+    // Iterate for this level
+    for(int iter = 0; iter < param.iter_per_level[level]; iter++)
+      {
+      // Does a debug dump get generated on this iteration?
+      bool flag_dump = param.flag_dump_moving && 0 == iter % param.dump_frequency;
+
+      // Start the iteration timer
+      tm_Iteration.Start();
+
+      // Create a metric report that will be returned by all metrics
+      MultiComponentMetricReport metric_report;
+      GreedyRegularizationReport reg_report;
+
+      // Derivative check
+      /*
+      if(iter % 50 == 0)
+        {
+        MultiComponentMetricReport metric_report_1, metric_report_2;
+        GreedyRegularizationReport reg_report_1, reg_report_2;
+
+        // A new random variation
+        variation->FillBuffer(typename LDDMMType::Vec(0.));
+        LDDMMType::vimg_add_gaussian_noise_in_place(variation, 6.0);
+        LDDMMType::vimg_smooth(variation, variation, 8.0);
+
+        // Compute numerical derivative
+        double eps_deriv = 0.001;
+        LDDMMType::vimg_add_scaled_in_place(uk, variation, eps_deriv);
+        double obj_plus = problem.ComputeObjectiveAndGradient(uk, phi, Duk_loss, metric_report_1, reg_report_1);
+        LDDMMType::vimg_add_scaled_in_place(uk, variation, -2.0 * eps_deriv);
+        double obj_minus = problem.ComputeObjectiveAndGradient(uk, phi, Duk_loss, metric_report_2, reg_report_2);
+        double num_deriv = (obj_plus - obj_minus) / (2.0 * eps_deriv);
+
+        // Compute analytical derivative
+        LDDMMType::vimg_add_scaled_in_place(uk, variation, eps_deriv);
+        problem.ComputeObjectiveAndGradient(uk, phi, Duk_loss, metric_report, reg_report);
+        LDDMMType::vimg_euclidean_inner_product(idot, Duk_loss, variation);
+        double ana_deriv = LDDMMType::img_voxel_sum(idot);
+
+        // Compute relative difference
+        double rel_diff = 2.0 * std::fabs(ana_deriv - num_deriv) / (std::fabs(ana_deriv) + std::fabs(num_deriv));
+
+        // Compute the difference between the two derivatives
+        printf("Derivatives: ANA: %12.8g  NUM: %12.8g  RELDIF: %12.8f\n", ana_deriv, num_deriv, rel_diff);
+        }
+      else
+        {
+        // Compute the problem
+        problem.ComputeObjectiveAndGradient(uk, phi, Duk_loss, metric_report, reg_report);
+        }
+        */
+
+      // THIS IS FOR ADAM
+      // problem.ComputeObjectiveAndGradient(uk, phi, Duk_loss, metric_report, reg_report);
+
+      // Define the closure for LBFGS
+      typename Optimizer::Closure closure = [&problem, &metric_report, &reg_report](const VectorImageType *uk, VectorImageType *Duk_loss) -> double
+        {
+        return problem.ComputeObjectiveAndGradient(const_cast<VectorImageType *>(uk), Duk_loss, metric_report, reg_report);
+        };
+
+      // Perform a step of LBFGS
+      double objective = 0;
+      bool converged = optimizer.Step(closure, uk, objective, Duk_loss);
+
+      // Report the RMS displacement
+      if(iter == 0)
+        {
+        // Report the maximum displacement along any axis
+        double max_disp = LDDMMType::vimg_component_abs_max(problem.GetWarp());
+        printf("Initial transform maximum absolute displacement (voxel units): %f\n", max_disp);
+        }
+
+      // Print a report for this iteration
+      std::cout << this->PrintIter(level, iter, metric_report, reg_report) << std::endl;
+      fflush(stdout);
+
+      // Record the metric value in the log
+      this->RecordMetricValue(metric_report);
+      m_RegularizationLog.back().push_back(reg_report);
+
+      // Dump the gradient image if requested
+      if(flag_dump)
+        {
+        WriteImageViaCache(problem.GetMetricImage(), GetDumpFile(param, "dump_metric_lev%02d_iter%04d.nii.gz", level, iter));
+        WriteImageViaCache(Duk_loss.GetPointer(), GetDumpFile(param, "dump_grad_uk_lev%02d_iter%04d.nii.gz", level, iter));
+        }
+
+      // Perform Adam iteration, updating the SVF uk
+      // adam.Compute(iter, Duk_loss, m_k, v_k, uk);
+      tm_Iteration.Stop();
+
+      // Break out if converged
+      if(converged)
+        break;
+      }
+
+    // Store the end result
+    uLevel = uk;
+
+    // Compute the deformation field finally (this may be redundant if using strong Wolfe conditions)
+    MultiComponentMetricReport final_metric_report;
+    GreedyRegularizationReport final_reg_report;
+    problem.ComputeObjectiveAndGradient(uk, Duk_loss, final_metric_report, final_reg_report);
+
+    // Use the problem's metric image storage for Jacobian computation
+    LDDMMType::field_jacobian_det(problem.GetWarp(), problem.GetMetricImage());
+    TReal jac_min, jac_max;
+    LDDMMType::img_min_max(problem.GetMetricImage(), jac_min, jac_max);
+    gout.printf("END OF LEVEL %3d    DetJac Range: %8.4f  to %8.4f \n", level, jac_min, jac_max);
+
+    // Print final metric report
+    std::string iter_line = this->PrintIter(level, -1, final_metric_report, final_reg_report);
+    gout.printf("%s\n", iter_line.c_str());
+    gout.flush();
+
+    // Print timing information
+    double n_it = param.iter_per_level[level];
+    double t_total = tm_Iteration.GetTotal() / n_it;
+    double t_gradient = tm_Gradient.GetTotal() / n_it;
+    double t_gaussian = (tm_Gaussian1.GetTotal() + tm_Gaussian2.GetTotal()) / n_it;
+    double t_update = (tm_Integration.GetTotal() + tm_Update.GetTotal() + tm_UpdatePDE.GetTotal()) / n_it;
+    double t_pde = tm_PDE.GetTotal() / n_it;
+    gout.printf("  Avg. Gradient Time        : %6.4fs  %5.2f%% \n", t_gradient, 100 * t_gradient / t_total);
+    gout.printf("  Avg. Gaussian Time        : %6.4fs  %5.2f%% \n", t_gaussian, 100 * t_gaussian / t_total);
+    gout.printf("  Avg. Integration Time     : %6.4fs  %5.2f%% \n", t_update, 100 * t_update / t_total);
+    gout.printf("  Avg. Total Iteration Time : %6.4fs \n", t_total);
+
+    // Save warps and such if this is the full resolution level
+    if(level == nlevels - 1)
+      {
+      // Write the root warp if requested
+      if(param.root_warp.size())
+        WriteCompressedWarpInPhysicalSpaceViaCache(refspace, problem.GetRootWarp(), param.root_warp.c_str(), 0);
+
+      // Write the main warp if requested
+      if(param.output.size())
+        WriteCompressedWarpInPhysicalSpaceViaCache(refspace, problem.GetWarp(), param.output.c_str(), param.warp_precision);
+
+      // Write the inverse warp if requested
+      if(param.inverse_warp.size())
+        {
+        // Take current warp to 'exponent' power - this is the actual warp
+        VectorImagePointer uLevelExp = LDDMMType::new_vimg(uLevel);
+        VectorImagePointer uLevelWork = LDDMMType::new_vimg(uLevel);
+        LDDMMType::vimg_exp(problem.GetRootWarp(), uLevelExp, uLevelWork, param.warp_exponent, -1.0);
+        WriteCompressedWarpInPhysicalSpaceViaCache(refspace, uLevelExp, param.inverse_warp.c_str(), param.warp_precision);
+        }
+      }
+    }
+
+  // Delete the regularization object
+  if(tmc)
+    delete tmc;
+
   return 0;
 }
 
@@ -2370,7 +2838,7 @@ void GreedyApproach<VDim, TReal>
         double absexp = fabs(tran_chain[i].exponent);
         double n_real = log(absexp) / log(2.0);
         int n = (int) (n_real + 0.5);
-        if(fabs(n - n_real) > 1.0e-4) 
+        if(fabs(n - n_real) > 1.0e-4)
           throw GreedyException("Currently only power of two exponents are supported for warps");
 
         // Bring the transform into voxel space
@@ -2741,7 +3209,7 @@ int GreedyApproach<VDim, TReal>
      && !r_param.out_composed_warp.size()
      && !r_param.out_jacobian_image.size())
     throw GreedyException("No operation specified for reslice mode. "
-                          "Use one of -rm, -rs or -rc commands.");
+                          "Use one of -rm, -rs, -rsj, or -rc commands.");
 
   // Read the fixed as a plain image (we don't care if it's composite)
   typename ImageBaseType::Pointer ref = ReadImageBaseViaCache(r_param.ref_image);
@@ -2751,10 +3219,23 @@ int GreedyApproach<VDim, TReal>
   if(r_param.ref_image_mask.size())
     ref_mask = ReadImageViaCache<ImageType>(r_param.ref_image_mask);
 
+  // Read meshes - for each mesh store a copy in case we want to perform Jacobian computation
   typedef vtkSmartPointer<vtkPointSet> MeshPointer;
-  std::vector<MeshPointer> meshes;
+  std::vector<MeshPointer> meshes, original_meshes;
   for(unsigned int i = 0; i < r_param.meshes.size(); i++)
-    meshes.push_back(ReadMeshViaCache(r_param.meshes[i].fixed.c_str()));
+    {
+    vtkSmartPointer<vtkPointSet> mesh = ReadMesh(r_param.meshes[i].fixed.c_str());
+    meshes.push_back(mesh);
+
+    if(r_param.meshes[i].jacobian_mode)
+      {
+      original_meshes.push_back(DeepCopyMesh(mesh));
+      }
+    else
+      {
+      original_meshes.push_back(nullptr);
+      }
+    }
 
   // Read the transform chain
   VectorImagePointer warp;
@@ -2913,7 +3394,12 @@ int GreedyApproach<VDim, TReal>
 
   // Save the meshes
   for(unsigned int i = 0; i < r_param.meshes.size(); i++)
-    WriteMeshViaCache(meshes[i], r_param.meshes[i].output.c_str());
+    {
+    if(r_param.meshes[i].jacobian_mode)
+      WriteJacobianMesh(original_meshes[i], meshes[i], r_param.meshes[i].output.c_str());
+    else
+      WriteMesh(meshes[i], r_param.meshes[i].output.c_str());
+    }
 
 
   // Process meshes
@@ -3207,12 +3693,12 @@ int GreedyApproach<VDim, TReal>
 {
   MultiComponentMetricReport metric_report;
   this->ComputeMetric(param, metric_report);
-  
+
   printf("Metric Report:\n");
   for (unsigned i = 0; i < metric_report.ComponentPerPixelMetrics.size(); i++)
     printf("  Component %d: %8.6f", i, metric_report.ComponentPerPixelMetrics[i]);
   printf("  Total = %8.6f\n", metric_report.TotalPerPixelMetric);
-	
+
   return 0;
 }
 
@@ -3280,7 +3766,7 @@ void GreedyApproach<VDim, TReal>
 ::ConfigThreads(const GreedyParameters &param)
 {
   GreedyStdOut gout(param.verbosity);
-  
+
   if(param.threads > 0)
     {
     gout.printf("Limiting the number of threads to %d\n", param.threads);
@@ -3320,13 +3806,12 @@ int GreedyApproach<VDim, TReal>
       return Self::RunRootWarp(param);
     case GreedyParameters::METRIC:
       return Self::RunMetric(param);
+    case GreedyParameters::DEFORMABLE_OPTIMIZATION:
+      return Self::RunDeformableOptimization(param);
     }
 
   return -1;
 }
-
-
-
 
 template class GreedyApproach<2, float>;
 template class GreedyApproach<3, float>;
@@ -3334,3 +3819,5 @@ template class GreedyApproach<4, float>;
 template class GreedyApproach<2, double>;
 template class GreedyApproach<3, double>;
 template class GreedyApproach<4, double>;
+
+
