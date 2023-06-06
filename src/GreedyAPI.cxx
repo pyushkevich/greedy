@@ -1756,7 +1756,7 @@ int GreedyApproach<VDim, TReal>
   if(param.tjr_param.weight > 0.0)
     {
     // Read the mesh
-    vtkSmartPointer<vtkPointSet> point_set = ReadMesh(param.tjr_param.tetra_mesh.c_str());
+    vtkSmartPointer<vtkPointSet> point_set = ReadMeshViaCache(param.tjr_param.tetra_mesh.c_str());
     vtkSmartPointer<vtkUnstructuredGrid> tetra = dynamic_cast<vtkUnstructuredGrid *>(point_set.GetPointer());
     if(!tetra)
       throw GreedyException("Mesh %s is not an UnstructuredGrid!", param.tjr_param.tetra_mesh.c_str());
@@ -2316,7 +2316,7 @@ int GreedyApproach<VDim, TReal>
   if(param.tjr_param.weight > 0.0)
     {
     // Read the mesh
-    vtkSmartPointer<vtkPointSet> point_set = ReadMesh(param.tjr_param.tetra_mesh.c_str());
+    vtkSmartPointer<vtkPointSet> point_set = ReadMeshViaCache(param.tjr_param.tetra_mesh.c_str());
     vtkSmartPointer<vtkUnstructuredGrid> tetra = dynamic_cast<vtkUnstructuredGrid *>(point_set.GetPointer());
     if(!tetra)
       throw GreedyException("Mesh %s is not an UnstructuredGrid!", param.tjr_param.tetra_mesh.c_str());
@@ -3224,7 +3224,7 @@ int GreedyApproach<VDim, TReal>
   std::vector<MeshPointer> meshes, original_meshes;
   for(unsigned int i = 0; i < r_param.meshes.size(); i++)
     {
-    vtkSmartPointer<vtkPointSet> mesh = ReadMesh(r_param.meshes[i].fixed.c_str());
+    vtkSmartPointer<vtkPointSet> mesh = ReadMeshViaCache(r_param.meshes[i].fixed.c_str());
     meshes.push_back(mesh);
 
     if(r_param.meshes[i].jacobian_mode)
@@ -3398,7 +3398,7 @@ int GreedyApproach<VDim, TReal>
     if(r_param.meshes[i].jacobian_mode)
       WriteJacobianMesh(original_meshes[i], meshes[i], r_param.meshes[i].output.c_str());
     else
-      WriteMesh(meshes[i], r_param.meshes[i].output.c_str());
+      WriteMeshViaCache(meshes[i], r_param.meshes[i].output.c_str());
     }
 
 
