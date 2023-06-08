@@ -181,9 +181,18 @@ PropagationOutput<TReal>
 
 template<typename TReal>
 typename PropagationOutput<TReal>
+::TPropagationMeshPointer
+PropagationOutput<TReal>
+::GetMesh(unsigned int tp)
+{
+  return m_Data->tp_data.at(tp).seg_mesh;
+}
+
+template<typename TReal>
+typename PropagationOutput<TReal>
 ::TMeshSeries
 PropagationOutput<TReal>
-::GetExtraMeshSeries(std::string &tag)
+::GetExtraMeshSeries(std::string tag)
 {
   TMeshSeries ret;
   for (auto &kv : m_Data->tp_data)
@@ -192,6 +201,15 @@ PropagationOutput<TReal>
     }
 
   return ret;
+}
+
+template<typename TReal>
+typename PropagationOutput<TReal>
+::TPropagationMeshPointer
+PropagationOutput<TReal>
+::GetExtraMesh(std::string tag, unsigned int tp)
+{
+  return m_Data->tp_data.at(tp).GetExtraMesh(tag);
 }
 
 template<typename TReal>
