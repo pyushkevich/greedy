@@ -21,26 +21,28 @@ int usage()
   printf("usage: \n");
   printf("  greedy_propagation <options> <greedy_options> \n");
   printf("options for propagation: \n");
-  printf("  -spi img4d.nii        : 4D image that is the base of the segmentation \n");
-  printf("  -sps seg.nii          : 3D segmentation for the reference time point of the 4D base image. \n");
-  printf("                          Only one reference segmentation input is allowed per run.\n");
-  printf("                          This option will override all previous specified -sps or -sps-4d. \n");
-  printf("  -sps-4d seg4d.nii     : An alternative way to provide the reference segmentation. \n");
-  printf("                          Only segementation from the reference time point will be used. \n");
-  printf("                          This option will override all previous specified -sps or -sps-4d. \n");
-  printf("  -spo outdir           : Output directory to store propagated segmentations and meshes\n");
-  printf("  -sps-op pattern       : Segmentation output filename pattern \n");
-  printf("                          The output filenames can be configured using a c-style pattern string, \n");
-  printf("                          with a timepoint number embedded.\n");
-  printf("                          For example: \"Seg_%%02d_resliced.nii.gz\" will generate \"Seg_05_resliced.nii.gz\" \n");
-  printf("                          for timepoint 5. \n");
-  printf("                          Filename pattern without %%format will have time point appended\n");
-  printf("  -sps-mop pattern      : Set the filename pattern for the mesh generated from the provided reference segmentation image. \n");
-  printf("  -spm mesh.vtk pattern : Add an extra segmentation mesh for the referenfe tp. Repeat to add multiple meshes. \n");
-  printf("  -spr timepoint        : The reference time point of the given segmentation image \n");
-  printf("  -spt <target tp str>  : A comma separated string of target time points for the propagation \n");
-  printf("  -sp-debug <outdir>    : Enable debugging mode for propagation: Dump intermediary files to outdir \n");
-  printf("  -sp-verbose <value>   : Set propagation verbosity level (0: none, 1: default, 2: verbose) \n");
+  printf("  -spi <img4d.nii>              : 4D image that is the base of the segmentation \n");
+  printf("  -sps <seg.nii>                : 3D segmentation for the reference time point of the 4D base image. \n");
+  printf("                                  Only one reference segmentation input is allowed per run.\n");
+  printf("                                  This option will override all previous specified -sps or -sps-4d. \n");
+  printf("  -sps-4d <seg4d.nii>           : An alternative way to provide the reference segmentation. \n");
+  printf("                                  Only segementation from the reference time point will be used. \n");
+  printf("                                  This option will override all previous specified -sps or -sps-4d. \n");
+  printf("  -spo <outdir>                 : Output directory to store propagated segmentations and meshes\n");
+  printf("  -sps-op <pattern>             : Segmentation output filename pattern \n");
+  printf("                                  The output filenames can be configured using a c-style pattern string, \n");
+  printf("                                  with a timepoint number embedded.\n");
+  printf("                                  For example: \"Seg_%%02d_resliced.nii.gz\" will generate \"Seg_05_resliced.nii.gz\" \n");
+  printf("                                  for timepoint 5. \n");
+  printf("                                  Filename pattern without %%format will have time point appended\n");
+  printf("  -sp-interp-spec <spec> <size> : Set the segmentation interpolation spec with following options: \n");
+  printf("                                  NN; LINEAR; LABEL <size>\n");
+  printf("  -sps-mop <pattern>            : Set the filename pattern for the mesh generated from the provided reference segmentation image. \n");
+  printf("  -spm <mesh.vtk> <pattern>     : Add an extra segmentation mesh for the referenfe tp. Repeat to add multiple meshes. \n");
+  printf("  -spr <timepoint>              : The reference time point of the given segmentation image \n");
+  printf("  -spt <target tp str>          : A comma separated string of target time points for the propagation \n");
+  printf("  -sp-debug <outdir>            : Enable debugging mode for propagation: Dump intermediary files to outdir \n");
+  printf("  -sp-verbose <value>           : Set propagation verbosity level (0: none, 1: default, 2: verbose) \n");
   printf("main greedy options accepted: \n");
   printf("  ");
   for (auto cit = greedy_cmd.crbegin(); cit != greedy_cmd.crend(); ++cit)
@@ -99,6 +101,9 @@ void parse_command_line(int argc, char *argv[],
       {
       std::vector<int> result = cl.read_int_vector(',');
       std::set<int> unique(result.begin(), result.end()); // remove duplicates
+      if (unique.size() == 0)
+        throw GreedyException("Propagation: Target timepoints list cannot be empty!");
+
       for (int n : unique)
         {
         if (n <= 0)

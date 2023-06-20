@@ -429,7 +429,7 @@ GreedyApproach<VDim, TReal>
     if (!mesh)
       throw GreedyException("Cached mesh %s cannot be cast to type %s",
                             filename.c_str(), typeid(MeshType).name());
-    MeshPointer pMesh = mesh;
+    MeshPointer pMesh = DeepCopyMesh(mesh); // important to avoid in-place mutation
     return pMesh;
     }
 

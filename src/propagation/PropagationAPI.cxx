@@ -636,6 +636,8 @@ PropagationAPI<TReal>
                           tp_in, tp_out, isFullRes);
 }
 
+#include <vtkPolyDataWriter.h>
+
 template<typename TReal>
 void
 PropagationAPI<TReal>
@@ -664,6 +666,12 @@ PropagationAPI<TReal>
   auto mesh_in = tpdata_in.seg_mesh;
   std::string mesh_in_name = GenerateUnaryTPObjectName("mesh_", tp_in, nullptr, nullptr, ".vtk");
   GreedyAPI->AddCachedInputObject(mesh_in_name, mesh_in);
+
+  std::string dbgMeshIn = GenerateBinaryTPObjectName("dbg_meshin_", tp_in, tp_out, m_PParam.debug_dir.c_str(), nullptr, ".vtk");
+  vtkNew<vtkPolyDataWriter> writer;
+  writer->SetInputData(mesh_in);
+  writer->SetFileName(dbgMeshIn.c_str());
+  writer->Write();
 
   // Set output image
   std::string mesh_out_name =
@@ -710,6 +718,8 @@ PropagationAPI<TReal>
     }
 
   // Build transformation chain
+
+  // -- compose affine chain
   for (int i = tpdata_out.transform_specs.size() - 1; i >= 0; --i)
     {
     auto &trans_spec = tpdata_out.transform_specs[i];
@@ -718,6 +728,7 @@ PropagationAPI<TReal>
     GreedyAPI->AddCachedInputObject(affine_id, trans_spec.affine.GetPointer());
     }
 
+  // -- append deformation field to the affine chain
   std::string deform_id = tpdata_out.deform_to_ref->GetObjectName();
   param.reslice_param.transforms.push_back(TransformSpec(deform_id));
   GreedyAPI->AddCachedInputObject(deform_id, tpdata_out.deform_to_ref.GetPointer());
