@@ -144,23 +144,23 @@ PropagationAPI<TReal>
     tps.push_back(m_PParam.refTP); // Add refTP to the tps to process
 
   for (size_t tp : tps)
-		{
-		TimePointData<TReal>tpData;
+    {
+    TimePointData<TReal>tpData;
 
-		// Extract full res image
+    // Extract full res image
     tpData.img = PTools::template ExtractTimePointImage<TImage3D, TImage4D>(m_Data->img4d, tp);
-		tpData.img->SetObjectName(GenerateUnaryTPObjectName("img_", tp));
+    tpData.img->SetObjectName(GenerateUnaryTPObjectName("img_", tp));
 
-		// Generate resampled image
+    // Generate resampled image
     tpData.img_srs = PTools::template Resample3DImage<TImage3D>(tpData.img, 0.5, ResampleInterpolationMode::Linear, 1);
     m_Data->tp_data[tp] = tpData;
-		tpData.img_srs->SetObjectName(GenerateUnaryTPObjectName("img_", tp, nullptr, "_srs"));
-		}
+    tpData.img_srs->SetObjectName(GenerateUnaryTPObjectName("img_", tp, nullptr, "_srs"));
+    }
 
-  // Reference TP Segmentation
-  m_Data->tp_data[m_PParam.refTP].seg = m_Data->seg_ref;
-  m_Data->tp_data[m_PParam.refTP].seg->SetObjectName(GenerateUnaryTPObjectName("seg_", m_PParam.refTP));
-  m_Data->tp_data[m_PParam.refTP].seg_mesh = PTools::GetMeshFromLabelImage(m_Data->seg_ref);
+    // Reference TP Segmentation
+    m_Data->tp_data[m_PParam.refTP].seg = m_Data->seg_ref;
+    m_Data->tp_data[m_PParam.refTP].seg->SetObjectName(GenerateUnaryTPObjectName("seg_", m_PParam.refTP));
+    m_Data->tp_data[m_PParam.refTP].seg_mesh = PTools::GetMeshFromLabelImage(m_Data->seg_ref);
 
   // Write out the reference mesh
   if (m_PParam.writeOutputToDisk)
@@ -175,19 +175,19 @@ PropagationAPI<TReal>
 
 	// Debug: write out extracted tp images
   if (m_PParam.debug)
-		{
+    {
     for (auto &kv : m_Data->tp_data)
-			{
+      {
       PTools::template WriteImage<TImage3D>(kv.second.img,
-          GenerateUnaryTPObjectName("img_", kv.first, m_PParam.debug_dir.c_str(), nullptr, ".nii.gz"));
+      GenerateUnaryTPObjectName("img_", kv.first, m_PParam.debug_dir.c_str(), nullptr, ".nii.gz"));
 
       PTools::template WriteImage<TImage3D>(kv.second.img_srs,
-          GenerateUnaryTPObjectName("img_", kv.first, m_PParam.debug_dir.c_str(), "_srs", ".nii.gz"));
-			}
+      GenerateUnaryTPObjectName("img_", kv.first, m_PParam.debug_dir.c_str(), "_srs", ".nii.gz"));
+      }
 
     PTools::template WriteImage<TLabelImage3D>(m_Data->tp_data[m_PParam.refTP].seg_srs,
-        GenerateUnaryTPObjectName("mask_", m_PParam.refTP, m_PParam.debug_dir.c_str(), "_srs", ".nii.gz"));
-		}
+    GenerateUnaryTPObjectName("mask_", m_PParam.refTP, m_PParam.debug_dir.c_str(), "_srs", ".nii.gz"));
+    }
 }
 
 template<typename TReal>
@@ -199,14 +199,14 @@ PropagationAPI<TReal>
   m_BackwardTPs.push_back(m_PParam.refTP);
 
   for (unsigned int tp : m_PParam.targetTPs)
-		{
+    {
     if (tp < m_PParam.refTP)
       m_BackwardTPs.push_back(tp);
     else if (tp == m_PParam.refTP)
-			continue; // ignore reference tp in the target list
-		else
+      continue; // ignore reference tp in the target list
+    else
       m_ForwardTPs.push_back(tp);
-		}
+    }
 
   std::sort(m_ForwardTPs.begin(), m_ForwardTPs.end());
   std::sort(m_BackwardTPs.rbegin(), m_BackwardTPs.rend()); // sort backward reversely
@@ -227,11 +227,11 @@ PropagationAPI<TReal>
   GenerateFullResolutionMasks(tp_list); // Reslice downsampled masks to full-res
   GenerateReferenceSpace(tp_list); // Generate reference space for faster run
 
-	// Run reg between ref and target tp and warp reference segmentation to target segmentation
-	for (size_t crnt = 1; crnt < tp_list.size(); ++crnt) // this can be parallelized
-		{
+  // Run reg between ref and target tp and warp reference segmentation to target segmentation
+  for (size_t crnt = 1; crnt < tp_list.size(); ++crnt) // this can be parallelized
+    {
     RunFullResolutionPropagation(tp_list[crnt]);
-		}
+    }
 }
 
 template <typename TReal>
@@ -313,20 +313,19 @@ PropagationAPI<TReal>
 
   m_StdOut->printf("-- [Propagation] Generating Full Resolution Masks \n");
 
-	for (size_t i = 0; i < tp_list.size(); ++i)
-		{
-		const unsigned int tp = tp_list[i];
+  for (size_t i = 0; i < tp_list.size(); ++i)
+    {
+    const unsigned int tp = tp_list[i];
     TimePointData<TReal> &tp_data = m_Data->tp_data[tp];
-		tp_data.full_res_mask = PropagationTools<TReal>
-				::ResliceLabelImageWithIdentityMatrix(tp_data.img, tp_data.seg_srs);
-		std::string fnmask = GenerateUnaryTPObjectName("mask_", tp);
+    tp_data.full_res_mask = PropagationTools<TReal>::ResliceLabelImageWithIdentityMatrix(tp_data.img, tp_data.seg_srs);
+    std::string fnmask = GenerateUnaryTPObjectName("mask_", tp);
     if (m_PParam.debug)
-			{
+      {
       fnmask = GenerateUnaryTPObjectName("mask_", tp, m_PParam.debug_dir.c_str(), nullptr, ".nii.gz");
       PTools::template WriteImage<TLabelImage3D>(tp_data.full_res_mask, fnmask);
-			}
-		tp_data.full_res_mask->SetObjectName(fnmask);
-		}
+      }
+    tp_data.full_res_mask->SetObjectName(fnmask);
+    }
 }
 
 template<typename TReal>
@@ -336,14 +335,14 @@ PropagationAPI<TReal>
 {
   m_StdOut->printf("-- [Propagation] Down Sampled Propagation started  \n");
 
-	for (size_t i = 1; i < tp_list.size(); ++i)
-		{
-		unsigned int c = tp_list[i], p = tp_list[i - 1]; // current tp and previous tp
+  for (size_t i = 1; i < tp_list.size(); ++i)
+    {
+    unsigned int c = tp_list[i], p = tp_list[i - 1]; // current tp and previous tp
     RunPropagationAffine(p, c); // affine reg current to prev
     RunPropagationDeformable(p, c, false); // deformable reg current to prev
     BuildTransformChainForReslice(p, c); // build transformation chain for current tp
     RunPropagationReslice(m_PParam.refTP, c, false); // warp ref mask to current
-		}
+    }
 }
 
 template<typename TReal>
@@ -354,69 +353,67 @@ PropagationAPI<TReal>
   m_StdOut->printf("-- [Propagation] Running Affine %02d to %02d  \n", tp_mov, tp_fix);
   TimePointData<TReal> &df = m_Data->tp_data[tp_fix], &dm = m_Data->tp_data[tp_mov];
 
-	// Create a new GreedyAPI for affine run and configure
+  // Create a new GreedyAPI for affine run and configure
   std::shared_ptr<GreedyApproach<3u, TReal>> GreedyAPI = std::make_shared<GreedyApproach<3u, TReal>>();
 
-	GreedyInputGroup ig;
-	ImagePairSpec ip;
-	ip.weight = 1.0;
+  GreedyInputGroup ig;
+  ImagePairSpec ip;
+  ip.weight = 1.0;
 
-	auto img_fix = df.img_srs;
-	auto img_mov = dm.img_srs;
+  auto img_fix = df.img_srs;
+  auto img_mov = dm.img_srs;
 
-	ip.fixed = img_fix->GetObjectName();
-	ip.moving = img_mov->GetObjectName();
-	ig.inputs.push_back(ip);
+  ip.fixed = img_fix->GetObjectName();
+  ip.moving = img_mov->GetObjectName();
+  ig.inputs.push_back(ip);
 
-  typename TCompositeImage3D::Pointer casted_fix = PTools::
-			CastImageToCompositeImage(img_fix);
-  typename TCompositeImage3D::Pointer casted_mov = PTools::
-			CastImageToCompositeImage(img_mov);
+  typename TCompositeImage3D::Pointer casted_fix = PTools::CastImageToCompositeImage(img_fix);
+  typename TCompositeImage3D::Pointer casted_mov = PTools::CastImageToCompositeImage(img_mov);
 
-	GreedyAPI->AddCachedInputObject(ip.fixed, casted_fix);
-	GreedyAPI->AddCachedInputObject(ip.moving, casted_mov);
+  GreedyAPI->AddCachedInputObject(ip.fixed, casted_fix);
+  GreedyAPI->AddCachedInputObject(ip.moving, casted_mov);
 
-	// Set dilated fix seg as mask
-	auto mask_fix = df.seg_srs;
-	ig.fixed_mask = mask_fix->GetObjectName();
+  // Set dilated fix seg as mask
+  auto mask_fix = df.seg_srs;
+  ig.fixed_mask = mask_fix->GetObjectName();
   auto casted_mask = PTools::CastLabelToRealImage(mask_fix);
-	GreedyAPI->AddCachedInputObject(ig.fixed_mask, casted_mask);
+  GreedyAPI->AddCachedInputObject(ig.fixed_mask, casted_mask);
 
-	// Configure greedy parameters
-	GreedyParameters param;
-	param.mode = GreedyParameters::AFFINE;
+  // Configure greedy parameters
+  GreedyParameters param;
+  param.mode = GreedyParameters::AFFINE;
   param.CopyGeneralSettings(m_GParam); // copy general settings from user input
   param.CopyAffineSettings(m_GParam); // copy affine settings from user input
-	// Override global default settings with propagation specific setting
-	param.affine_init_mode = AffineInitMode::RAS_IDENTITY;
-	param.affine_dof = GreedyParameters::DOF_RIGID;
+  // Override global default settings with propagation specific setting
+  param.affine_init_mode = AffineInitMode::RAS_IDENTITY;
+  param.affine_dof = GreedyParameters::DOF_RIGID;
 
-	// Check smoothing parameters. If greedy default detected, change to propagation default.
-	const SmoothingParameters prop_default_pre = { 3.0, true }, prop_default_post = { 1.5, true };
+  // Check smoothing parameters. If greedy default detected, change to propagation default.
+  const SmoothingParameters prop_default_pre = { 3.0, true }, prop_default_post = { 1.5, true };
   param.sigma_pre = (m_GParam.sigma_pre == GreedyParameters::default_sigma_pre) ? prop_default_pre : m_GParam.sigma_pre;
   param.sigma_post = (m_GParam.sigma_post == GreedyParameters::default_sigma_post) ? prop_default_post : m_GParam.sigma_post;
 
-	// Add the input group to the parameters
-	param.input_groups.clear();
-	param.input_groups.push_back(ig);
+  // Add the input group to the parameters
+  param.input_groups.clear();
+  param.input_groups.push_back(ig);
 
-	// Configure output
-	bool force_write = false;
-	param.output = GenerateBinaryTPObjectName("affine_", tp_mov, tp_fix);
+  // Configure output
+  bool force_write = false;
+  param.output = GenerateBinaryTPObjectName("affine_", tp_mov, tp_fix);
 
   if (m_PParam.debug)
-		{
-		force_write = true;
-		param.output = GenerateBinaryTPObjectName("affine_", tp_mov, tp_fix,
-                                              m_PParam.debug_dir.c_str(), ".mat");
-		}
+    {
+    force_write = true;
+    param.output = GenerateBinaryTPObjectName("affine_", tp_mov, tp_fix,
+                                  m_PParam.debug_dir.c_str(), ".mat");
+    }
 
   m_StdOut->printf("-- [Propagation] Affine Command: %s \n",  param.GenerateCommandLine().c_str());
 
-	dm.affine_to_prev->SetObjectName(param.output);
-	GreedyAPI->AddCachedOutputObject(param.output, dm.affine_to_prev, force_write);
+  dm.affine_to_prev->SetObjectName(param.output);
+  GreedyAPI->AddCachedOutputObject(param.output, dm.affine_to_prev, force_write);
 
-	int ret = GreedyAPI->RunAffine(param);
+  int ret = GreedyAPI->RunAffine(param);
 
   if (ret != 0)
     throw GreedyException("GreedyAPI execution failed in Proapgation Affine Run: tp_fix = %d, tp_mov = %d",
@@ -431,112 +428,111 @@ PropagationAPI<TReal>
   m_StdOut->printf("-- [Propagation] Running %s Deformable %02d to %02d \n",
                    isFullRes ? "Full-resolution" : "Down-sampled", tp_mov, tp_fix);
 
-	// Get relevant tp data
+  // Get relevant tp data
   TimePointData<TReal> &tpdata_fix = m_Data->tp_data[tp_fix];
   TimePointData<TReal> &tpdata_mov = m_Data->tp_data[tp_mov];
 
-	// Set greedy parameters
+  // Set greedy parameters
   std::shared_ptr<GreedyApproach<3u, TReal>> GreedyAPI = std::make_shared<GreedyApproach<3u, TReal>>();
-	GreedyParameters param;
-	param.mode = GreedyParameters::GREEDY;
+  GreedyParameters param;
+  param.mode = GreedyParameters::GREEDY;
   param.CopyDeformableSettings(m_GParam);
   param.CopyGeneralSettings(m_GParam);
 
-	// Set input images
-	GreedyInputGroup ig;
-	ImagePairSpec ip;
-	ip.weight = 1.0;
-	auto img_fix = isFullRes ? tpdata_fix.img : tpdata_fix.img_srs;
-	auto img_mov = isFullRes ? tpdata_mov.img : tpdata_mov.img_srs;
-	ip.fixed = img_fix->GetObjectName();
-	ip.moving = img_mov->GetObjectName();
+  // Set input images
+  GreedyInputGroup ig;
+  ImagePairSpec ip;
+  ip.weight = 1.0;
+  auto img_fix = isFullRes ? tpdata_fix.img : tpdata_fix.img_srs;
+  auto img_mov = isFullRes ? tpdata_mov.img : tpdata_mov.img_srs;
+  ip.fixed = img_fix->GetObjectName();
+  ip.moving = img_mov->GetObjectName();
 
   typename TCompositeImage3D::Pointer casted_fix = PTools::CastImageToCompositeImage(img_fix);
   typename TCompositeImage3D::Pointer casted_mov = PTools::CastImageToCompositeImage(img_mov);
-	GreedyAPI->AddCachedInputObject(ip.fixed, casted_fix);
-	GreedyAPI->AddCachedInputObject(ip.moving, casted_mov);
-	ig.inputs.push_back(ip);
+  GreedyAPI->AddCachedInputObject(ip.fixed, casted_fix);
+  GreedyAPI->AddCachedInputObject(ip.moving, casted_mov);
+  ig.inputs.push_back(ip);
 
-	// Set mask images
-	auto mask_fix = isFullRes ? tpdata_fix.full_res_mask : tpdata_fix.seg_srs;
-	ig.fixed_mask = mask_fix->GetObjectName();
+  // Set mask images
+  auto mask_fix = isFullRes ? tpdata_fix.full_res_mask : tpdata_fix.seg_srs;
+  ig.fixed_mask = mask_fix->GetObjectName();
   auto casted_mask = PTools::CastLabelToRealImage(mask_fix);
-	GreedyAPI->AddCachedInputObject(ig.fixed_mask, casted_mask);
+  GreedyAPI->AddCachedInputObject(ig.fixed_mask, casted_mask);
 
-	// Check smoothing parameters. If greedy default detected, change to propagation default.
-	const SmoothingParameters prop_default_pre = { 3.0, true }, prop_default_post = { 1.5, true };
-  param.sigma_pre = (m_GParam.sigma_pre == GreedyParameters::default_sigma_pre) ? prop_default_pre : m_GParam.sigma_pre;
-  param.sigma_post = (m_GParam.sigma_post == GreedyParameters::default_sigma_post) ? prop_default_post : m_GParam.sigma_post;
+  // Check smoothing parameters. If greedy default detected, change to propagation default.
+  const SmoothingParameters prop_default_pre = { 3.0, true }, prop_default_post = { 1.5, true };
+  param.sigma_pre = (m_GParam.sigma_pre == GreedyParameters::default_sigma_pre) ?
+                        prop_default_pre : m_GParam.sigma_pre;
+  param.sigma_post = (m_GParam.sigma_post == GreedyParameters::default_sigma_post) ?
+                        prop_default_post : m_GParam.sigma_post;
 
-	// Configure output
-	bool force_write = false; // Write out images for debugging
-	const char *suffix = isFullRes ? "" : "_srs";
-	param.output = GenerateBinaryTPObjectName("warp_", tp_mov, tp_fix, nullptr, suffix);
-	param.inverse_warp = GenerateBinaryTPObjectName("warp_", tp_fix, tp_mov, nullptr, suffix);
+  // Configure output
+  bool force_write = false; // Write out images for debugging
+  const char *suffix = isFullRes ? "" : "_srs";
+  param.output = GenerateBinaryTPObjectName("warp_", tp_mov, tp_fix, nullptr, suffix);
+  param.inverse_warp = GenerateBinaryTPObjectName("warp_", tp_fix, tp_mov, nullptr, suffix);
 
   if (m_PParam.debug)
-		{
-		force_write = true;
-		param.output = GenerateBinaryTPObjectName("warp_", tp_mov, tp_fix,
-        m_PParam.debug_dir.c_str(), suffix, ".nii.gz");
-		param.inverse_warp = GenerateBinaryTPObjectName("warp_", tp_fix, tp_mov,
-        m_PParam.debug_dir.c_str(), suffix, ".nii.gz");
-		}
+    {
+    force_write = true;
+    param.output = GenerateBinaryTPObjectName("warp_", tp_mov, tp_fix,
+                                              m_PParam.debug_dir.c_str(), suffix, ".nii.gz");
+    param.inverse_warp = GenerateBinaryTPObjectName("warp_", tp_fix, tp_mov,
+                                                    m_PParam.debug_dir.c_str(), suffix, ".nii.gz");
+    }
 
-	using LDDMM3DType = LDDMMData<TReal, 3>;
+    using LDDMM3DType = LDDMMData<TReal, 3>;
 
-	if (isFullRes)
-		{
-		// Set reference space for full res mode
-//    param.reference_space = "Full_Resolution_Ref_Space";
-//    GreedyAPI->AddCachedInputObject(param.reference_space, m_Data->full_res_ref_space);
+    if (isFullRes)
+      {
+      // Set the transformation chain
+      for (size_t i = 0; i < tpdata_fix.transform_specs.size(); ++i)
+        {
+        auto &trans_spec = tpdata_fix.transform_specs[i];
+        std::string affine_id = trans_spec.affine->GetObjectName();
+        ig.moving_pre_transforms.push_back(TransformSpec(affine_id, -1.0));
+        GreedyAPI->AddCachedInputObject(affine_id, trans_spec.affine.GetPointer());
+        }
 
-		// Set the transformation chain
-		for (size_t i = 0; i < tpdata_fix.transform_specs.size(); ++i)
-			{
-			auto &trans_spec = tpdata_fix.transform_specs[i];
-			std::string affine_id = trans_spec.affine->GetObjectName();
-			ig.moving_pre_transforms.push_back(TransformSpec(affine_id, -1.0));
-			GreedyAPI->AddCachedInputObject(affine_id, trans_spec.affine.GetPointer());
-			}
+      // Set output objects
+      tpdata_fix.deform_from_ref = LDDMM3DType::new_vimg(tpdata_fix.img);
+      tpdata_fix.deform_from_ref->SetObjectName(param.output);
+      GreedyAPI->AddCachedOutputObject(param.output, tpdata_fix.deform_from_ref, force_write);
 
-		// Set output objects
-		tpdata_fix.deform_from_ref = LDDMM3DType::new_vimg(tpdata_fix.img);
-		tpdata_fix.deform_from_ref->SetObjectName(param.output);
-		GreedyAPI->AddCachedOutputObject(param.output, tpdata_fix.deform_from_ref, force_write);
+      tpdata_fix.deform_to_ref = LDDMM3DType::new_vimg(tpdata_fix.img);
+      tpdata_fix.deform_to_ref->SetObjectName(param.inverse_warp);
+      GreedyAPI->AddCachedOutputObject(param.inverse_warp, tpdata_fix.deform_to_ref, force_write);
+      }
+    else
+      {
+      // Set Initial affine transform
+      std::string it_name = tpdata_mov.affine_to_prev->GetObjectName();
+      ig.moving_pre_transforms.push_back(TransformSpec(it_name, 1.0));
+      GreedyAPI->AddCachedInputObject(it_name, tpdata_mov.affine_to_prev);
 
-		tpdata_fix.deform_to_ref = LDDMM3DType::new_vimg(tpdata_fix.img);
-		tpdata_fix.deform_to_ref->SetObjectName(param.inverse_warp);
-		GreedyAPI->AddCachedOutputObject(param.inverse_warp, tpdata_fix.deform_to_ref, force_write);
-		}
-	else
-		{
-		// Set Initial affine transform
-		std::string it_name = tpdata_mov.affine_to_prev->GetObjectName();
-		ig.moving_pre_transforms.push_back(TransformSpec(it_name, 1.0));
-		GreedyAPI->AddCachedInputObject(it_name, tpdata_mov.affine_to_prev);
+      // Set output objects
+      tpdata_mov.deform_to_prev = LDDMM3DType::new_vimg(tpdata_mov.img_srs);
+      tpdata_mov.deform_to_prev->SetObjectName(param.output);
+      GreedyAPI->AddCachedOutputObject(param.output, tpdata_mov.deform_to_prev, force_write);
 
-		// Set output objects
-		tpdata_mov.deform_to_prev = LDDMM3DType::new_vimg(tpdata_mov.img_srs);
-		tpdata_mov.deform_to_prev->SetObjectName(param.output);
-		GreedyAPI->AddCachedOutputObject(param.output, tpdata_mov.deform_to_prev, force_write);
+      tpdata_mov.deform_from_prev = LDDMM3DType::new_vimg(tpdata_mov.img_srs);
+      tpdata_mov.deform_from_prev->SetObjectName(param.inverse_warp);
+      GreedyAPI->AddCachedOutputObject(param.inverse_warp, tpdata_mov.deform_from_prev, force_write);
+      }
 
-		tpdata_mov.deform_from_prev = LDDMM3DType::new_vimg(tpdata_mov.img_srs);
-		tpdata_mov.deform_from_prev->SetObjectName(param.inverse_warp);
-		GreedyAPI->AddCachedOutputObject(param.inverse_warp, tpdata_mov.deform_from_prev, force_write);
-		}
+    // Add the input group to the parameters
+    param.input_groups.clear();
+    param.input_groups.push_back(ig);
 
-	// Add the input group to the parameters
-	param.input_groups.clear();
-	param.input_groups.push_back(ig);
+    m_StdOut->printf("-- [Propagation] Deformable Command: %s \n", param.GenerateCommandLine().c_str());
 
-  m_StdOut->printf("-- [Propagation] Deformable Command: %s \n", param.GenerateCommandLine().c_str());
+    int ret = GreedyAPI->RunDeformable(param);
 
-	int ret = GreedyAPI->RunDeformable(param);
-
-  if (ret != 0)
-    throw GreedyException("GreedyAPI execution failed in Proapgation Deformable Run: tp_fix = %d, tp_mov = %d, isFulRes = %d",
-                          tp_fix, tp_mov, isFullRes);
+    if (ret != 0)
+      throw GreedyException("GreedyAPI execution failed in Proapgation Deformable Run:"
+                            " tp_fix = %d, tp_mov = %d, isFulRes = %d",
+                            tp_fix, tp_mov, isFullRes);
 }
 
 template<typename TReal>
@@ -550,93 +546,92 @@ PropagationAPI<TReal>
   TimePointData<TReal> &tpdata_in = m_Data->tp_data[tp_in];
   TimePointData<TReal> &tpdata_out = m_Data->tp_data[tp_out];
 
-	// API and parameter configuration
+  // API and parameter configuration
   using GreedyAPIType = GreedyApproach<3u, TReal>;
   std::shared_ptr<GreedyAPIType> GreedyAPI = std::make_shared<GreedyAPIType>();
-	GreedyParameters param;
-	param.mode = GreedyParameters::RESLICE;
+  GreedyParameters param;
+  param.mode = GreedyParameters::RESLICE;
   param.CopyGeneralSettings(m_GParam);
   param.CopyReslicingSettings(m_GParam);
 
-	// Set reference image
-	auto img_ref = isFullRes ? tpdata_out.img : tpdata_out.img_srs;
-	param.reslice_param.ref_image = img_ref->GetObjectName();
+  // Set reference image
+  auto img_ref = isFullRes ? tpdata_out.img : tpdata_out.img_srs;
+  param.reslice_param.ref_image = img_ref->GetObjectName();
   auto casted_ref = PTools::CastImageToCompositeImage(img_ref);
-	GreedyAPI->AddCachedInputObject(param.reslice_param.ref_image, casted_ref.GetPointer());
+  GreedyAPI->AddCachedInputObject(param.reslice_param.ref_image, casted_ref.GetPointer());
 
-	// Set input image
-	auto img_in = isFullRes ? tpdata_in.seg : tpdata_in.seg_srs;
-	std::string imgin_name = img_in->GetObjectName();
-	auto casted_mov = PropagationTools<TReal>
-			::template CastToCompositeImage<TLabelImage3D, IdentityIntensityMapping<TReal>>(img_in);
-	GreedyAPI->AddCachedInputObject(imgin_name, casted_mov.GetPointer());
+  // Set input image
+  auto img_in = isFullRes ? tpdata_in.seg : tpdata_in.seg_srs;
+  std::string imgin_name = img_in->GetObjectName();
+  auto casted_mov = PropagationTools<TReal>
+                  ::template CastToCompositeImage<TLabelImage3D, IdentityIntensityMapping<TReal>>(img_in);
+  GreedyAPI->AddCachedInputObject(imgin_name, casted_mov.GetPointer());
 
-	// Set output image
-	std::string imgout_name;
-	bool force_write = false;
-	if (isFullRes)
-		{
+  // Set output image
+  std::string imgout_name;
+  bool force_write = false;
+  if (isFullRes)
+    {
     force_write = m_PParam.writeOutputToDisk;
     imgout_name = GenerateUnaryTPFileName(m_PParam.fnsegout_pattern.c_str(),
-                                          tp_out, m_Data->outdir.c_str(), ".nii.gz");
-		}
+                              tp_out, m_Data->outdir.c_str(), ".nii.gz");
+    }
   else if (m_PParam.debug)
-		{
-		force_write = true;
+    {
+    force_write = true;
     imgout_name = GenerateUnaryTPObjectName("mask_", tp_out, m_PParam.debug_dir.c_str(), "_srs", ".nii.gz");
-		}
-	else // non debug, non full-res
-		{
-		imgout_name = GenerateUnaryTPObjectName("mask_", tp_out, nullptr, "_srs");
-		}
+    }
+  else // non debug, non full-res
+    {
+    imgout_name = GenerateUnaryTPObjectName("mask_", tp_out, nullptr, "_srs");
+    }
 
-	auto img_out = TLabelImage3D::New(); // create a new empty image
-	img_out->SetObjectName(imgout_name);
-	if (isFullRes)
-		tpdata_out.seg = img_out.GetPointer();
-	else
-		tpdata_out.seg_srs = img_out.GetPointer();
-	GreedyAPI->AddCachedOutputObject(imgout_name, img_out.GetPointer(), force_write);
+  auto img_out = TLabelImage3D::New(); // create a new empty image
+  img_out->SetObjectName(imgout_name);
+  if (isFullRes)
+    tpdata_out.seg = img_out.GetPointer();
+  else
+    tpdata_out.seg_srs = img_out.GetPointer();
+  GreedyAPI->AddCachedOutputObject(imgout_name, img_out.GetPointer(), force_write);
 
 	// Make a reslice spec with input-output pair and push to the parameter
   ResliceSpec rspec(imgin_name, imgout_name, m_PParam.reslice_spec);
-	param.reslice_param.images.push_back(rspec);
+  param.reslice_param.images.push_back(rspec);
 
-	// Build transformation chain
-	if (isFullRes)
-		{
-		// Prepend deformation field before all affine matrices for full-res reslice
-		std::string deform_id = tpdata_out.deform_from_ref->GetObjectName();
-		param.reslice_param.transforms.push_back(TransformSpec(deform_id));
-		GreedyAPI->AddCachedInputObject(deform_id, tpdata_out.deform_from_ref.GetPointer());
-		}
+  // Build transformation chain
+  if (isFullRes)
+    {
+    // Prepend deformation field before all affine matrices for full-res reslice
+    std::string deform_id = tpdata_out.deform_from_ref->GetObjectName();
+    param.reslice_param.transforms.push_back(TransformSpec(deform_id));
+    GreedyAPI->AddCachedInputObject(deform_id, tpdata_out.deform_from_ref.GetPointer());
+    }
 
-	for (size_t i = 0; i < tpdata_out.transform_specs.size(); ++i)
-		{
-		auto &trans_spec = tpdata_out.transform_specs[i];
-		std::string affine_id = trans_spec.affine->GetObjectName();
-		param.reslice_param.transforms.push_back(TransformSpec(affine_id, -1.0));
-		GreedyAPI->AddCachedInputObject(affine_id, trans_spec.affine.GetPointer());
+  for (size_t i = 0; i < tpdata_out.transform_specs.size(); ++i)
+    {
+    auto &trans_spec = tpdata_out.transform_specs[i];
+    std::string affine_id = trans_spec.affine->GetObjectName();
+    param.reslice_param.transforms.push_back(TransformSpec(affine_id, -1.0));
+    GreedyAPI->AddCachedInputObject(affine_id, trans_spec.affine.GetPointer());
 
-		// Append deformation field to each affine matrix for downsampled propagation
-		if (!isFullRes)
-			{
-			std::string deform_id = trans_spec.deform->GetObjectName();
-			param.reslice_param.transforms.push_back(TransformSpec(deform_id));
-			GreedyAPI->AddCachedInputObject(deform_id, trans_spec.deform.GetPointer());
-			}
-		}
+    // Append deformation field to each affine matrix for downsampled propagation
+    if (!isFullRes)
+      {
+      std::string deform_id = trans_spec.deform->GetObjectName();
+      param.reslice_param.transforms.push_back(TransformSpec(deform_id));
+      GreedyAPI->AddCachedInputObject(deform_id, trans_spec.deform.GetPointer());
+      }
+    }
 
   m_StdOut->printf("-- [Propagation] Reslice Command: %s \n", param.GenerateCommandLine().c_str());
 
-	int ret = GreedyAPI->RunReslice(param);
+  int ret = GreedyAPI->RunReslice(param);
 
   if (ret != 0)
-    throw GreedyException("GreedyAPI execution failed in Proapgation Reslice Run: tp_in = %d, tp_out = %d, isFulRes = %d",
+    throw GreedyException("GreedyAPI execution failed in Proapgation Reslice Run: "
+                          "tp_in = %d, tp_out = %d, isFulRes = %d",
                           tp_in, tp_out, isFullRes);
 }
-
-#include <vtkPolyDataWriter.h>
 
 template<typename TReal>
 void
@@ -666,12 +661,6 @@ PropagationAPI<TReal>
   auto mesh_in = tpdata_in.seg_mesh;
   std::string mesh_in_name = GenerateUnaryTPObjectName("mesh_", tp_in, nullptr, nullptr, ".vtk");
   GreedyAPI->AddCachedInputObject(mesh_in_name, mesh_in);
-
-  std::string dbgMeshIn = GenerateBinaryTPObjectName("dbg_meshin_", tp_in, tp_out, m_PParam.debug_dir.c_str(), nullptr, ".vtk");
-  vtkNew<vtkPolyDataWriter> writer;
-  writer->SetInputData(mesh_in);
-  writer->SetFileName(dbgMeshIn.c_str());
-  writer->Write();
 
   // Set output image
   std::string mesh_out_name =
@@ -752,17 +741,17 @@ PropagationAPI<TReal>
   TimePointData<TReal> &tpdata_crnt = m_Data->tp_data[tp_crnt];
   TimePointData<TReal> &tpdata_prev = m_Data->tp_data[tp_prev];
 
-	// Copy previous transform specs as a starting point
-	for (auto &spec : tpdata_prev.transform_specs)
-		tpdata_crnt.transform_specs.push_back(spec);
+  // Copy previous transform specs as a starting point
+  for (auto &spec : tpdata_prev.transform_specs)
+    tpdata_crnt.transform_specs.push_back(spec);
 
-	// Get current transformations
-	auto affine = tpdata_crnt.affine_to_prev;
-	auto deform = tpdata_crnt.deform_from_prev;
+  // Get current transformations
+  auto affine = tpdata_crnt.affine_to_prev;
+  auto deform = tpdata_crnt.deform_from_prev;
 
-	// Build spec and append to existing list
-	TimePointTransformSpec<TReal> spec(affine, deform, tp_crnt);
-	tpdata_crnt.transform_specs.push_back(spec);
+  // Build spec and append to existing list
+  TimePointTransformSpec<TReal> spec(affine, deform, tp_crnt);
+  tpdata_crnt.transform_specs.push_back(spec);
 }
 
 template<typename TReal>
@@ -803,44 +792,44 @@ template <typename TReal>
 inline std::string
 PropagationAPI<TReal>
 ::GenerateUnaryTPObjectName(const char *base, unsigned int tp,
-														const char *debug_dir, const char *suffix, const char *file_ext)
+                            const char *debug_dir, const char *suffix, const char *file_ext)
 {
-	std::ostringstream oss;
-	if (debug_dir)
+  std::ostringstream oss;
+  if (debug_dir)
     oss << debug_dir << PTools::GetPathSeparator();
-	if (base)
-		oss << base;
+  if (base)
+    oss << base;
 
-	oss << setfill('0') << setw(2) << tp;
+  oss << setfill('0') << setw(2) << tp;
 
-	if (suffix)
-		oss << suffix;
-	if (file_ext)
-		oss << file_ext;
+  if (suffix)
+    oss << suffix;
+  if (file_ext)
+    oss << file_ext;
 
-	return oss.str();
+  return oss.str();
 }
 
 template <typename TReal>
 inline std::string
 PropagationAPI<TReal>
 ::GenerateBinaryTPObjectName(const char *base, unsigned int tp1, unsigned int tp2,
-														const char *debug_dir, const char *suffix, const char *file_ext)
+                             const char *debug_dir, const char *suffix, const char *file_ext)
 {
-	std::ostringstream oss;
-	if (debug_dir)
+  std::ostringstream oss;
+  if (debug_dir)
     oss << debug_dir << PTools::GetPathSeparator();
-	if (base)
-		oss << base;
+  if (base)
+    oss << base;
 
-	oss << setfill('0') << setw(2) << tp1 << "_to_" << setfill('0') << setw(2) << tp2;
+  oss << setfill('0') << setw(2) << tp1 << "_to_" << setfill('0') << setw(2) << tp2;
 
-	if (suffix)
-		oss << suffix;
-	if (file_ext)
-		oss << file_ext;
+  if (suffix)
+    oss << suffix;
+  if (file_ext)
+    oss << file_ext;
 
-	return oss.str();
+  return oss.str();
 }
 
 template<typename TReal>
@@ -935,6 +924,6 @@ PropagationStdOut
 
 namespace propagation
 {
-	template class PropagationAPI<float>;
-	template class PropagationAPI<double>;
+  template class PropagationAPI<float>;
+  template class PropagationAPI<double>;
 }
