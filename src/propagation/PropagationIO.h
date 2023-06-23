@@ -3,10 +3,10 @@
 
 #include <iostream>
 #include <memory>
-#include "PropagationCommon.h"
+#include "PropagationCommon.hxx"
 #include "PropagationAPI.h"
-#include "PropagationData.h"
-#include "PropagationParameters.h"
+#include "PropagationData.hxx"
+#include "PropagationParameters.hxx"
 #include "GreedyParameters.h"
 
 
@@ -23,8 +23,6 @@ template<typename TReal>
 class PropagationInput
 {
 public:
-  PROPAGATION_DATA_TYPEDEFS
-
   PropagationInput();
   ~PropagationInput();
   PropagationInput(const PropagationInput &other) = default;

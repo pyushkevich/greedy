@@ -233,30 +233,7 @@ SET(GREEDY_API_LIBS greedyapi
   ${SPARSE_LIBRARY})
 
 # propagation api
-SET(PROPAGATION_LIB_HDR
-  src/propagation/PropagationAPI.h
-  src/propagation/PropagationCommon.h
-  src/propagation/PropagationTools.h
-  src/propagation/PropagationData.h
-  src/propagation/PropagationData.txx
-  src/propagation/PropagationTools.txx
-  src/propagation/PropagationIO.h
-  src/propagation/PropagationParameters.h
-)
-
-SET(PROPAGATION_LIB_SRC
-  src/propagation/PropagationAPI.cxx
-  src/propagation/PropagationIO.cxx
-  src/propagation/PropagationParameters.cxx
-)
-
-SET(PROPAGATION_INCLUDE_DIRS
-  ${GREEDY_SOURCE_DIR}/src/propagation
-)
-
-ADD_LIBRARY(propagationapi ${PROPAGATION_LIB_SRC} ${PROPAGATION_LIB_HDR})
-#TARGET_INCLUDE_DIRECTORIES(propagationapi PUBLIC ${GREEDY_INCLUDE_DIRS})
-TARGET_LINK_LIBRARIES(propagationapi PUBLIC ${GREEDY_API_LIBS})
+add_subdirectory(src/propagation propagation)
 
 SET(PROPAGATION_SRC
   src/propagation/greedy_propagation.cxx
@@ -301,14 +278,10 @@ IF(BUILD_CLI)
 
   ADD_EXECUTABLE(test_propagation testing/src/propagation/propagation_test.cxx)
   TARGET_LINK_LIBRARIES(test_propagation propagationapi)
-  TARGET_INCLUDE_DIRECTORIES(test_propagation PUBLIC ${PROPAGATION_INCLUDE_DIRS} )
+  TARGET_INCLUDE_DIRECTORIES(test_propagation PUBLIC ${GREEDY_SOURCE_DIR}/src/propagation )
 
   ADD_EXECUTABLE(multi_chunk_greedy ${CHUNK_GREEDY_SRC})
   TARGET_LINK_LIBRARIES(multi_chunk_greedy ${GREEDY_API_LIBS})
-
-  ADD_EXECUTABLE(greedy_propagation ${PROPAGATION_SRC})
-  TARGET_LINK_LIBRARIES(greedy_propagation PUBLIC propagationapi)
-  TARGET_INCLUDE_DIRECTORIES(greedy_propagation PUBLIC ${GREEDY_SOURCE_DIR}/src/propagation)
 
 ENDIF(BUILD_CLI)
 

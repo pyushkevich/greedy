@@ -1,7 +1,7 @@
 #include "PropagationAPI.h"
 #include "PropagationTools.h"
 #include "GreedyAPI.h"
-#include "PropagationData.h"
+#include "PropagationData.hxx"
 #include "PropagationIO.h"
 #include "GreedyMeshIO.h"
 

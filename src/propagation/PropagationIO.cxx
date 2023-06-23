@@ -1,6 +1,6 @@
 #include "PropagationIO.h"
 #include "PropagationTools.h"
-#include "PropagationCommon.h"
+#include "PropagationCommon.hxx"
 
 
 using namespace propagation;

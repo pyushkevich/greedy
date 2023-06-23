@@ -1,5 +1,8 @@
-#ifndef PROPAGATIONCOMMON_H
-#define PROPAGATIONCOMMON_H
+#ifndef PROPAGATIONCOMMON_HXX
+#define PROPAGATIONCOMMON_HXX
+
+namespace propagation
+{
 
 #define PROPAGATION_DATA_TYPEDEFS \
 using TImage4D = typename PropagationAPI<TReal>::TImage4D; \
@@ -14,4 +17,6 @@ using TPropagationMesh = typename PropagationAPI<TReal>::TPropagationMesh; \
 using TPropagationMeshPointer = typename PropagationAPI<TReal>::TPropagationMeshPointer; \
 using ResampleInterpolationMode = typename PropagationAPI<TReal>::ResampleInterpolationMode;
 
-#endif // PROPAGATIONCOMMON_H
+}
+
+#endif // PROPAGATIONCOMMON_HXX

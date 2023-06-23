@@ -1,6 +1,6 @@
 #include "PropagationAPI.h"
 #include "CommandLineHelper.h"
-#include "PropagationParameters.h"
+#include "PropagationParameters.hxx"
 #include "PropagationIO.h"
 #include <iostream>
 #include <memory>

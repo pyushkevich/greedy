@@ -5,7 +5,7 @@
 #include "CommandLineHelper.h"
 #include "PropagationAPI.h"
 #include "PropagationIO.h"
-#include "PropagationCommon.h"
+#include "PropagationCommon.hxx"
 #include "PropagationTools.h"
 #include "itkLabelOverlapMeasuresImageFilter.h"
 #include <vtkDecimatePro.h>
@@ -23,6 +23,7 @@ std::string data_root;
 int usage()
 {
 
+  return 0;
 }
 
 template<typename TReal>
