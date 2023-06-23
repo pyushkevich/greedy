@@ -129,16 +129,19 @@ PropagationOutput<TReal>
 }
 
 template<typename TReal>
+typename PropagationOutput<TReal>::TImage3D::Pointer
+PropagationOutput<TReal>
+::GetImage3D(unsigned int tp)
+{
+  return m_Data->tp_data.at(tp).img;
+}
+
+template<typename TReal>
 typename PropagationOutput<TReal>::TLabelImage3D::Pointer
 PropagationOutput<TReal>
 ::GetSegmentation3D(unsigned int tp)
 {
-  if (m_Data->tp_data.count(tp))
-    return m_Data->tp_data[tp].seg;
-  else
-    throw GreedyException(
-        "PropagationOutput::GetSegmentation3D, timepoint [%d] does not exist in target tp list", tp);
-
+  return m_Data->tp_data.at(tp).seg;
 }
 
 template<typename TReal>

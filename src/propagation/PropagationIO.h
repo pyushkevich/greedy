@@ -78,20 +78,21 @@ public:
   typedef std::map<std::string, TMeshSeries> TMeshSeriesMap;
   typedef std::map<unsigned int, typename TLabelImage3D::Pointer> TSegmentation3DSeries;
 
-  /** Get segmentations */
+  /** Image Getter */
+  typename TImage3D::Pointer GetImage3D(unsigned int tp);
+
+  /** Segmentation Getters */
   typename TLabelImage4D::Pointer GetSegmentation4D();
   typename TLabelImage3D::Pointer GetSegmentation3D(unsigned int tp);
   TSegmentation3DSeries GetSegmentation3DSeries();
 
-  /** Get the Mesh Series generated from the segmentation image */
+  /** Segmentation Mesh Getters*/
   TMeshSeries GetMeshSeries();
   TPropagationMeshPointer GetMesh(unsigned int tp);
 
-  /** Get the warped extra Mesh Series by its tag */
+  /** Extra Mesh Getters */
   TMeshSeries GetExtraMeshSeries(std::string tag);
   TPropagationMeshPointer GetExtraMesh(std::string tag, unsigned int tp);
-
-  /** Get all the warped extra Mesh Series */
   TMeshSeriesMap GetAllExtraMeshSeries();
 
   size_t GetNumberOfTimePoints();
