@@ -1533,7 +1533,7 @@ GreedyApproach<VDim, TReal>
   // Accumulate the regularization terms
   for(const auto &it : reg.terms)
     {
-    pos += sprintf(b_metrics + pos, "  %s  %8.6f", it.first.c_str(), it.second.second);
+    pos += snprintf(b_metrics + pos, 512 - pos, "  %s  %8.6f", it.first.c_str(), it.second.second);
     total += it.second.first * it.second.second;
     }
 
