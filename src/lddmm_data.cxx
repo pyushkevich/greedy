@@ -1674,7 +1674,7 @@ LDDMMData<TFloat, VDim>
   for(uint i = 0; i < nt; i++)
     {
     char fname[1024];
-    sprintf(fname, fnpat, i);
+    snprintf(fname, 1024, fnpat, i);
     VectorImagePointer vt;
     vimg_read(fname, vt);
     v.push_back(vt);
