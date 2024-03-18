@@ -9,7 +9,7 @@ if(COMMAND cmake_policy)
 endif(COMMAND cmake_policy)
 
 # C++11 required
-set (CMAKE_CXX_STANDARD 11)
+set (CMAKE_CXX_STANDARD 17)
 
 #--------------------------------------------------------------------------------
 # VERSION
