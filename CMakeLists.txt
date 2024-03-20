@@ -60,7 +60,7 @@ OPTION(GREEDY_USE_SPARSE_SOLVERS "Build registration tools that use sparse solve
 #--------------------------------------------------------------------------------
 
 # ITK
-FIND_PACKAGE(ITK 5.4.0 REQUIRED)
+FIND_PACKAGE(ITK 5.2.0 REQUIRED)
 INCLUDE(${ITK_USE_FILE})
 
 # VTK - required for quality mesh transformations
