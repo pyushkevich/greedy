@@ -8,8 +8,9 @@ if(COMMAND cmake_policy)
   CMAKE_POLICY(SET CMP0042 NEW)
 endif(COMMAND cmake_policy)
 
-# C++11 required
-set (CMAKE_CXX_STANDARD 11)
+# C++17 required
+set (CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 #--------------------------------------------------------------------------------
 # VERSION
@@ -59,7 +60,7 @@ OPTION(GREEDY_USE_SPARSE_SOLVERS "Build registration tools that use sparse solve
 #--------------------------------------------------------------------------------
 
 # ITK
-FIND_PACKAGE(ITK 5.1.2 REQUIRED)
+FIND_PACKAGE(ITK 5.2.0 REQUIRED)
 INCLUDE(${ITK_USE_FILE})
 
 # VTK - required for quality mesh transformations

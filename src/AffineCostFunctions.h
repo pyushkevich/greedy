@@ -334,7 +334,7 @@ public:
   virtual vnl_vector<double> backward(const vnl_vector<double> &g)
     { return vnl_vector<double>(); }
 
-  static vnl_vector<double> GetAxisAngle(const Mat &R) { return Vec(); }
+  static vnl_vector<double> GetAxisAngle(const Mat &R) { return Vec().as_vector(); }
 
   static Mat GetRandomRotation(vnl_random &randy, double alpha) { return Mat(); }
   static unsigned int GetNumberOfParameters() { return 0; }

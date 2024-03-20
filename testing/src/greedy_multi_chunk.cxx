@@ -5,7 +5,7 @@
 #include <GreedyException.h>
 #include <lddmm_data.h>
 #include <itkImageFileReader.h>
-#include <itkBinaryThresholdImageFilter.hxx>
+#include <itkBinaryThresholdImageFilter.h>
 #include <MultiImageRegistrationHelper.h>
 #include <AffineCostFunctions.h>
 #include <AffineTransformUtilities.h>
@@ -141,7 +141,7 @@ std::string ssprintf(const char *format, ...)
     char buffer[4096];
     va_list args;
     va_start (args, format);
-    vsprintf (buffer, format, args);
+    vsnprintf (buffer, sizeof(buffer), format, args);
     va_end (args);
     return std::string(buffer);
     }
