@@ -74,7 +74,7 @@ public:
   itkNewMacro(Self)
 
   /** Run-time type information (and related methods) */
-  itkTypeMacro( MultiImageOpticalFlowImageFilter, MultiComponentImageMetricBase )
+  itkTypeMacro( MahalanobisDistanceToTargetWarpMetric, MultiComponentImageMetricBase )
 
   /** Typedef to describe the output image region type. */
   typedef typename Superclass::OutputImageRegionType         OutputImageRegionType;
