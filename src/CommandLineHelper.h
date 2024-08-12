@@ -57,6 +57,16 @@ public:
       data_root = std::string();
   }
 
+  /**
+   * Provide a set of strings that should be accepted as existing filenames if
+   * encountered. This is to allow in-memory objects to be presented as filename
+   * inputs to the program
+   */
+  void set_file_check_bypass_labels(std::vector<std::string> labels)
+  {
+    this->file_check_bypass_labels = labels;
+  }
+
   bool is_at_end()
   {
     return i >= argc;
@@ -140,12 +150,20 @@ public:
     return n_args;
   }
 
+  bool is_file_check_bypass_label(const std::string &s)
+  {
+    return std::find(file_check_bypass_labels.begin(), file_check_bypass_labels.end(), s) != file_check_bypass_labels.end();
+  }
+
   /**
    * Read an existing filename
    */
   std::string read_existing_filename()
   {
     std::string file = read_arg();
+    if(is_file_check_bypass_label(file))
+      return file;
+
     if(this->data_root.length())
       file = itksys::SystemTools::CollapseFullPath(file, data_root);
 
@@ -171,8 +189,9 @@ public:
     if(this->data_root.length())
       ts.filename = itksys::SystemTools::CollapseFullPath(ts.filename, data_root);
 
-    if(check_file_exists && !itksys::SystemTools::FileExists(ts.filename.c_str()))
-      throw GreedyException("File '%s' does not exist", ts.filename.c_str());
+    if(!is_file_check_bypass_label(ts.filename.c_str()))
+      if(check_file_exists && !itksys::SystemTools::FileExists(ts.filename.c_str()))
+        throw GreedyException("File '%s' does not exist", ts.filename.c_str());
 
     if(pos != std::string::npos)
       {
@@ -195,6 +214,8 @@ public:
   std::string read_output_filename()
   {
     std::string file = read_arg();
+    if(is_file_check_bypass_label(file))
+      return file;
     if(this->data_root.length())
       file = itksys::SystemTools::CollapseFullPath(file, data_root);
     return file;
@@ -364,6 +385,7 @@ private:
   char **argv;
   std::string current_command;
   std::string data_root;
+  std::vector<std::string> file_check_bypass_labels;
 };
 
 #endif // COMMANDLINEHELPER_H

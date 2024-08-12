@@ -369,6 +369,12 @@ public:
   static void poisson_pde_zero_boundary_laplacian(void *solver_data, ImageType *u, ImageType *result);
   static void poisson_pde_zero_boundary_dealloc(void *solver_data);
 
+  // Present an image of one of the supported classes (scalar, vector, composite)
+  // as a CompositeImagePointer. The image returned will share memory with the
+  // object src. If the image cannot be cast to one of the supported types,
+  // nullptr will be returned.
+  static CompositeImagePointer as_cimg(ImageBaseType *src);
+
 protected:
 
   // Present a vector field as a cimg (for algorithms that only run on cimg). The two images will
