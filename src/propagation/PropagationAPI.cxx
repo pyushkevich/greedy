@@ -39,15 +39,16 @@ PropagationAPI<TReal>
   if (!m_Data->seg_ref)
     throw GreedyException("Reference segmentation Image not found!");
 
-  const size_t nt  = m_Data->GetNumberOfTimePoints();
 
   // Validate inputs
-  if (m_PParam.refTP < 0 || m_PParam.refTP > nt)
-    throw GreedyException("Reference tp %d cannot be greater than total number of tps %d",
-                          m_PParam.refTP, nt);
+  // -- ref tp has to be within the range of the tp
+  uint16_t nt = m_Data->img4d->GetLargestPossibleRegion().GetSize()[3];
+  if (m_PParam.refTP <= 0 || m_PParam.refTP > nt)
+    throw GreedyException("Reference tp %d is out of the tp range of the 4d image (1 to %d)", m_PParam.refTP, nt);
+
 
   for (size_t tp : m_PParam.targetTPs)
-    if (tp > nt) throw GreedyException("Target tp %d cannot be greater than total number tps %d",tp, nt);
+    if (tp <=0 || tp > nt) throw GreedyException("Target tp %d is out of the tp range of the 4d image (1 to %d)",tp, nt);
 }
 
 template<typename TReal>
