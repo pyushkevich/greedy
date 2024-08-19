@@ -352,10 +352,6 @@ GreedyParameters greedy_parse_commandline(int argc, char *argv[],
                                           int first_arg = 1,
                                           bool parse_template_params = true,
                                           std::vector<std::string> bypass_filename_check_labels = std::vector<std::string>());
-GreedyParameters greedy_parse_commandline(const char *cmd,
-                                          int first_arg = 1,
-                                          bool parse_template_params = true,
-                                          std::vector<std::string> bypass_filename_check_labels = std::vector<std::string>());
 
 
 

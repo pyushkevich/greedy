@@ -9,7 +9,7 @@ if(COMMAND cmake_policy)
 endif(COMMAND cmake_policy)
 
 # C++11 required
-set (CMAKE_CXX_STANDARD 11)
+set (CMAKE_CXX_STANDARD 17)
 
 #--------------------------------------------------------------------------------
 # VERSION
@@ -54,6 +54,9 @@ OPTION(GREEDY_BUILD_STACK_REG "Build experimental slice stack registration code"
 # Do we want to enable PDE-based methods that require sparse solvers
 OPTION(GREEDY_USE_SPARSE_SOLVERS "Build registration tools that use sparse solvers" OFF)
 
+# Do we want to build the landmark geodesic shooting registration code?
+OPTION(GREEDY_BUILD_LMSHOOT "Build landmark geodesic shooting library and tools" OFF)
+
 #--------------------------------------------------------------------------------
 # Dependent packages
 #--------------------------------------------------------------------------------
@@ -87,6 +90,14 @@ INCLUDE_DIRECTORIES(
   ${GREEDY_SOURCE_DIR}/src
   ${GREEDY_SOURCE_DIR}/src/ITKFilters/include
 )
+
+# LMShoot needs eigen
+IF(GREEDY_BUILD_LMSHOOT)
+  FIND_PACKAGE (Eigen3 3.3 REQUIRED)
+  IF(EIGEN3_FOUND)
+    ADD_DEFINITIONS(-DHAVE_EIGEN)
+  ENDIF()
+ENDIF()
 
 #--------------------------------------------------------------------------------
 # Hard-coded documentation
@@ -202,6 +213,13 @@ SET(CHUNK_GREEDY_SRC
 SET(TEMPLATE_AVG_SRC
   src/template_make_average.cxx)
 
+SET(LMSHOOT_LIB_SRC
+  src/lmshoot/PointSetHamiltonianSystem.cxx
+  src/lmshoot/PointSetGeodesicShooting.cxx
+  src/GreedyMeshIO.cxx
+  src/lmshoot/PointSetGeodesicToWarp.cxx)
+
+
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
 TARGET_INCLUDE_DIRECTORIES(greedyapi PUBLIC ${GREEDY_INCLUDE_DIRS})
 TARGET_LINK_LIBRARIES(greedyapi ${VTK_LIBRARIES} ${ITK_LIBRARIES})
@@ -243,6 +261,27 @@ IF(BUILD_CLI)
     INCLUDE_DIRECTORIES(${GREEDY_SOURCE_DIR}/src/dijkstra)
     TARGET_LINK_LIBRARIES(stack_greedy ${GREEDY_API_LIBS})
     ADD_DEPENDENCIES(stack_greedy docs_to_hex)
+  ENDIF()
+
+  IF(GREEDY_BUILD_LMSHOOT)
+    # Add lmshoot library
+    ADD_LIBRARY(lmshoot_lib ${LMSHOOT_LIB_SRC})
+    SET_PROPERTY(TARGET lmshoot_lib PROPERTY OUTPUT_NAME lmshoot)
+    TARGET_LINK_LIBRARIES(lmshoot_lib ${GREEDY_API_LIBS})
+    TARGET_INCLUDE_DIRECTORIES(lmshoot_lib PRIVATE ${EIGEN3_INCLUDE_DIR})
+
+    # Add the individual programs
+    ADD_EXECUTABLE(lmshoot src/lmshoot/lmshoot_main.cxx)
+    TARGET_LINK_LIBRARIES(lmshoot lmshoot_lib ${GREEDY_API_LIBS})
+
+    ADD_EXECUTABLE(lmtowarp src/lmshoot/lmtowarp_main.cxx)
+    TARGET_LINK_LIBRARIES(lmtowarp lmshoot_lib ${GREEDY_API_LIBS})
+
+    ADD_EXECUTABLE(lmshoot_test src/lmshoot/TestGeodesicShooting.cxx)
+    TARGET_LINK_LIBRARIES(lmshoot_test lmshoot_lib ${GREEDY_API_LIBS})
+
+    SET(GREEDY_INSTALL_TARGETS ${GREEDY_INSTALL_TARGETS} lmshoot_lib lmshoot lmtowarp)
+
   ENDIF()
 
   ADD_EXECUTABLE(greedy ${GREEDY_SRC})
@@ -368,5 +407,10 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
   ADD_TEST(NAME "Phantom_NMI_Sim_NoMask"  COMMAND test_greedy phantom 1 2 NMI 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "Phantom_NCC_Sim_NoMask"  COMMAND test_greedy phantom 1 3 NCC 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "Phantom_WNCC_Sim_NoMask" COMMAND test_greedy phantom 1 3 WNCC 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+
+  # Add tests for lmshoot
+  IF(GREEDY_BUILD_LMSHOOT)
+  ADD_TEST(NAME "lmshoot_regression" COMMAND lmshoot_test shoot_regression.mat WORKING_DIRECTORY ${TESTING_DATADIR}/lmshoot)
+  ENDIF()
 
 ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)

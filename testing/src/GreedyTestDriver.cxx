@@ -64,7 +64,7 @@ std::string GetFileName(const char *pattern, ...)
   va_list args;
   va_start(args, pattern);
   char filename_local[2048];
-  vsprintf(filename_local, pattern, args);
+  vsnprintf(filename_local, 2048, pattern, args);
   va_end(args);
 
   // Prepend the root
@@ -364,7 +364,7 @@ std::string printf_index(const char *format, itk::Index<VDim> index)
   for(unsigned int i = 0; i < VDim; i++)
     {
     char buf[256];
-    sprintf(buf, format, index[i]);
+    snprintf(buf, 256, format, index[i]);
     result += buf;
     if(i < VDim - 1)
       result += ",";
@@ -379,7 +379,7 @@ std::string printf_vec(const char *format, T *arr)
   for(unsigned int i = 0; i < VDim; i++)
     {
     char buf[256];
-    sprintf(buf, format, arr[i]);
+    snprintf(buf, 256, format, arr[i]);
     result += buf;
     if(i < VDim - 1)
       result += ",";
@@ -815,7 +815,7 @@ int RunMetricVoxelwiseGradientTest(CommandLineHelper &cl)
     double ana_deriv = LDDMMType::img_voxel_sum(idot);
 
     char buffer[256];
-    sprintf(buffer, "/tmp/variation%d.nii.gz", i);
+    snprintf(buffer, 256, "/tmp/variation%d.nii.gz", i);
     LDDMMType::vimg_write(variation, buffer);
 
     // Compute numeric derivatives
