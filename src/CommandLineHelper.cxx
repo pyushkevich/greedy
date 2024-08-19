@@ -1,5 +1,6 @@
 #include "CommandLineHelper.h"
 #include <cassert>
+#include <cstring>
 
 #ifdef _WIN32
 #include <windows.h>
