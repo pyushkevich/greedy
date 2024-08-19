@@ -45,24 +45,6 @@ int lmtowarp_usage(bool print_template_param)
   return -1;
 }
 
-void check(bool condition, const char *format,...)
-{
-  if(!condition)
-    {
-    char buffer[256];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(buffer, 256, format, args);
-    va_end(args);
-
-    cerr << buffer << endl;
-    exit(-1);
-    }
-}
-
-
-
-
 template <class TPixel, unsigned int VDim>
 void
 PointSetGeodesicToWarp<TPixel, VDim>
@@ -266,8 +248,8 @@ PointSetGeodesicToWarp<TPixel, VDim>
   bool use_ralston_method = param.use_ralston_method ? true
                                                      : vtk_get_scalar_field_data(mesh, "lddmm_ralston", false);
 
-  check(sigma > 0, "Missing or negative sigma parameter");
-  check(N > 0 && param.N < 10000, "Incorrect N parameter");
+  GreedyException::check(sigma > 0, "Missing or negative sigma parameter");
+  GreedyException::check(N > 0 && param.N < 10000, "Incorrect N parameter");
 
   // Count the number of non-null entries
   vector<unsigned int> index;
@@ -588,7 +570,7 @@ lmtowarp_parse_commandline(CommandLineHelper &cl, bool parse_template_params)
   }
 
   if(parse_template_params)
-    check(param.dim >= 2 && param.dim <= 3, "Incorrect N parameter");
+    GreedyException::check(param.dim >= 2 && param.dim <= 3, "Incorrect N parameter");
 
   // Set the number of threads if not specified
   if(param.n_threads == 0)
