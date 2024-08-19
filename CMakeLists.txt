@@ -266,22 +266,21 @@ IF(BUILD_CLI)
 
   IF(GREEDY_BUILD_LMSHOOT)
     # Add lmshoot library
-    ADD_LIBRARY(lmshoot_lib ${LMSHOOT_LIB_SRC})
-    SET_PROPERTY(TARGET lmshoot_lib PROPERTY OUTPUT_NAME lmshoot)
-    TARGET_LINK_LIBRARIES(lmshoot_lib ${GREEDY_API_LIBS})
-    TARGET_INCLUDE_DIRECTORIES(lmshoot_lib PRIVATE ${EIGEN3_INCLUDE_DIR})
+    ADD_LIBRARY(lmshootapi ${LMSHOOT_LIB_SRC})
+    TARGET_LINK_LIBRARIES(lmshootapi ${GREEDY_API_LIBS})
+    TARGET_INCLUDE_DIRECTORIES(lmshootapi PRIVATE ${EIGEN3_INCLUDE_DIR})
 
     # Add the individual programs
     ADD_EXECUTABLE(lmshoot src/lmshoot/lmshoot_main.cxx)
-    TARGET_LINK_LIBRARIES(lmshoot lmshoot_lib ${GREEDY_API_LIBS})
+    TARGET_LINK_LIBRARIES(lmshoot lmshootapi ${GREEDY_API_LIBS})
 
     ADD_EXECUTABLE(lmtowarp src/lmshoot/lmtowarp_main.cxx)
-    TARGET_LINK_LIBRARIES(lmtowarp lmshoot_lib ${GREEDY_API_LIBS})
+    TARGET_LINK_LIBRARIES(lmtowarp lmshootapi ${GREEDY_API_LIBS})
 
     ADD_EXECUTABLE(lmshoot_test src/lmshoot/TestGeodesicShooting.cxx)
-    TARGET_LINK_LIBRARIES(lmshoot_test lmshoot_lib ${GREEDY_API_LIBS})
+    TARGET_LINK_LIBRARIES(lmshoot_test lmshootapi ${GREEDY_API_LIBS})
 
-    SET(GREEDY_INSTALL_TARGETS ${GREEDY_INSTALL_TARGETS} lmshoot_lib lmshoot lmtowarp)
+    SET(GREEDY_INSTALL_TARGETS ${GREEDY_INSTALL_TARGETS} lmshootapi lmshoot lmtowarp)
 
   ENDIF()
 
@@ -315,7 +314,7 @@ IF(INSTALL_CLI)
   INSTALL(FILES ${GREEDY_HEADER_FILES} DESTINATION include)
 
   IF(GREEDY_BUILD_LMSHOOT)
-    INSTALL(TARGETS lmshoot_lib DESTINATION lib EXPORT GreedyTargets)
+    INSTALL(TARGETS lmshootapi DESTINATION lib EXPORT GreedyTargets)
     INSTALL(FILES ${LMSHOOT_HEADER_FILES} DESTINATION include)
   ENDIF()
 
