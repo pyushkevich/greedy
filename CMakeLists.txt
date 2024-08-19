@@ -188,6 +188,7 @@ SET(GREEDY_LIB_SRC
   ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
   src/lddmm_data.cxx
   src/lddmm_sparse.cxx
+  src/CommandLineHelper.cxx
   src/GreedyAPI.cxx
   src/GreedyMeshIO.cxx
   src/GreedyParameters.cxx

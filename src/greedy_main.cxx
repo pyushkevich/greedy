@@ -79,7 +79,8 @@ int main(int argc, char *argv[])
   try
   {
     // Parse the command line
-    param = greedy_parse_commandline(argc, argv, true);
+    CommandLineHelper cl(argc, argv);
+    param = greedy_parse_commandline(cl, true);
 
     // Run the main code
     if(param.flag_float_math)

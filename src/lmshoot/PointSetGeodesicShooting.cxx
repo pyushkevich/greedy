@@ -2597,13 +2597,9 @@ PointSetShootingProblem<TFloat, VDim>
   return 0;
 }
 
-ShootingParameters lmshoot_parse_commandline(
-    int argc, char *argv[], int first_arg, bool parse_template_params,
-    std::vector<std::string> bypass_filename_check_labels)
+ShootingParameters lmshoot_parse_commandline(CommandLineHelper &cl, bool parse_template_params)
 {
   ShootingParameters param;
-  CommandLineHelper cl(argc, argv, first_arg);
-  cl.set_file_check_bypass_labels(bypass_filename_check_labels);
 
   // Process parameters
   while(!cl.is_at_end())

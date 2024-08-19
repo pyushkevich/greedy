@@ -11,7 +11,8 @@ int main(int argc, char *argv[])
   try
   {
     // Parse the command line
-    param = lmshoot_parse_commandline(argc, argv, true);
+    CommandLineHelper cl(argc, argv);
+    param = lmshoot_parse_commandline(cl, true);
 
     // Run the main code
     if(param.use_float)

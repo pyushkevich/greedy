@@ -30,8 +30,9 @@
 #include <cerrno>
 #include "GreedyException.h"
 #include "GreedyParameters.h"
-#include "GreedyAPI.h"
 #include "itksys/SystemTools.hxx"
+
+char **split_commandline(const char *cmdline, int *argc);
 
 /**
  * @brief A class to facilitate processing of command-line arguments
@@ -39,11 +40,28 @@
 class CommandLineHelper
 {
 public:
-  CommandLineHelper(int argc, char *argv[], int first_arg = 1)
+  CommandLineHelper(int argc, char *argv[])
   {
     this->argc = argc;
     this->argv = argv;
-    i = first_arg;
+    this->i = 1;
+    this->own_argv = false;
+  }
+
+  CommandLineHelper(const char *cmdl)
+  {
+    this->argc = 0;
+    this->argv = split_commandline(cmdl, &argc);
+    this->i = 0;
+    this->own_argv = true;
+  }
+
+  ~CommandLineHelper()
+  {
+    if(this->own_argv && this->argv)
+      for (i = 0; i < this->argc; i++)
+        if (this->argv[i])
+          free(this->argv[i]);
   }
 
   /**
@@ -373,19 +391,20 @@ public:
       throw GreedyException("Cannot take last %d commands from commandline", k);
 
     argc -= k;
-    return CommandLineHelper(k, argv + argc, 0);
+    return CommandLineHelper(k, argv + argc);
   }
-
-
-
-
 
 private:
   int argc, i;
   char **argv;
+  bool own_argv;
   std::string current_command;
   std::string data_root;
   std::vector<std::string> file_check_bypass_labels;
 };
+
+/** Helper function to expand a command line string to argc/argv format */
+char **split_commandline(const char *cmdline, int *argc);
+void free_argv(int argc, char **argv);
 
 #endif // COMMANDLINEHELPER_H

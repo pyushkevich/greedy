@@ -34,12 +34,6 @@
 #include <algorithm>
 #include <cstdarg>
 
-#ifdef _WIN32
-#include <windows.h>
-#include <shellapi.h>
-#else
-#include <wordexp.h>
-#endif
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"
@@ -74,115 +68,6 @@
 #include "DifferentiableScalingAndSquaring.h"
 
 
-
-
-/**
- * Code to split a string into argc/argv with some shell expansion
- * from http://stackoverflow.com/questions/1706551/parse-string-into-argv-argc
- */
-char **split_commandline(const char *cmdline, int *argc)
-{
-    int i;
-    char **argv = NULL;
-    assert(argc);
-
-    if (!cmdline)
-    {
-        return NULL;
-    }
-
-// Posix.
-#ifndef _WIN32
-    {
-        wordexp_t p;
-
-        // Note! This expands shell variables.
-        if (wordexp(cmdline, &p, 0))
-        {
-            return NULL;
-        }
-
-        *argc = p.we_wordc;
-
-        if (!(argv = (char **) calloc(*argc, sizeof(char *))))
-        {
-            goto fail;
-        }
-
-        for (i = 0; i < p.we_wordc; i++)
-        {
-            if (!(argv[i] = strdup(p.we_wordv[i])))
-            {
-                goto fail;
-            }
-        }
-
-        wordfree(&p);
-
-        return argv;
-    fail:
-        wordfree(&p);
-    }
-#else // WIN32
-    {
-        wchar_t **wargs = NULL;
-        size_t needed = 0;
-        wchar_t *cmdlinew = NULL;
-        size_t len = strlen(cmdline) + 1;
-
-        if (!(cmdlinew = (wchar_t *) calloc(len, sizeof(wchar_t))))
-            goto fail;
-
-        if (!MultiByteToWideChar(CP_ACP, 0, cmdline, -1, cmdlinew, len))
-            goto fail;
-
-        if (!(wargs = CommandLineToArgvW(cmdlinew, argc)))
-            goto fail;
-
-        if (!(argv = (char **) calloc(*argc, sizeof(char *))))
-            goto fail;
-
-        // Convert from wchar_t * to ANSI char *
-        for (i = 0; i < *argc; i++)
-        {
-            // Get the size needed for the target buffer.
-            // CP_ACP = Ansi Codepage.
-            needed = WideCharToMultiByte(CP_ACP, 0, wargs[i], -1,
-                                         NULL, 0, NULL, NULL);
-
-            if (!(argv[i] = (char *) malloc(needed)))
-                goto fail;
-
-            // Do the conversion.
-            needed = WideCharToMultiByte(CP_ACP, 0, wargs[i], -1,
-                                         argv[i], needed, NULL, NULL);
-        }
-
-        if (wargs) LocalFree(wargs);
-        if (cmdlinew) free(cmdlinew);
-        return argv;
-
-    fail:
-        if (wargs) LocalFree(wargs);
-        if (cmdlinew) free(cmdlinew);
-    }
-#endif // WIN32
-
-    if (argv)
-    {
-        for (i = 0; i < *argc; i++)
-        {
-            if (argv[i])
-            {
-                free(argv[i]);
-            }
-        }
-
-        free(argv);
-    }
-
-    return NULL;
-}
 
 
 
@@ -4100,13 +3985,9 @@ int greedy_usage(bool print_template_params)
 
 extern const char *GreedyVersionInfo;
 
-GreedyParameters greedy_parse_commandline(
-  int argc, char *argv[], int first_arg, bool parse_template_params,
-  std::vector<std::string> bypass_filename_check_labels)
+GreedyParameters greedy_parse_commandline(CommandLineHelper &cl, bool parse_template_params)
 {
   GreedyParameters param;
-  CommandLineHelper cl(argc, argv, first_arg);
-  cl.set_file_check_bypass_labels(bypass_filename_check_labels);
 
   // Check for the environment variable specifying data root
   std::string data_root;
@@ -4144,19 +4025,6 @@ GreedyParameters greedy_parse_commandline(
          // Return the parameters
   return param;
 }
-
-GreedyParameters greedy_parse_commandline(
-  const char *cmd, int first_arg, bool parse_template_params,
-  std::vector<std::string> bypass_filename_check_labels)
-{
-  int argc = 0;
-  char **argv = split_commandline(cmd, &argc);
-  if(!argv)
-    throw GreedyException("Error parsing the command line expression");
-  return greedy_parse_commandline(argc, argv, first_arg, parse_template_params, bypass_filename_check_labels);
-
-}
-
 
 template class GreedyApproach<2, float>;
 template class GreedyApproach<3, float>;

@@ -348,11 +348,6 @@ protected:
 int greedy_usage(bool print_template_params = true);
 
 // Parse greedy command line
-GreedyParameters greedy_parse_commandline(int argc, char *argv[],
-                                          int first_arg = 1,
-                                          bool parse_template_params = true,
-                                          std::vector<std::string> bypass_filename_check_labels = std::vector<std::string>());
-
-
+GreedyParameters greedy_parse_commandline(CommandLineHelper &cl, bool parse_template_params);
 
 #endif // GREEDYAPI_H

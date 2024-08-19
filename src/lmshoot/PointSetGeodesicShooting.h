@@ -2,6 +2,7 @@
 #define __PointSetGeodesicShooting_h_
 
 #include "PointSetHamiltonianSystem.h"
+#include "CommandLineHelper.h"
 
 struct ShootingParameters
 {
@@ -79,10 +80,7 @@ private:
 int lmshoot_usage(bool print_template_params);
 
 // Parse command line and return parameter structure
-ShootingParameters lmshoot_parse_commandline(
-    int argc, char *argv[],
-    int first_arg = 1, bool parse_template_params = true,
-    std::vector<std::string> bypass_filename_check_labels = std::vector<std::string>());
+ShootingParameters lmshoot_parse_commandline(CommandLineHelper &cl, bool parse_template_params);
 
 
 #endif
