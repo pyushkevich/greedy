@@ -59,22 +59,6 @@ int lmshoot_usage(bool print_template_params)
   return -1;
 }
 
-void check(bool condition, const char *format,...)
-{
-  if(!condition)
-    {
-    char buffer[256];
-    va_list args;
-    va_start (args, format);
-    vsnprintf (buffer, 256, format, args);
-    va_end (args);
-
-    throw GreedyException(buffer);
-    }
-}
-
-
-
 template <class TFloat, unsigned int VDim>
 class TriangleCentersAndNormals
 {
@@ -2340,8 +2324,8 @@ PointSetShootingProblem<TFloat, VDim>
 
   // Get the number of vertices and dimensionality
   if(param.attach == ShootingParameters::Euclidean)
-    check(pTemplate->GetNumberOfPoints() == pTarget->GetNumberOfPoints(),
-          "Template and target meshes must match for the Landmark attachment term");
+    GreedyException::check(pTemplate->GetNumberOfPoints() == pTarget->GetNumberOfPoints(),
+                           "Template and target meshes must match for the Landmark attachment term");
 
   // Get the number of control points
   unsigned int k = pControl ? pControl->GetNumberOfPoints() : pTemplate->GetNumberOfPoints();
@@ -2399,7 +2383,7 @@ PointSetShootingProblem<TFloat, VDim>
     else
       da_p0 = pTemplate->GetPointData()->GetArray(param.arrInitialMomentum.c_str());
 
-    check(da_p0 && da_p0->GetNumberOfTuples() == k && da_p0->GetNumberOfComponents() == VDim,
+    GreedyException::check(da_p0 && da_p0->GetNumberOfTuples() == k && da_p0->GetNumberOfComponents() == VDim,
           "Initial momentum array missing or has wrong dimensions");
 
     for(unsigned int a = 0; a < VDim; a++)
@@ -2449,7 +2433,7 @@ PointSetShootingProblem<TFloat, VDim>
       {
       vtkDataArray *da_template = pTemplate->GetCellData()->GetArray(param.arrAttachmentLabelPosteriors.c_str());
       vtkDataArray *da_target = pTarget->GetCellData()->GetArray(param.arrAttachmentLabelPosteriors.c_str());
-      check(da_template && da_target && da_template->GetNumberOfComponents() == da_target->GetNumberOfComponents(),
+      GreedyException::check(da_template && da_target && da_template->GetNumberOfComponents() == da_target->GetNumberOfComponents(),
             "Label posterior arrays in template and target missing or do not match");
       int n_labels = da_template->GetNumberOfComponents();
       lab_template.set_size(tri_template.rows(), n_labels);
@@ -2721,16 +2705,16 @@ ShootingParameters lmshoot_parse_commandline(CommandLineHelper &cl, bool parse_t
   // Check parameters
   if(!param.do_similarity_matching)
   {
-    check(param.sigma > 0, "Missing or negative sigma parameter");
-    check(param.N > 0 && param.N < 10000, "Incorrect N parameter");
+    GreedyException::check(param.sigma > 0, "Missing or negative sigma parameter");
+    GreedyException::check(param.N > 0 && param.N < 10000, "Incorrect N parameter");
   }
-  check(param.attach == ShootingParameters::Euclidean || param.currents_sigma > 0,
+  GreedyException::check(param.attach == ShootingParameters::Euclidean || param.currents_sigma > 0,
         "Missing sigma parameter for current/varifold metric");
   if(parse_template_params)
-    check(param.dim >= 2 && param.dim <= 3, "Incorrect N parameter");
-  check(param.fnTemplate.length(), "Missing template filename");
-  check(param.fnTarget.length(), "Missing target filename");
-  check(param.fnOutput.length(), "Missing output filename");
+    GreedyException::check(param.dim >= 2 && param.dim <= 3, "Incorrect N parameter");
+  GreedyException::check(param.fnTemplate.length(), "Missing template filename");
+  GreedyException::check(param.fnTarget.length(), "Missing target filename");
+  GreedyException::check(param.fnOutput.length(), "Missing output filename");
 
   // Set the number of threads if not specified
   if(param.n_threads == 0)

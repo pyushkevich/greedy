@@ -39,17 +39,30 @@ class GreedyException : public std::exception
 public:
 
   GreedyException(const char *format, ...)
-    {
+  {
     buffer = new char[4096];
     va_list args;
     va_start (args, format);
     vsnprintf (buffer, 4096, format, args);
     va_end (args);
-    }
+  }
 
   virtual const char* what() const throw() { return buffer; }
 
   virtual ~GreedyException() throw() { delete buffer; }
+
+  static void check(bool condition, const char *format, ...)
+  {
+    if(!condition)
+    {
+      char buffer[4096];
+      va_list args;
+      va_start (args, format);
+      vsnprintf (buffer, 4096, format, args);
+      va_end (args);
+      throw GreedyException(buffer);
+    }
+  }
 
 private:
 
