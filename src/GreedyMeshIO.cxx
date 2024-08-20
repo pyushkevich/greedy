@@ -176,7 +176,7 @@ vtkSmartPointer<vtkPointSet> DeepCopyMesh(vtkPointSet *mesh)
 
 vtkSmartPointer<vtkPolyData> ReadVTKPolyData(const char *fname)
 {
-  auto point_set = greedy_mesh_io::ReadMeshByExtension<vtkPointSet>(fname);
+  vtkSmartPointer<vtkPointSet> point_set = greedy_mesh_io::ReadMeshByExtension<vtkPointSet>(fname);
   vtkSmartPointer<vtkPolyData> pd = dynamic_cast<vtkPolyData *>(point_set.GetPointer());
   if(!pd)
     throw GreedyException("Mesh %s is not in vtkPolyData format", fname);

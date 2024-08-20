@@ -233,7 +233,7 @@ PointSetGeodesicToWarp<TPixel, VDim>
 ::run(const WarpGenerationParameters &param)
 {
   // Read the VTK mesh containing the points
-  vtkPolyData *mesh = ReadVTKPolyData(param.fnMesh.c_str());
+  vtkSmartPointer<vtkPolyData> mesh = ReadVTKPolyData(param.fnMesh.c_str());
 
   // Read the momentum field
   vtkDataArray *arr_p0 = mesh->GetPointData()->GetArray("InitialMomentum");
@@ -312,7 +312,7 @@ PointSetGeodesicToWarp<TPixel, VDim>
   for(it = param.fnWarpMeshes.begin(); it != param.fnWarpMeshes.end(); ++it)
     {
     // Read the VTK mesh
-    vtkPolyData *mesh_to_warp = ReadVTKPolyData(it->first.c_str());
+    vtkSmartPointer<vtkPolyData> mesh_to_warp = ReadVTKPolyData(it->first.c_str());
 
     // Create the arrays to track the point positions
     Matrix m_x(mesh_to_warp->GetNumberOfPoints(), VDim);
