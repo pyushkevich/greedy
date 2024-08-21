@@ -2344,8 +2344,8 @@ PointSetShootingProblem<TFloat, VDim>
            param.sigma, param.N, param.use_ralston_method ? "Ralston": "Euler");
     }
 
-  // Landmarks and initial momentum
-  Matrix q0(m,VDim), p0(k,VDim);
+  // Landmarks and initial momentum, initialize to zero
+  Matrix q0(m,VDim, 0.0), p0(k,VDim, 0.0);
 
   // Initialize the q0 vertex array
   for(unsigned int a = 0; a < VDim; a++)
