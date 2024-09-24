@@ -26,6 +26,7 @@
 =========================================================================*/
 #include "GreedyParameters.h"
 #include "CommandLineHelper.h"
+#include <iostream>
 
 GreedyParameters::GreedyParameters()
 {

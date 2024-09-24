@@ -1,7 +1,7 @@
+CMAKE_MINIMUM_REQUIRED(VERSION 3.15)
 PROJECT(GREEDY)
 
 # Required CMake version
-CMAKE_MINIMUM_REQUIRED(VERSION 3.10.2)
 if(COMMAND cmake_policy)
   CMAKE_POLICY(SET CMP0003 NEW)
   CMAKE_POLICY(SET CMP0077 NEW)
@@ -55,6 +55,9 @@ OPTION(GREEDY_BUILD_STACK_REG "Build experimental slice stack registration code"
 # Do we want to enable PDE-based methods that require sparse solvers
 OPTION(GREEDY_USE_SPARSE_SOLVERS "Build registration tools that use sparse solvers" OFF)
 
+# Do we want to build the landmark geodesic shooting registration code?
+OPTION(GREEDY_BUILD_LMSHOOT "Build landmark geodesic shooting library and tools" OFF)
+
 #--------------------------------------------------------------------------------
 # Dependent packages
 #--------------------------------------------------------------------------------
@@ -88,6 +91,14 @@ INCLUDE_DIRECTORIES(
   ${GREEDY_SOURCE_DIR}/src
   ${GREEDY_SOURCE_DIR}/src/ITKFilters/include
 )
+
+# LMShoot needs eigen
+IF(GREEDY_BUILD_LMSHOOT)
+  FIND_PACKAGE (Eigen3 3.3 REQUIRED)
+  IF(EIGEN3_FOUND)
+    ADD_DEFINITIONS(-DHAVE_EIGEN)
+  ENDIF()
+ENDIF()
 
 #--------------------------------------------------------------------------------
 # Hard-coded documentation
@@ -175,8 +186,10 @@ SET(HEADERS
 
 # Define greedy library files
 SET(GREEDY_LIB_SRC
+  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
   src/lddmm_data.cxx
   src/lddmm_sparse.cxx
+  src/CommandLineHelper.cxx
   src/GreedyAPI.cxx
   src/GreedyMeshIO.cxx
   src/GreedyParameters.cxx
@@ -188,23 +201,26 @@ SET(GREEDY_LIB_SRC
 
 SET(LDDMM_SRC src/lddmm_main.cxx)
 SET(GREEDY_SRC 
-  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
   src/greedy_main.cxx)
 
 SET(MACF_SRC src/macf_optimization.cxx)
 
 SET(STACK_GREEDY_SRC
-  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
   src/dijkstra/ShortestPath.cxx
   src/greedy_stack_reg.cxx)
 
 SET(CHUNK_GREEDY_SRC
-  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
   testing/src/greedy_multi_chunk.cxx)
 
 SET(TEMPLATE_AVG_SRC
-  ${CMAKE_CURRENT_BINARY_DIR}/GreedyVersion.cxx
   src/template_make_average.cxx)
+
+SET(LMSHOOT_LIB_SRC
+  src/lmshoot/PointSetHamiltonianSystem.cxx
+  src/lmshoot/PointSetGeodesicShooting.cxx
+  src/GreedyMeshIO.cxx
+  src/lmshoot/PointSetGeodesicToWarp.cxx)
+
 
 ADD_LIBRARY(greedyapi ${GREEDY_LIB_SRC} ${HEADERS})
 TARGET_INCLUDE_DIRECTORIES(greedyapi PUBLIC ${GREEDY_INCLUDE_DIRS})
@@ -249,6 +265,26 @@ IF(BUILD_CLI)
     ADD_DEPENDENCIES(stack_greedy docs_to_hex)
   ENDIF()
 
+  IF(GREEDY_BUILD_LMSHOOT)
+    # Add lmshoot library
+    ADD_LIBRARY(lmshootapi ${LMSHOOT_LIB_SRC})
+    TARGET_LINK_LIBRARIES(lmshootapi ${GREEDY_API_LIBS})
+    TARGET_INCLUDE_DIRECTORIES(lmshootapi PRIVATE ${EIGEN3_INCLUDE_DIR})
+
+    # Add the individual programs
+    ADD_EXECUTABLE(lmshoot src/lmshoot/lmshoot_main.cxx)
+    TARGET_LINK_LIBRARIES(lmshoot lmshootapi ${GREEDY_API_LIBS})
+
+    ADD_EXECUTABLE(lmtowarp src/lmshoot/lmtowarp_main.cxx)
+    TARGET_LINK_LIBRARIES(lmtowarp lmshootapi ${GREEDY_API_LIBS})
+
+    ADD_EXECUTABLE(lmshoot_test src/lmshoot/TestGeodesicShooting.cxx)
+    TARGET_LINK_LIBRARIES(lmshoot_test lmshootapi ${GREEDY_API_LIBS})
+
+    SET(GREEDY_INSTALL_TARGETS ${GREEDY_INSTALL_TARGETS} lmshootapi lmshoot lmtowarp)
+
+  ENDIF()
+
   ADD_EXECUTABLE(greedy ${GREEDY_SRC})
   TARGET_LINK_LIBRARIES(greedy ${GREEDY_API_LIBS} ${FFTWF_LIB} ${FFTWF_THREADS_LIB} ${SPARSE_LIBRARY})
 
@@ -274,6 +310,61 @@ IF(INSTALL_CLI)
   ENDIF()
 
   INSTALL(TARGETS ${GREEDY_INSTALL_TARGETS} DESTINATION ${CLI_INSTALL_PATH} COMPONENT Runtime)
+  INSTALL(TARGETS greedyapi DESTINATION lib EXPORT GreedyTargets)
+  FILE(GLOB_RECURSE GREEDY_HEADER_FILES "${GREEDY_SOURCE_DIR}/src/*.h" "${GREEDY_SOURCE_DIR}/src/*.txx")
+  INSTALL(FILES ${GREEDY_HEADER_FILES} DESTINATION include)
+
+  IF(GREEDY_BUILD_LMSHOOT)
+    INSTALL(TARGETS lmshootapi DESTINATION lib EXPORT GreedyTargets)
+    INSTALL(FILES ${LMSHOOT_HEADER_FILES} DESTINATION include)
+  ENDIF()
+
+  EXPORT(EXPORT GreedyTargets
+         FILE "${CMAKE_CURRENT_BINARY_DIR}/GreedyTargets.cmake"
+         NAMESPACE Greedy::)
+
+  INSTALL(EXPORT GreedyTargets
+          FILE GreedyTargets.cmake
+          NAMESPACE Greedy::
+          DESTINATION ${GREEDY_BINARY_DIR})
+
+  include(CMakePackageConfigHelpers)
+
+  install(EXPORT GreedyTargets
+          FILE GreedyTargets.cmake
+          DESTINATION lib/cmake/Greedy)
+
+  set ( Greedy_INCLUDE_DIRS "include" )
+
+  # generate the config file that is includes the exports
+  configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/Config.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/GreedyConfig.cmake"
+    INSTALL_DESTINATION "lib/cmake/example"
+    NO_SET_AND_CHECK_MACRO
+    NO_CHECK_REQUIRED_COMPONENTS_MACRO
+    PATH_VARS Greedy_INCLUDE_DIRS)
+
+  # Also generate a config file for the build tree
+  # configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ConfigBuildTree.cmake.in
+  #   "${CMAKE_CURRENT_BINARY_DIR}/Convert3DConfig.cmake"
+  #   @ONLY)
+
+  #configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/Config.cmake.in
+  #  ${CMAKE_CURRENT_BINARY_DIR}/Convert3DConfig.cmake
+  #  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Convert3D
+  #  PATH_VARS INCLUDE_INSTALL_DIR SYSCONFIG_INSTALL_DIR)
+
+
+  # generate the version file for the config file
+  write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/GreedyConfigVersion.cmake"
+    VERSION "${GREEDY_VERSION_FULL}"
+    COMPATIBILITY AnyNewerVersion)
+
+  # install the configuration file
+  install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/GreedyConfig.cmake
+    DESTINATION lib/cmake/Greedy)
 
 ENDIF(INSTALL_CLI)
 
@@ -322,5 +413,10 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
   ADD_TEST(NAME "Phantom_NMI_Sim_NoMask"  COMMAND test_greedy phantom 1 2 NMI 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "Phantom_NCC_Sim_NoMask"  COMMAND test_greedy phantom 1 3 NCC 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "Phantom_WNCC_Sim_NoMask" COMMAND test_greedy phantom 1 3 WNCC 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
+
+  # Add tests for lmshoot
+  IF(GREEDY_BUILD_LMSHOOT)
+  ADD_TEST(NAME "lmshoot_regression" COMMAND lmshoot_test shoot_regression.mat WORKING_DIRECTORY ${TESTING_DATADIR}/lmshoot)
+  ENDIF()
 
 ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)
