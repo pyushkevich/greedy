@@ -5,7 +5,7 @@
 #include <GreedyException.h>
 #include <lddmm_data.h>
 #include <itkImageFileReader.h>
-#include <itkBinaryThresholdImageFilter.hxx>
+#include <itkBinaryThresholdImageFilter.h>
 #include <MultiImageRegistrationHelper.h>
 #include <AffineCostFunctions.h>
 #include <AffineTransformUtilities.h>
