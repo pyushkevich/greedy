@@ -309,62 +309,64 @@ IF(INSTALL_CLI)
     SET(CLI_INSTALL_PATH bin)
   ENDIF()
 
-  INSTALL(TARGETS ${GREEDY_INSTALL_TARGETS} DESTINATION ${CLI_INSTALL_PATH} COMPONENT Runtime)
-  INSTALL(TARGETS greedyapi DESTINATION lib EXPORT GreedyTargets)
-  FILE(GLOB_RECURSE GREEDY_HEADER_FILES "${GREEDY_SOURCE_DIR}/src/*.h" "${GREEDY_SOURCE_DIR}/src/*.txx")
-  INSTALL(FILES ${GREEDY_HEADER_FILES} DESTINATION include)
+  IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
+    INSTALL(TARGETS ${GREEDY_INSTALL_TARGETS} DESTINATION ${CLI_INSTALL_PATH} COMPONENT Runtime)
+    INSTALL(TARGETS greedyapi DESTINATION lib EXPORT GreedyTargets)
+    FILE(GLOB_RECURSE GREEDY_HEADER_FILES "${GREEDY_SOURCE_DIR}/src/*.h" "${GREEDY_SOURCE_DIR}/src/*.txx")
+    INSTALL(FILES ${GREEDY_HEADER_FILES} DESTINATION include)
 
-  IF(GREEDY_BUILD_LMSHOOT)
-    INSTALL(TARGETS lmshootapi DESTINATION lib EXPORT GreedyTargets)
-    INSTALL(FILES ${LMSHOOT_HEADER_FILES} DESTINATION include)
+    IF(GREEDY_BUILD_LMSHOOT)
+      INSTALL(TARGETS lmshootapi DESTINATION lib EXPORT GreedyTargets)
+      INSTALL(FILES ${LMSHOOT_HEADER_FILES} DESTINATION include)
+    ENDIF()
+
+    EXPORT(EXPORT GreedyTargets
+          FILE "${CMAKE_CURRENT_BINARY_DIR}/GreedyTargets.cmake"
+          NAMESPACE Greedy::)
+
+    INSTALL(EXPORT GreedyTargets
+            FILE GreedyTargets.cmake
+            NAMESPACE Greedy::
+            DESTINATION ${GREEDY_BINARY_DIR})
+
+    include(CMakePackageConfigHelpers)
+
+    install(EXPORT GreedyTargets
+            FILE GreedyTargets.cmake
+            DESTINATION lib/cmake/Greedy)
+
+    set ( Greedy_INCLUDE_DIRS "include" )
+
+    # generate the config file that is includes the exports
+    configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/Config.cmake.in
+      "${CMAKE_CURRENT_BINARY_DIR}/GreedyConfig.cmake"
+      INSTALL_DESTINATION "lib/cmake/example"
+      NO_SET_AND_CHECK_MACRO
+      NO_CHECK_REQUIRED_COMPONENTS_MACRO
+      PATH_VARS Greedy_INCLUDE_DIRS)
+
+    # Also generate a config file for the build tree
+    # configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ConfigBuildTree.cmake.in
+    #   "${CMAKE_CURRENT_BINARY_DIR}/Convert3DConfig.cmake"
+    #   @ONLY)
+
+    #configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/Config.cmake.in
+    #  ${CMAKE_CURRENT_BINARY_DIR}/Convert3DConfig.cmake
+    #  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Convert3D
+    #  PATH_VARS INCLUDE_INSTALL_DIR SYSCONFIG_INSTALL_DIR)
+
+
+    # generate the version file for the config file
+    write_basic_package_version_file(
+      "${CMAKE_CURRENT_BINARY_DIR}/GreedyConfigVersion.cmake"
+      VERSION "${GREEDY_VERSION_FULL}"
+      COMPATIBILITY AnyNewerVersion)
+
+    # install the configuration file
+    install(FILES
+      ${CMAKE_CURRENT_BINARY_DIR}/GreedyConfig.cmake
+      DESTINATION lib/cmake/Greedy)
   ENDIF()
-
-  EXPORT(EXPORT GreedyTargets
-         FILE "${CMAKE_CURRENT_BINARY_DIR}/GreedyTargets.cmake"
-         NAMESPACE Greedy::)
-
-  INSTALL(EXPORT GreedyTargets
-          FILE GreedyTargets.cmake
-          NAMESPACE Greedy::
-          DESTINATION ${GREEDY_BINARY_DIR})
-
-  include(CMakePackageConfigHelpers)
-
-  install(EXPORT GreedyTargets
-          FILE GreedyTargets.cmake
-          DESTINATION lib/cmake/Greedy)
-
-  set ( Greedy_INCLUDE_DIRS "include" )
-
-  # generate the config file that is includes the exports
-  configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/Config.cmake.in
-    "${CMAKE_CURRENT_BINARY_DIR}/GreedyConfig.cmake"
-    INSTALL_DESTINATION "lib/cmake/example"
-    NO_SET_AND_CHECK_MACRO
-    NO_CHECK_REQUIRED_COMPONENTS_MACRO
-    PATH_VARS Greedy_INCLUDE_DIRS)
-
-  # Also generate a config file for the build tree
-  # configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ConfigBuildTree.cmake.in
-  #   "${CMAKE_CURRENT_BINARY_DIR}/Convert3DConfig.cmake"
-  #   @ONLY)
-
-  #configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/Config.cmake.in
-  #  ${CMAKE_CURRENT_BINARY_DIR}/Convert3DConfig.cmake
-  #  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Convert3D
-  #  PATH_VARS INCLUDE_INSTALL_DIR SYSCONFIG_INSTALL_DIR)
-
-
-  # generate the version file for the config file
-  write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/GreedyConfigVersion.cmake"
-    VERSION "${GREEDY_VERSION_FULL}"
-    COMPATIBILITY AnyNewerVersion)
-
-  # install the configuration file
-  install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/GreedyConfig.cmake
-    DESTINATION lib/cmake/Greedy)
 
 ENDIF(INSTALL_CLI)
 
