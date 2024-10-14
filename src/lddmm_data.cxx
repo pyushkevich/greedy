@@ -2621,6 +2621,22 @@ LDDMMImageMatchingObjective<TFloat, VDim>
 
 template<class TFloat, uint VDim>
 typename LDDMMData<TFloat, VDim>::CompositeImagePointer
+  LDDMMData<TFloat, VDim>
+  ::as_cimg(ImageBaseType *src)
+{
+  // Cast to different types
+  if(auto *cimg = dynamic_cast<CompositeImageType *>(src))
+    return cimg;
+  else if(auto *img = dynamic_cast<ImageType *>(src))
+    return img_as_cimg(img);
+  else if(auto *vimg = dynamic_cast<VectorImageType *>(src))
+    return vimg_as_cimg(vimg);
+  else
+    return nullptr;
+}
+
+template<class TFloat, uint VDim>
+typename LDDMMData<TFloat, VDim>::CompositeImagePointer
 LDDMMData<TFloat, VDim>
 ::vimg_as_cimg(VectorImageType *src)
 {

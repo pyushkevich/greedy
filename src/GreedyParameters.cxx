@@ -26,6 +26,7 @@
 =========================================================================*/
 #include "GreedyParameters.h"
 #include "CommandLineHelper.h"
+#include <iostream>
 
 const SmoothingParameters GreedyParameters::default_sigma_pre = { 1.7320508076, false };
 const SmoothingParameters GreedyParameters::default_sigma_post = { 0.7071067812, false };

@@ -77,6 +77,7 @@ public:
   typedef MultiImageOpticalFlowHelper<TReal, VDim> OFHelperType;
 
   typedef itk::MatrixOffsetTransformBase<TReal, VDim, VDim> LinearTransformType;
+  typedef itk::MatrixOffsetTransformBase<double, VDim, VDim> LinearTransformIOType;
 
   struct ImagePair {
     ImagePointer fixed, moving;
@@ -92,6 +93,8 @@ public:
   static void ConfigThreads(const GreedyParameters &param);
 
   int Run(GreedyParameters &param);
+
+  int RunCommandLine(const char *cmd);
 
   int RunDeformable(GreedyParameters &param);
 
@@ -138,9 +141,6 @@ public:
    * which is VectorImage for most images. If not, an exception will be
    * thrown.
    *
-   * Note that the cache does not use smart pointers to refer to the objects
-   * so it's the caller's responsibility to keep the object pointed to while
-   * the API is being used.
    */
   void AddCachedInputObject(std::string key, itk::Object *object);
   void AddCachedInputObject(std::string key, vtkObject *object);
@@ -151,9 +151,22 @@ public:
    * to save the output object to the specified filename in addition to writing
    * it to the cached image/matrix. This allows you to both store the result in
    * the cache and write it to a filename specified in the key
+   *
+   * The cached output object can be a null pointer, in which case the object
+   * will be allocated. It can then me accessed using GetCachedObject()
    */
   void AddCachedOutputObject(std::string key, itk::Object *object, bool force_write = false);
   void AddCachedOutputObject(std::string key, vtkObject *object, bool force_write = false);
+
+  /**
+   * Get a cached object by name
+   */
+  itk::Object *GetCachedObject(std::string key);
+
+  /**
+   * Get the list of all cached objects (input and output)
+   */
+  std::vector<std::string> GetCachedObjectNames() const;
 
   /**
    * Get the metric log - values of metric per level. Can be called from
@@ -193,6 +206,14 @@ public:
 
   static void MapRASAffineToPhysicalWarp(const vnl_matrix<double> &mat,
                                          VectorImagePointer &out_warp);
+
+  template <class TAffineTransform>
+  static vnl_matrix<double> MapITKTransformToRASMatrix(
+    const TAffineTransform *tran);
+
+  template <class TAffineTransform>
+  static void MapRASMatrixToITKTransform(
+    const vnl_matrix<double> &mat, TAffineTransform *tran);
 
   void RecordMetricValue(const MultiComponentMetricReport &metric);
 
@@ -270,7 +291,7 @@ public:
 protected:
 
   struct CacheEntry {
-    itk::Object *target;
+    typename itk::Object::Pointer target;
     bool force_write;
   };
 
@@ -339,7 +360,10 @@ protected:
 
 };
 
+// Print greedy usage
+int greedy_usage(bool print_template_params = true);
 
-
+// Parse greedy command line
+GreedyParameters greedy_parse_commandline(CommandLineHelper &cl, bool parse_template_params);
 
 #endif // GREEDYAPI_H
