@@ -233,6 +233,28 @@ PropagationOutput<TReal>
   return ret;
 }
 
+template <typename TReal>
+std::vector<unsigned int>
+PropagationOutput<TReal>
+::GetTimePointList()
+{
+  std::vector<unsigned int> ret;
+  for (auto kv : m_Data->tp_data)
+    {
+    ret.push_back(kv.first);
+    }
+
+  return ret;
+}
+
+template <typename TReal>
+size_t
+PropagationOutput<TReal>
+::GetNumberOfTimePoints()
+{
+  return m_Data->tp_data.size();
+}
+
 //==================================================
 // PropagationInputBuilder Definitions
 //==================================================
@@ -268,33 +290,32 @@ std::shared_ptr<PropagationInput<TReal>>
 PropagationInputBuilder<TReal>
 ::BuildInputForCommandLineRun(const PropagationParameters &pParam, const GreedyParameters &gParam)
 {
-  std::shared_ptr<PropagationInput<TReal>> pInput = std::make_shared<PropagationInput<TReal>>();
-
+  PropagationInputBuilder<TReal> ib;
   // Copy the parameter
-  pInput->SetGreedyParameters(gParam);
-  pInput->SetPropagationParameters(pParam);
+  ib.SetGreedyParameters(gParam);
+  ib.SetPropagationParameters(pParam);
 
   // Read Reference Image4D from the paramter
-  pInput->m_Data->img4d = PropagationTools<TReal>::template ReadImage<TImage4D>(pParam.fn_img4d);
+  ib.SetImage4D(PropagationTools<TReal>::template ReadImage<TImage4D>(pParam.fn_img4d));
 
   // Read Segmentation Image from the parameter
   if (pParam.use4DSegInput)
     {
-    pInput->m_Data->seg4d_in = PropagationTools<TReal>
-        ::template ReadImage<TLabelImage4D>(pParam.fn_seg4d);
+    ib.SetReferenceSegmentationIn4D(PropagationTools<TReal>
+        ::template ReadImage<TLabelImage4D>(pParam.fn_seg4d));
     }
   else
     {
-    pInput->m_Data->seg_ref = PropagationTools<TReal>
-        ::template ReadImage<TLabelImage3D>(pParam.fn_seg3d);
+    ib.SetReferenceSegmentationIn3D(PropagationTools<TReal>
+        ::template ReadImage<TLabelImage3D>(pParam.fn_seg3d));
     }
 
+  auto input = ib.BuildPropagationInput();
 
-  // Todo: Read 4D segmentation image and extract the 3D time point from it
   // Set output directory
-  pInput->m_Data->outdir = pParam.outdir;
+  input->SetOutputDirectory(pParam.outdir);
 
-  return pInput;
+  return input;
 }
 
 template<typename TReal>

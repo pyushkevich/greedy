@@ -40,6 +40,8 @@ public:
   const PropagationParameters &GetConstPropagationParameters() const
   { return m_PropagationParam; }
 
+  void SetOutputDirectory(std::string outdir) { m_Data->outdir = outdir; }
+
   friend class PropagationInputBuilder<TReal>;
   friend class PropagationAPI<TReal>;
 
@@ -184,6 +186,15 @@ public:
 
   /** Build a propagation input object to pass to the Propagation API */
   std::shared_ptr<PropagationInput<TReal>> BuildPropagationInput();
+
+
+  void SetGreedyParameters(const GreedyParameters &gParam) { m_GParam = gParam; }
+  const GreedyParameters &GetConstGreedyParameters() const
+  { return m_GParam; }
+
+  void SetPropagationParameters(const PropagationParameters &pParam) { m_PParam = pParam; }
+  const PropagationParameters &GetConstPropagationParameters() const
+  { return m_PParam; }
 
 
 private:
