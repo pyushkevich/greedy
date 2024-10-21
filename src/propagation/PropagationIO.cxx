@@ -475,7 +475,7 @@ PropagationInputBuilder<TReal>
 template<typename TReal>
 void
 PropagationInputBuilder<TReal>
-::AddExtraMeshToWarp(std::string &fnmesh, std::string &outpattern)
+::AddExtraMeshToWarp(std::string fnmesh, std::string outpattern)
 {
   MeshSpec meshspec;
   meshspec.fn_mesh = fnmesh;
@@ -486,7 +486,7 @@ PropagationInputBuilder<TReal>
 template<typename TReal>
 void
 PropagationInputBuilder<TReal>
-::AddExtraMeshToWarp(TPropagationMeshPointer mesh, std::string &tag)
+::AddExtraMeshToWarp(TPropagationMeshPointer mesh, std::string tag)
 {
   MeshSpec meshspec;
   meshspec.fn_mesh = tag; // useless

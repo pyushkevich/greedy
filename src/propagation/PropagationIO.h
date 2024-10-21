@@ -139,7 +139,6 @@ public:
 
   /** Set target time point list. Reference time point is ignored */
   void SetTargetTimePoints(const std::vector<unsigned int> &targetTPs);
-  std::vector<unsigned int> GetTargetTimePoint() const;
 
   /** Set Reslice Metric */
   void SetResliceMetric(const InterpSpec metric);
@@ -149,8 +148,8 @@ public:
   InterpSpec GetResliceMetric() const;
 
   /** Add Extra Mesh to Warp */
-  void AddExtraMeshToWarp(std::string &fnmesh, std::string &outpattern);
-  void AddExtraMeshToWarp(TPropagationMeshPointer mesh, std::string &tag);
+  void AddExtraMeshToWarp(std::string fnmesh, std::string outpattern);
+  void AddExtraMeshToWarp(TPropagationMeshPointer mesh, std::string tag);
   std::vector<MeshSpec> GetExtraMeshesToWarp() const;
 
   /** Set Propagation Verbosity */
