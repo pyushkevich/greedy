@@ -32,7 +32,9 @@ struct PropagationParameters
   unsigned int refTP;
   std::vector<unsigned int> targetTPs;
 
-  InterpSpec reslice_spec;
+  // always use labelwise interpolation for segmentation
+  InterpSpec reslice_spec = InterpSpec(InterpSpec::LABELWISE, 0.2, false, 0.0);  
+  
   bool debug = false;
   std::string debug_dir;
   bool writeOutputToDisk = true; // whether to write final output data to disk

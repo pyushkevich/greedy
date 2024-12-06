@@ -39,8 +39,6 @@ int usage()
   printf("                                  for timepoint 5. \n");
   printf("  -sr-mop <pattern>             : (optional) Set the filename pattern for the mesh generated from the provided reference segmentation image. \n");
   printf("                                  Filename pattern without %%format will have time point appended\n");
-  printf("  -int <spec> <size>            : (optional) Set the segmentation interpolation spec with following options: \n");
-  printf("                                  NN; LINEAR; LABEL <size>\n");
   printf("  -emr <mesh.vtk> <pattern>     : (optional) Add an extra segmentation mesh for the referenfe tp. Repeat to add multiple meshes. \n");
   printf("  -debug <outdir>               : (optional) Enable debugging mode for propagation: Dump intermediary files to outdir \n");
   printf("  -verbose <value>              : (optional) Set propagation verbosity level (0: none, 1: default, 2: verbose) \n");
@@ -110,29 +108,6 @@ void parse_command_line(int argc, char *argv[],
         if (n <= 0)
           throw GreedyException("%d is not a valid time point value!", n);
         pParam.targetTPs.push_back(n);
-        }
-      }
-    else if (arg == "-int")
-      {
-      // propagation mode: read sigmas for label reslicing interpolation mode
-      std::string mode = cl.read_string();
-      if (mode == "nn" || mode == "NN" || mode == "0")
-        {
-        pParam.reslice_spec.mode = InterpSpec::NEAREST;
-        }
-      else if (mode == "linear" || mode == "LINEAR" || mode == "1")
-        {
-        pParam.reslice_spec.mode = InterpSpec::LINEAR;
-        }
-      else if (mode == "label" || mode == "LABEL")
-        {
-        pParam.reslice_spec.mode = InterpSpec::LABELWISE;
-        pParam.reslice_spec.sigma.sigma = cl.read_scalar_with_units(
-              pParam.reslice_spec.sigma.physical_units);
-        }
-      else
-        {
-        std::cerr << "Propagation interpolation spec: Unknown interpolation mode" << std::endl;
         }
       }
     else if (arg == "-debug")
