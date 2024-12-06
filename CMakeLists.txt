@@ -74,6 +74,7 @@ FIND_PACKAGE(VTK 9.1.0 REQUIRED COMPONENTS
   IOPLY
   IOGeometry
   IOImage
+  IOXML
   FiltersCore
   FiltersGeneral 
   FiltersModeling)

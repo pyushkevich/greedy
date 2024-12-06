@@ -7,6 +7,7 @@
 #include "PropagationIO.h"
 #include "PropagationCommon.hxx"
 #include "PropagationTools.h"
+#include "PropagationInputBuilder.h"
 #include "itkLabelOverlapMeasuresImageFilter.h"
 #include <vtkDecimatePro.h>
 

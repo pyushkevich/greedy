@@ -3,6 +3,7 @@ message("Configurating Greedy Propagation...")
 set(PROPAGATION_LIB_SRC
   PropagationAPI.cxx
   PropagationIO.cxx
+  PropagationInputBuilder.cxx
   PropagationTools.txx
 )
 
