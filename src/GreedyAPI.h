@@ -87,7 +87,7 @@ public:
 
   // Mesh data structures
   typedef vtkPointSet MeshType;
-  typedef vtkSmartPointer<vtkPointSet> MeshPointer;
+  typedef vtkSmartPointer<MeshType> MeshPointer;
   typedef std::vector<MeshPointer> MeshArray;
 
   static void ConfigThreads(const GreedyParameters &param);

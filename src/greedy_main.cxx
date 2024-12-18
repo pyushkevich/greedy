@@ -35,7 +35,6 @@
 #include <string>
 #include <algorithm>
 #include <cerrno>
-#include <memory>
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"

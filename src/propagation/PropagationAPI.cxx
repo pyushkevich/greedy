@@ -390,6 +390,8 @@ PropagationAPI<TReal>
   param.affine_dof = GreedyParameters::DOF_RIGID;
 
   // Check smoothing parameters. If greedy default detected, change to propagation default.
+  // -- This is to ensure if user has not set the smoothing parameters, the propagation defaults are used instead of greedy defaults
+  // -- and at the same time user can still override the defaults if needed.
   const SmoothingParameters prop_default_pre = { 3.0, true }, prop_default_post = { 1.5, true };
   param.sigma_pre = (m_GParam.sigma_pre == GreedyParameters::default_sigma_pre) ? prop_default_pre : m_GParam.sigma_pre;
   param.sigma_post = (m_GParam.sigma_post == GreedyParameters::default_sigma_post) ? prop_default_post : m_GParam.sigma_post;

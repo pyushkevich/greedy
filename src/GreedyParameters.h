@@ -365,6 +365,8 @@ struct GreedyParameters
   double background = 0.0;
 
   // Smoothing parameters
+  // -- the static default value is used to detect whether the user has set the smoothing parameters
+  // -- this is used by propagation to override the greedy defaults with the propagation defaults
   static const SmoothingParameters default_sigma_pre;
   static const SmoothingParameters default_sigma_post;
   SmoothingParameters sigma_pre = default_sigma_pre;
@@ -491,16 +493,11 @@ struct GreedyParameters
   // Generate a command line for current parameters
   std::string GenerateCommandLine();
 
-  // Copy affine registration settings
+  // Methods for copy settings
+  // -- This is useful for using same settings for different GreedyAPI runs
   void CopyAffineSettings(const GreedyParameters &other);
-
-  // Copy deformable registration settings
   void CopyDeformableSettings(const GreedyParameters &other);
-
-  // Copy reslicing settings
   void CopyReslicingSettings(const GreedyParameters &other);
-
-  // Copy general settings including developer settings
   void CopyGeneralSettings(const GreedyParameters &other);
 };
 
