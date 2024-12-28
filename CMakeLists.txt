@@ -67,7 +67,17 @@ FIND_PACKAGE(ITK 5.2.0 REQUIRED)
 INCLUDE(${ITK_USE_FILE})
 
 # VTK - required for quality mesh transformations
-FIND_PACKAGE(VTK 9.1.0 REQUIRED COMPONENTS CommonCore IOCore IOLegacy IOPLY IOGeometry FiltersModeling)
+FIND_PACKAGE(VTK 9.1.0 REQUIRED COMPONENTS
+  CommonCore
+  IOCore
+  IOLegacy
+  IOPLY
+  IOGeometry
+  IOImage
+  IOXML
+  FiltersCore
+  FiltersGeneral 
+  FiltersModeling)
 SET(GREEDY_VTK_LIBRARIES ${VTK_LIBRARIES})
 
 # Deal with FFTW - only used by experimental LDDMM code
@@ -240,8 +250,15 @@ SET(GREEDY_API_LIBS greedyapi
   ${FFTWF_LIB} ${FFTWF_THREADS_LIB}
   ${SPARSE_LIBRARY})
 
+# propagation api
+add_subdirectory(src/propagation propagation)
+
+SET(PROPAGATION_SRC
+  src/propagation/greedy_propagation.cxx
+)
+
 # List of installable targets
-SET(GREEDY_INSTALL_BIN_TARGETS greedy greedy_template_average multi_chunk_greedy)
+SET(GREEDY_INSTALL_BIN_TARGETS greedy greedy_template_average multi_chunk_greedy greedy_propagation)
 SET(GREEDY_INSTALL_LIB_TARGETS greedyapi)
 
 
@@ -300,8 +317,13 @@ IF(BUILD_CLI)
   ADD_EXECUTABLE(test_greedy testing/src/GreedyTestDriver.cxx)
   TARGET_LINK_LIBRARIES(test_greedy ${GREEDY_API_LIBS})
 
+  ADD_EXECUTABLE(test_propagation testing/src/propagation/propagation_test.cxx)
+  TARGET_LINK_LIBRARIES(test_propagation propagationapi)
+  TARGET_INCLUDE_DIRECTORIES(test_propagation PUBLIC ${GREEDY_SOURCE_DIR}/src/propagation )
+
   ADD_EXECUTABLE(multi_chunk_greedy ${CHUNK_GREEDY_SRC})
   TARGET_LINK_LIBRARIES(multi_chunk_greedy ${GREEDY_API_LIBS})
+
 ENDIF(BUILD_CLI)
 
 # Install command-line executables
@@ -421,6 +443,9 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
   ADD_TEST(NAME "Phantom_NCC_Sim_NoMask"  COMMAND test_greedy phantom 1 3 NCC 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
   ADD_TEST(NAME "Phantom_WNCC_Sim_NoMask" COMMAND test_greedy phantom 1 3 WNCC 7 0 WORKING_DIRECTORY ${TESTING_DATADIR})
 
+  # Tests for greedy_propagation
+  ADD_TEST(NAME "propagation_basic" COMMAND test_propagation basic WORKING_DIRECTORY ${TESTING_DATADIR})
+  ADD_TEST(NAME "propagation_extra_mesh" COMMAND test_propagation extra_mesh WORKING_DIRECTORY ${TESTING_DATADIR})
   # Add tests for lmshoot
   IF(GREEDY_BUILD_LMSHOOT)
   ADD_TEST(NAME "lmshoot_regression" COMMAND lmshoot_test shoot_regression.mat WORKING_DIRECTORY ${TESTING_DATADIR}/lmshoot)

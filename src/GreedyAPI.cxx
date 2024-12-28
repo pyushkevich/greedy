@@ -417,6 +417,28 @@ GreedyApproach<VDim, TReal>
 }
 
 template <unsigned int VDim, typename TReal>
+typename GreedyApproach<VDim, TReal>::MeshPointer
+GreedyApproach<VDim, TReal>
+::ReadMeshViaCache(const std::string &filename)
+{
+  typename MeshCache::const_iterator it = m_MeshCache.find(filename);
+  if(it != m_MeshCache.cend())
+    {
+    vtkObject *cached_object = it->second.target;
+    MeshType *mesh = dynamic_cast<MeshType*>(cached_object);
+    if (!mesh)
+      throw GreedyException("Cached mesh %s cannot be cast to type %s",
+                            filename.c_str(), typeid(MeshType).name());
+    MeshPointer pMesh = DeepCopyMesh(mesh); // important to avoid in-place mutation
+    return pMesh;
+    }
+
+  // Read the mesh using mesh io reader
+  return ReadMesh(filename.c_str());
+}
+
+
+template <unsigned int VDim, typename TReal>
 template <class TObject>
 TObject *
 GreedyApproach<VDim, TReal>
@@ -539,6 +561,27 @@ GreedyApproach<VDim, TReal>
       writer->SetInput(img);
       writer->Update();
       }
+    }
+}
+
+template <unsigned int VDim, typename TReal>
+void
+GreedyApproach<VDim, TReal>
+::WriteMeshViaCache(MeshType *mesh, const std::string &filename)
+{
+  typename MeshCache::const_iterator it = m_MeshCache.find(filename);
+  if (it != m_MeshCache.end())
+    {
+    auto *cached = dynamic_cast<MeshType*>(it->second.target);
+    if (!cached)
+      throw GreedyException("Cached mesh %s cannot be cast to %s",
+                            filename.c_str(), typeid(MeshType*).name());
+    cached->DeepCopy(mesh);
+    }
+
+  if (it == m_MeshCache.end() || it->second.force_write)
+    {
+    WriteMesh(mesh, filename.c_str());
     }
 }
 
@@ -1719,7 +1762,7 @@ int GreedyApproach<VDim, TReal>
   if(param.tjr_param.weight > 0.0)
     {
     // Read the mesh
-    vtkSmartPointer<vtkPointSet> point_set = ReadMesh(param.tjr_param.tetra_mesh.c_str());
+    vtkSmartPointer<vtkPointSet> point_set = ReadMeshViaCache(param.tjr_param.tetra_mesh.c_str());
     vtkSmartPointer<vtkUnstructuredGrid> tetra = dynamic_cast<vtkUnstructuredGrid *>(point_set.GetPointer());
     if(!tetra)
       throw GreedyException("Mesh %s is not an UnstructuredGrid!", param.tjr_param.tetra_mesh.c_str());
@@ -1905,8 +1948,9 @@ int GreedyApproach<VDim, TReal>
       tm_Gradient.Stop();
 
       // Print a report for this iteration
-      std::cout << this->PrintIter(level, iter, metric_report, reg_report) << std::endl;
-      fflush(stdout);
+      std::string iter_line = this->PrintIter(level, iter, metric_report, reg_report);
+      gout.printf("%s\n", iter_line.c_str());
+      gout.flush();
 
       // Record the metric value in the log
       this->RecordMetricValue(metric_report);
@@ -2279,7 +2323,7 @@ int GreedyApproach<VDim, TReal>
   if(param.tjr_param.weight > 0.0)
     {
     // Read the mesh
-    vtkSmartPointer<vtkPointSet> point_set = ReadMesh(param.tjr_param.tetra_mesh.c_str());
+    vtkSmartPointer<vtkPointSet> point_set = ReadMeshViaCache(param.tjr_param.tetra_mesh.c_str());
     vtkSmartPointer<vtkUnstructuredGrid> tetra = dynamic_cast<vtkUnstructuredGrid *>(point_set.GetPointer());
     if(!tetra)
       throw GreedyException("Mesh %s is not an UnstructuredGrid!", param.tjr_param.tetra_mesh.c_str());
@@ -2451,8 +2495,9 @@ int GreedyApproach<VDim, TReal>
         }
 
       // Print a report for this iteration
-      std::cout << this->PrintIter(level, iter, metric_report, reg_report) << std::endl;
-      fflush(stdout);
+      std::string iter_line = this->PrintIter(level, iter, metric_report, reg_report);
+      gout.printf("%s\n", iter_line.c_str());
+      gout.flush();
 
       // Record the metric value in the log
       this->RecordMetricValue(metric_report);
@@ -3251,7 +3296,7 @@ int GreedyApproach<VDim, TReal>
   std::vector<MeshPointer> meshes, original_meshes;
   for(unsigned int i = 0; i < r_param.meshes.size(); i++)
     {
-    vtkSmartPointer<vtkPointSet> mesh = ReadMesh(r_param.meshes[i].fixed.c_str());
+    vtkSmartPointer<vtkPointSet> mesh = ReadMeshViaCache(r_param.meshes[i].fixed.c_str());
     meshes.push_back(mesh);
 
     if(r_param.meshes[i].jacobian_mode)
@@ -3425,7 +3470,7 @@ int GreedyApproach<VDim, TReal>
     if(r_param.meshes[i].jacobian_mode)
       WriteJacobianMesh(original_meshes[i], meshes[i], r_param.meshes[i].output.c_str());
     else
-      WriteMesh(meshes[i], r_param.meshes[i].output.c_str());
+      WriteMeshViaCache(meshes[i], r_param.meshes[i].output.c_str());
     }
 
 
@@ -3741,6 +3786,15 @@ void GreedyApproach<VDim, TReal>
 
 template <unsigned int VDim, typename TReal>
 void GreedyApproach<VDim, TReal>
+::AddCachedInputObject(std::string key, vtkObject *object)
+{
+  m_MeshCache[key].target = object;
+  m_MeshCache[key].force_write = false;
+}
+
+
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
 ::AddCachedOutputObject(std::string key, itk::Object *object, bool force_write)
 {
   m_ImageCache[key].target = object;
@@ -3766,6 +3820,14 @@ GreedyApproach<VDim, TReal>
     keys.push_back(it.first);
     }
   return keys;
+}
+
+template <unsigned int VDim, typename TReal>
+void GreedyApproach<VDim, TReal>
+::AddCachedOutputObject(std::string key, vtkObject *object, bool force_write)
+{
+  m_MeshCache[key].target = object;
+  m_MeshCache[key].force_write = force_write;
 }
 
 template <unsigned int VDim, typename TReal>

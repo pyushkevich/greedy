@@ -12,6 +12,8 @@
 #include <vtkBYUReader.h>
 #include <vtkBYUWriter.h>
 #include <vtkOBJReader.h>
+#include <vtkXMLPolyDataReader.h>
+#include <vtkXMLPolyDataWriter.h>
 #include <vtkTetra.h>
 #include <vtkTriangle.h>
 #include <vtkDoubleArray.h>
@@ -73,6 +75,8 @@ vtkSmartPointer<TMesh> ReadMeshByExtension(const char *fname)
     else
       throw GreedyException("No mesh reader for file %s", fname);
     }
+    else if(fn_str.rfind(".vtp") == fn_str.length() - 4)
+      return ReadMesh<vtkXMLPolyDataReader, TMesh>(fname);
   else
     throw GreedyException("No mesh reader for file %s", fname);
 }
@@ -95,6 +99,11 @@ void WriteMeshByExtension(TMesh *mesh, const char *fname)
       WriteMesh<vtkPolyDataWriter, vtkPolyData>(pd, fname);
     else if (usg)
       WriteMesh<vtkUnstructuredGridWriter, vtkUnstructuredGrid>(usg, fname);
+    }
+  else if (fn_str.rfind(".vtp") == fn_str.length() - 4)
+    {
+    vtkPolyData *pd = dynamic_cast<vtkPolyData *>(mesh);
+    WriteMesh<vtkXMLPolyDataWriter, TMesh>(pd, fname);
     }
   else
     throw GreedyException("No mesh writer for file %s", fname);

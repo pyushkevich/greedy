@@ -7,3 +7,5 @@ CMakeLists.txt.user.*
 .8.un~
 docs/_build
 *.asv
+build/
+.vscode/
