@@ -4011,6 +4011,7 @@ GreedyParameters greedy_parse_commandline(CommandLineHelper &cl, bool parse_temp
     else if(cmd == "-h" || cmd == "-help" || cmd == "--help")
     {
       greedy_usage(parse_template_params);
+      exit(0);
     }
     else if(!param.ParseCommandLine(cmd, cl))
     {

@@ -208,8 +208,8 @@ SET(STACK_GREEDY_SRC
   src/dijkstra/ShortestPath.cxx
   src/greedy_stack_reg.cxx)
 
-SET(CHUNK_GREEDY_SRC
-  testing/src/greedy_multi_chunk.cxx)
+SET(CHUNK_GREEDY_LIB_SRC
+  src/multichunk/MultiChunkGreedy.cxx)
 
 SET(TEMPLATE_AVG_SRC
   src/template_make_average.cxx)
@@ -231,6 +231,10 @@ vtk_module_autoinit(
 
 vtk_module_autoinit(
   TARGETS greedy
+  MODULES ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS multichunkgreedyapi
   MODULES ${VTK_LIBRARIES})
 
 # Variable referencing greedyapi and libs it depends on
@@ -296,8 +300,13 @@ IF(BUILD_CLI)
   ADD_EXECUTABLE(test_greedy testing/src/GreedyTestDriver.cxx)
   TARGET_LINK_LIBRARIES(test_greedy ${GREEDY_API_LIBS})
 
-  ADD_EXECUTABLE(multi_chunk_greedy ${CHUNK_GREEDY_SRC})
-  TARGET_LINK_LIBRARIES(multi_chunk_greedy ${GREEDY_API_LIBS})
+  ADD_LIBRARY(multichunkgreedyapi ${CHUNK_GREEDY_LIB_SRC})
+  TARGET_INCLUDE_DIRECTORIES(multichunkgreedyapi PUBLIC ${GREEDY_INCLUDE_DIRS})
+  TARGET_LINK_LIBRARIES(multichunkgreedyapi ${GREEDY_API_LIBS})
+
+  ADD_EXECUTABLE(multi_chunk_greedy src/multichunk/multichunk_greedy_main.cxx)
+  TARGET_LINK_LIBRARIES(multi_chunk_greedy multichunkgreedyapi)
+
 ENDIF(BUILD_CLI)
 
 # Install command-line executables
@@ -309,7 +318,7 @@ IF(INSTALL_CLI)
   ENDIF()
 
   INSTALL(TARGETS ${GREEDY_INSTALL_TARGETS} DESTINATION ${CLI_INSTALL_PATH} COMPONENT Runtime)
-  INSTALL(TARGETS greedyapi DESTINATION lib EXPORT GreedyTargets)
+  INSTALL(TARGETS greedyapi multichunkgreedyapi DESTINATION lib EXPORT GreedyTargets)
   FILE(GLOB_RECURSE GREEDY_HEADER_FILES "${GREEDY_SOURCE_DIR}/src/*.h" "${GREEDY_SOURCE_DIR}/src/*.txx")
   INSTALL(FILES ${GREEDY_HEADER_FILES} DESTINATION include)
 
