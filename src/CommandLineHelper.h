@@ -257,6 +257,21 @@ public:
   }
 
   /**
+   * Read output directory path
+   */
+  std::string read_output_dir()
+  {
+    std::string dir = read_arg();
+    if(this->data_root.length())
+      dir = itksys::SystemTools::CollapseFullPath(dir, data_root);
+
+    if(!itksys::SystemTools::PathExists(dir.c_str()))
+      throw GreedyException("Folder '%s' does not exist", dir.c_str());
+
+    return dir;
+  }
+
+  /**
    * Check if a string ends with another string and return the
    * substring without the suffix
    */
@@ -360,27 +375,26 @@ public:
     return vector;
   }
 
-  std::vector<int> read_int_vector()
+  std::vector<int> read_int_vector(char delimiter = 'x')
   {
     std::string arg = read_arg();
     std::istringstream f(arg);
     std::string s;
     std::vector<int> vector;
-    while (getline(f, s, 'x'))
+    while (getline(f, s, delimiter))
       {
       errno = 0; char *pend;
       long val = std::strtol(s.c_str(), &pend, 10);
 
       if(errno || *pend)
-        throw GreedyException("Expected an integer vector as parameter to '%s', instead got '%s'",
-                              current_command.c_str(), arg.c_str());
+        throw GreedyException("Expected an integer vector delimited by '%c' as parameter to '%s', instead got '%s'",
+                              delimiter, current_command.c_str(), arg.c_str());
       vector.push_back((int) val);
       }
 
     if(!vector.size())
-      throw GreedyException("Expected an integer vector as parameter to '%s', instead got '%s'",
-                            current_command.c_str(), arg.c_str());
-
+      throw GreedyException("Expected an integer vector delimited by '%c' as parameter to '%s', instead got '%s'",
+                            delimiter, current_command.c_str(), arg.c_str());
     return vector;
   }
 

@@ -59,6 +59,14 @@ struct SmoothingParameters
   bool operator != (const SmoothingParameters &other) {
     return sigma != other.sigma || physical_units != other.physical_units;
   }
+
+  bool operator == (const SmoothingParameters &other) {
+    return sigma == other.sigma && physical_units == other.physical_units;
+  }
+
+  bool operator == (const SmoothingParameters &other) const {
+    return sigma == other.sigma && physical_units == other.physical_units;
+  }
 };
 
 enum RigidSearchRotationMode
@@ -110,6 +118,9 @@ struct ResliceSpec
 
 struct ResliceMeshSpec
 {
+  ResliceMeshSpec() {}
+  ResliceMeshSpec(const std::string &_fixed, const std::string &_output)
+    :fixed(_fixed), output(_output) {}
   std::string fixed;
   std::string output;
   bool jacobian_mode = false;
@@ -127,6 +138,7 @@ struct TransformSpec
   TransformSpec(const std::string in_filename = std::string(), double in_exponent = 1.0)
     : filename(in_filename), exponent(in_exponent) {}
 };
+
 
 enum AffineInitMode
 {
@@ -232,7 +244,7 @@ public:
     else return false;
   }
 
-  void Print(std::ostream &oss) const 
+  void Print(std::ostream &oss) const
     {
     if(m_UseCommon)
       oss << m_CommonValue;
@@ -353,8 +365,12 @@ struct GreedyParameters
   double background = 0.0;
 
   // Smoothing parameters
-  SmoothingParameters sigma_pre = { 1.7320508076, false };
-  SmoothingParameters sigma_post = { 0.7071067812, false };
+  // -- the static default value is used to detect whether the user has set the smoothing parameters
+  // -- this is used by propagation to override the greedy defaults with the propagation defaults
+  static const SmoothingParameters default_sigma_pre;
+  static const SmoothingParameters default_sigma_post;
+  SmoothingParameters sigma_pre = default_sigma_pre;
+  SmoothingParameters sigma_post = default_sigma_post;
 
   // Which metric to use
   MetricType metric = SSD;
@@ -449,7 +465,7 @@ struct GreedyParameters
 
   // Save format for new reslice image pairs
   itk::IOComponentEnum current_reslice_format = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE;
-  
+
   // Verbosity flag
   Verbosity verbosity = VERB_DEFAULT;
 
@@ -476,6 +492,13 @@ struct GreedyParameters
 
   // Generate a command line for current parameters
   std::string GenerateCommandLine();
+
+  // Methods for copy settings
+  // -- This is useful for using same settings for different GreedyAPI runs
+  void CopyAffineSettings(const GreedyParameters &other);
+  void CopyDeformableSettings(const GreedyParameters &other);
+  void CopyReslicingSettings(const GreedyParameters &other);
+  void CopyGeneralSettings(const GreedyParameters &other);
 };
 
 

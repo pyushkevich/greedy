@@ -14,7 +14,7 @@ void test(double val1, double val2, double tol, const char *format, ...)
     char buffer[256];
     va_list args;
     va_start (args, format);
-    vsprintf (buffer,format, args);
+    vsnprintf (buffer,256,format, args);
     va_end (args);
 
     std::cerr << "Mismatch in " << buffer << " ";
