@@ -115,12 +115,12 @@ public:
    * this is the opposite of the gradient direction. For metrics that are meant to be maximized,
    * it is the gradient direction.
    */
-  virtual double GetGradientScalingFactor() const ITK_OVERRIDE { return 1.0; }
+  virtual double GetGradientScalingFactor() const override { return 1.0; }
 
   /**
    * Implement a single non-threaded method and take care of threading internally
    */
-  virtual void GenerateData() ITK_OVERRIDE;
+  virtual void GenerateData() override;
 
 
 protected:
