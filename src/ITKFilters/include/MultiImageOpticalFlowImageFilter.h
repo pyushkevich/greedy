@@ -110,7 +110,7 @@ public:
    * this is the opposite of the gradient direction. For metrics that are meant to be maximized,
    * it is the gradient direction.
    */
-  virtual double GetGradientScalingFactor() const ITK_OVERRIDE { return -2.0; }
+  virtual double GetGradientScalingFactor() const override { return -2.0; }
 
   /**
    * What form of the gradient to return. The default is to return the gradient of the
@@ -138,7 +138,7 @@ protected:
   MultiImageOpticalFlowImageFilter() : m_UseDemonsGradientForm(false), m_DemonsSigma(0.1) {}
   ~MultiImageOpticalFlowImageFilter() {}
 
-  void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
+  void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) override;
 
 private:
   MultiImageOpticalFlowImageFilter(const Self&); //purposely not implemented

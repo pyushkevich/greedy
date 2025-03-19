@@ -148,7 +148,7 @@ public:
    * this is the opposite of the gradient direction. For metrics that are meant to be maximized,
    * it is the gradient direction.
    */
-  virtual double GetGradientScalingFactor() const ITK_OVERRIDE { return 1.0; }
+  virtual double GetGradientScalingFactor() const override { return 1.0; }
 
   /**
    * When this flag is On, the metric will use the Normalized Mutual Information formulation
@@ -159,8 +159,8 @@ public:
 
 protected:
 
-  virtual void BeforeThreadedGenerateData() ITK_OVERRIDE;
-  virtual void GenerateData() ITK_OVERRIDE;
+  virtual void BeforeThreadedGenerateData() override;
+  virtual void GenerateData() override;
 
 protected:
   MultiComponentMutualInfoImageMetric()
