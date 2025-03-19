@@ -116,7 +116,7 @@ public:
    * this is the opposite of the gradient direction. For metrics that are meant to be maximized,
    * it is the gradient direction.
    */
-  virtual double GetGradientScalingFactor() const ITK_OVERRIDE { return 1.0; }
+  virtual double GetGradientScalingFactor() const override { return 1.0; }
 
 
 protected:
@@ -129,8 +129,8 @@ protected:
   // TODO: set up for proper streaming
   // virtual void GenerateInputRequestedRegion();
 
-  virtual void BeforeThreadedGenerateData() ITK_OVERRIDE;
-  virtual void DynamicThreadedGenerateData(const OutputImageRegionType &outputRegionForThread) ITK_OVERRIDE;
+  virtual void BeforeThreadedGenerateData() override;
+  virtual void DynamicThreadedGenerateData(const OutputImageRegionType &outputRegionForThread) override;
 
 private:
   MultiComponentNCCImageMetric(const Self&); //purposely not implemented
@@ -224,13 +224,13 @@ protected:
   MultiImageNCCPrecomputeFilter();
   ~MultiImageNCCPrecomputeFilter() {}
 
-  virtual void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) ITK_OVERRIDE;
+  virtual void DynamicThreadedGenerateData(const OutputImageRegionType& outputRegionForThread) override;
 
   /** Set up the output information */
-  virtual void GenerateOutputInformation() ITK_OVERRIDE;
+  virtual void GenerateOutputInformation() override;
 
   /** Override input checks to allow fixed and moving to be in different space */
-  virtual void VerifyInputInformation() const ITK_OVERRIDE {}
+  virtual void VerifyInputInformation() const override {}
 
 private:
   MultiImageNCCPrecomputeFilter(const Self&); //purposely not implemented
