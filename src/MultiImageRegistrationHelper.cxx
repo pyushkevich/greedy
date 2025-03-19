@@ -378,7 +378,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
     // Apply random noise if requested to the pixels (using this randomly picked prime number of
     // random samples, repeated over and over
     if(comp_noise.size())
-      LDDMMType::cimg_add_gaussian_noise_in_place(pyramid.image_pyramid[i], comp_noise, 17317);
+      LDDMMType::cimg_add_gaussian_noise_in_place(pyramid.image_pyramid[i], comp_noise, 12345);
     }
 }
 
@@ -425,7 +425,7 @@ MultiImageOpticalFlowHelper<TFloat, VDim>
       {
       // Create a jitter image
       m_JitterComposite[i] = LDDMMType::new_vimg(this->GetReferenceSpace(i));
-      LDDMMType::vimg_add_gaussian_noise_in_place(m_JitterComposite[i], m_JitterSigma, 17317);
+      LDDMMType::vimg_add_gaussian_noise_in_place(m_JitterComposite[i], m_JitterSigma, 12345);
       }
     }
 }

@@ -2250,10 +2250,20 @@ LDDMMData<TFloat, VDim>
 
 #include <chrono>
 
+// A simple hashing function
+inline size_t mix_hash(size_t idx, size_t array_size) {
+  idx ^= (idx >> 33);
+  idx *= 0xff51afd7ed558ccd;
+  idx ^= (idx >> 33);
+  idx *= 0xc4ceb9fe1a85ec53;
+  idx ^= (idx >> 33);
+  return idx % array_size;
+}
+
 template<class TFloat, uint VDim>
 void LDDMMData<TFloat, VDim>
-::cimg_add_gaussian_noise_in_place(
-    CompositeImageType *img, const std::vector<double> &sigma, unsigned long stride)
+    ::cimg_add_gaussian_noise_in_place(
+        CompositeImageType *img, const std::vector<double> &sigma, unsigned long rand_seed)
 {
   // Create a fake region to partition the entire data chunk
   unsigned int npix = img->GetBufferedRegion().GetNumberOfPixels();
@@ -2261,48 +2271,37 @@ void LDDMMData<TFloat, VDim>
   itk::MultiThreaderBase::Pointer mt = itk::MultiThreaderBase::New();
 
   // A number for seeding the individual random generators
-  unsigned long rand_seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+  if(rand_seed == 0)
+    rand_seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
+  // Compute an array of randomly sampled normal values
+  constexpr int normal_sample_size = 10000;
+  vnl_random randy(rand_seed);
+  TFloat normal_sample[normal_sample_size];
+  for(unsigned int i = 0; i < normal_sample_size; i++)
+    normal_sample[i] = randy.normal();
+
+  // We need a way to hash an offset
   mt->ParallelizeImageRegion<1>(
-        full_region,
-        [img, stride, &sigma, rand_seed](const itk::ImageRegion<1> &thread_region)
-    {
-    unsigned int nc = img->GetNumberOfComponentsPerPixel();
-    vnl_random randy(rand_seed + thread_region.GetIndex()[0]);
-
-    TFloat *p = img->GetBufferPointer() + thread_region.GetIndex(0) * nc;
-    TFloat *p_end = p + thread_region.GetSize(0) * nc;
-
-    // Does the user want to reuse normal values? Then we create a small array of
-    // random numbers and reuse them.
-    if(stride > 0 && stride < thread_region.GetSize(0))
+      full_region,
+      [img, &sigma, normal_sample, normal_sample_size](const itk::ImageRegion<1> &thread_region)
       {
-      // Create an array of stride random numbers
-      unsigned int n_len = stride * nc;
-      TFloat *n_start = new TFloat[stride * nc], *n = n_start, *n_end = n_start + stride * nc;
-      for(; n < n_end; n += nc)
-        {
-        for(unsigned int j = 0; j < nc; j++)
-          n[j] = randy.normal() * sigma[j];
-        }
+        unsigned int nc = img->GetNumberOfComponentsPerPixel();
 
-      // Add those as noise to the pixels
-      while(p < p_end)
-        {
-        // How many pixels to go
-        TFloat *n_end_trim = p_end - p >= n_len ? n_end : n_start + (p_end - p);
-        for(n = n_start; n < n_end_trim; n++, p++)
-          *p += *n;
-        }
-      }
-    else
-      {
-      // Just generate random numbers, no reuse
-      for(; p < p_end; p += nc)
-        for(unsigned int j = 0; j < nc; j++)
-          p[j] += randy.normal() * sigma[j];
-      }
-    }, nullptr);
+        TFloat *p_buffer = img->GetBufferPointer();
+        TFloat *p_start = p_buffer + thread_region.GetIndex(0) * nc;
+        TFloat *p_end = p_start + thread_region.GetSize(0) * nc;
+
+        // Just generate random numbers, no reuse
+        for(TFloat *p = p_start; p < p_end; p += nc)
+          {
+            for(unsigned int j = 0; j < nc; j++)
+              {
+                size_t n_index = mix_hash(j + p - p_buffer, normal_sample_size);
+                p[j] += normal_sample[n_index] * sigma[j];
+              }
+          }
+      }, nullptr);
 
   // Mark image as modified
   img->Modified();
@@ -2312,12 +2311,12 @@ template<class TFloat, uint VDim>
 void
 LDDMMData<TFloat, VDim>
 ::vimg_add_gaussian_noise_in_place(
-    VectorImageType *img, double sigma, unsigned long stride)
+    VectorImageType *img, double sigma, unsigned long random_seed)
 {
   // Use the cimg method by masquerading
   CompositeImagePointer cimg = vimg_as_cimg(img);
   std::vector<double> sigma_vec(VDim, sigma);
-  cimg_add_gaussian_noise_in_place(cimg, sigma_vec, stride);
+  cimg_add_gaussian_noise_in_place(cimg, sigma_vec, random_seed);
   img->Modified();
 }
 

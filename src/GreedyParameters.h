@@ -481,6 +481,9 @@ struct GreedyParameters
   // Data root (used when testing to provide relative paths)
   std::string dump_prefix;
 
+  // Random seed
+  int random_seed = 0;
+
   // Constructor
   GreedyParameters();
 

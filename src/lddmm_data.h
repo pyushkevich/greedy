@@ -278,11 +278,11 @@ public:
   // Apply noise to image components
   static void cimg_add_gaussian_noise_in_place(CompositeImageType *img,
                                                const std::vector<double> &sigma,
-                                               unsigned long stride = 0);
+                                               unsigned long random_seed = 0);
 
   static void vimg_add_gaussian_noise_in_place(VectorImageType *img,
                                                double sigma,
-                                               unsigned long stride = 0);
+                                               unsigned long random_seed = 0);
 
   // Convert voxel-space warp to a physical space warp
   static void warp_voxel_to_physical(VectorImageType *src, ImageBaseType *ref_space, VectorImageType *trg);

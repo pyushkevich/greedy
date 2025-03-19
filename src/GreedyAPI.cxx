@@ -1085,7 +1085,7 @@ GreedyApproach<VDim, TReal>
   if((xIdent - xInit).inf_norm() < 1e-4)
     {
     // Apply jitter
-    vnl_random rndy(12345);
+    vnl_random rndy = param.random_seed == 0 ? vnl_random() : vnl_random(param.random_seed);
     for (unsigned i = 0; i < xInit.size(); i++)
       xInit[i] += rndy.drand32(-0.4, 0.4);
 
@@ -1097,7 +1097,7 @@ GreedyApproach<VDim, TReal>
   if(param.rigid_search.iterations > 0)
     {
     // Random seed. TODO: let user supply seed
-    vnl_random randy(12345);
+    vnl_random randy = param.random_seed == 0 ? vnl_random() : vnl_random(param.random_seed);
 
     // For rigid search, we must search in physical space, rather than in voxel space.
     // This is the affine transformation in physical space that corresponds to whatever
@@ -1421,6 +1421,7 @@ int GreedyApproach<VDim, TReal>
         optimizer->set_max_function_evals(param.iter_per_level[level]);
         */
 
+        std::cout << "Initial optimizer parameters " << xLevel << std::endl;
         optimizer->minimize(xLevel);
         delete optimizer;
         }

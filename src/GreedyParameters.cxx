@@ -96,6 +96,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->ncc_noise_factor = cl.read_double();
     }
+  else if(cmd == "-seed")
+    {
+    this->random_seed = cl.read_integer();
+    }
   else if(cmd == "-s")
     {
     this->sigma_pre.sigma = cl.read_scalar_with_units(this->sigma_pre.physical_units);
@@ -647,6 +651,9 @@ std::string GreedyParameters::GenerateCommandLine()
 
   if(this->ncc_noise_factor != def.ncc_noise_factor)
     oss << " -noise " << this->ncc_noise_factor;
+
+  if(this->random_seed != def.random_seed)
+    oss << " -seed " << this->random_seed;
 
   if(this->sigma_pre != def.sigma_pre || this->sigma_post != def.sigma_post)
     {
