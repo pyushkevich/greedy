@@ -3,6 +3,7 @@
 
 #include "PointSetHamiltonianSystem.h"
 #include "CommandLineHelper.h"
+#include <random>
 
 struct ShootingParameters
 {
@@ -28,6 +29,7 @@ struct ShootingParameters
   unsigned int n_deriv_check = 0;
   bool test_currents_attachment = false;
   bool do_similarity_matching = false;
+  int random_seed = 0;
 
   // Weight for the mesh Jacobian penalty term
   double w_jacobian = 0.0;
@@ -74,6 +76,8 @@ private:
       Matrix &q0, Matrix &qT,
       vnl_matrix<int> &tri_template, vnl_matrix<int> &tri_target,
       const Matrix &lab_template, const Matrix &lab_target);
+
+  static std::mt19937 m_Random;
 };
 
 // Usage

@@ -33,6 +33,7 @@ class vtkUnstructuredGrid;
 #include <vnl/vnl_matrix_fixed.h>
 #include <vnl/vnl_vector_fixed.h>
 #include <vector>
+#include <random>
 #include "lddmm_data.h"
 #include <vtkSmartPointer.h>
 
@@ -96,7 +97,7 @@ public:
   double ComputeObjectiveAndGradientPhi(VectorImageType *phi_vox, VectorImageType *grad, double weight = 1.0);
 
   // A function to test derivatives on dummy data or real data
-  static bool TestDerivatives(ImageBaseType *refspace = nullptr, vtkUnstructuredGrid *mesh = nullptr);
+  static bool TestDerivatives(std::mt19937 &rnd, ImageBaseType *refspace = nullptr, vtkUnstructuredGrid *mesh = nullptr);
 
 protected:
   // The mesh object

@@ -5,7 +5,7 @@
 #include "FastLinearInterpolator.h"
 #include <vnl/algo/vnl_matrix_inverse.h>
 #include <vnl/vnl_cross.h>
-#include <vnl/vnl_random.h>
+#include <random>
 #include <vtkHexahedron.h>
 #include "GreedyMeshIO.h"
 #include <vtkSubdivideTetra.h>
@@ -28,20 +28,20 @@ inline double simplex_volume<3u>(const vnl_matrix<double> &x, const vnl_vector<i
   const double *X3 = x[vindex[3]];
   for(unsigned int j = 0; j < 3; j++)
     {
-    A[j] = X1[j] - X0[j];
-    B[j] = X2[j] - X0[j];
-    C[j] = X3[j] - X0[j];
+      A[j] = X1[j] - X0[j];
+      B[j] = X2[j] - X0[j];
+      C[j] = X3[j] - X0[j];
     }
   auto AxB = vnl_cross_3d(A, B);
   double v = dot_product(AxB, C);
   if(dx)
     {
-    auto CxA = vnl_cross_3d(C, A);
-    auto BxC = vnl_cross_3d(B, C);
-    dx->set_row(0, -(AxB + CxA + BxC));
-    dx->set_row(1, BxC);
-    dx->set_row(2, CxA);
-    dx->set_row(3, AxB);
+      auto CxA = vnl_cross_3d(C, A);
+      auto BxC = vnl_cross_3d(B, C);
+      dx->set_row(0, -(AxB + CxA + BxC));
+      dx->set_row(1, BxC);
+      dx->set_row(2, CxA);
+      dx->set_row(3, AxB);
     }
 
   return v;
@@ -49,44 +49,44 @@ inline double simplex_volume<3u>(const vnl_matrix<double> &x, const vnl_vector<i
 
 template <unsigned int VDim>
 void
-TetraVolumeLayer<VDim>
-::SetIndex(const vnl_vector<int> v_index)
+    TetraVolumeLayer<VDim>
+    ::SetIndex(const vnl_vector<int> v_index)
 {
   this->v_index = v_index;
 }
 
 template <unsigned int VDim>
 double
-TetraVolumeLayer<VDim>
-::Forward(const vnl_matrix<double> &x, bool need_grad)
+    TetraVolumeLayer<VDim>
+    ::Forward(const vnl_matrix<double> &x, bool need_grad)
 {
   return simplex_volume<VDim>(x, v_index, need_grad ? &dv_dx : nullptr);
 }
 
 template <unsigned int VDim>
 void
-TetraVolumeLayer<VDim>
-::Backward(double d_tetra_vol, vnl_matrix<double> &d_x)
+    TetraVolumeLayer<VDim>
+    ::Backward(double d_tetra_vol, vnl_matrix<double> &d_x)
 {
   for(unsigned int k = 0; k < VDim + 1; k++)
     {
-    double *p = d_x[v_index[k]];
-    for(unsigned int i = 0; i < VDim; i++)
-      p[i] += dv_dx[k][i] * d_tetra_vol;
+      double *p = d_x[v_index[k]];
+      for(unsigned int i = 0; i < VDim; i++)
+        p[i] += dv_dx[k][i] * d_tetra_vol;
     }
 }
 
 
 template<class TFloat, unsigned int VDim>
 TetraMeshConstraints<TFloat, VDim>
-::TetraMeshConstraints()
+    ::TetraMeshConstraints()
 {
 
 }
 
 template<class TFloat, unsigned int VDim>
 void TetraMeshConstraints<TFloat, VDim>
-::SetMesh(vtkUnstructuredGrid *mesh)
+    ::SetMesh(vtkUnstructuredGrid *mesh)
 {
   m_MeshVTK = mesh;
 
@@ -95,9 +95,9 @@ void TetraMeshConstraints<TFloat, VDim>
   m_TetraX_Vox.set_size(mesh->GetNumberOfPoints(), VDim);
   for(unsigned int i = 0; i < mesh->GetNumberOfPoints(); i++)
     {
-    double *x = mesh->GetPoint(i);
-    for(unsigned int j = 0; j < VDim; j++)
-      m_TetraX_RAS(i,j) = x[j];
+      double *x = mesh->GetPoint(i);
+      for(unsigned int j = 0; j < VDim; j++)
+        m_TetraX_RAS(i,j) = x[j];
     }
 
   // For neighbor search
@@ -109,48 +109,48 @@ void TetraMeshConstraints<TFloat, VDim>
   m_TetraVolumeLayer.resize(mesh->GetNumberOfCells());
   for(unsigned int i = 0; i < mesh->GetNumberOfCells(); i++)
     {
-    auto *cell = mesh->GetCell(i);
-    if(cell->GetNumberOfPoints() != VDim + 1)
-      throw GreedyException("Mesh has cells of incorrect dimension");
+      auto *cell = mesh->GetCell(i);
+      if(cell->GetNumberOfPoints() != VDim + 1)
+        throw GreedyException("Mesh has cells of incorrect dimension");
 
-    // Assign vertices to the tetrahedra
-    for(unsigned int j = 0; j < VDim+1; j++)
-      m_TetraVI(i,j) = cell->GetPointId(j);
+      // Assign vertices to the tetrahedra
+      for(unsigned int j = 0; j < VDim+1; j++)
+        m_TetraVI(i,j) = cell->GetPointId(j);
 
-    // Check the tetrahedral orientation - volumes in the input tetrahedron
-    // should all be positive, if negative, flip the order
-    double vol = simplex_volume<VDim>(m_TetraX_RAS, m_TetraVI.get_row(i), nullptr);
-    if(vol < 0)
-      {
-      auto v0 = m_TetraVI(i, 0);
-      m_TetraVI(i, 0) = m_TetraVI(i, 1);
-      m_TetraVI(i, 1) = v0;
-      }
+      // Check the tetrahedral orientation - volumes in the input tetrahedron
+      // should all be positive, if negative, flip the order
+      double vol = simplex_volume<VDim>(m_TetraX_RAS, m_TetraVI.get_row(i), nullptr);
+      if(vol < 0)
+        {
+          auto v0 = m_TetraVI(i, 0);
+          m_TetraVI(i, 0) = m_TetraVI(i, 1);
+          m_TetraVI(i, 1) = v0;
+        }
 
-    vol = simplex_volume<VDim>(m_TetraX_RAS, m_TetraVI.get_row(i), nullptr);
-    if(vol < 0)
-      std::cout << "Something is wrong" << std::endl;
+      vol = simplex_volume<VDim>(m_TetraX_RAS, m_TetraVI.get_row(i), nullptr);
+      if(vol < 0)
+        std::cout << "Something is wrong" << std::endl;
 
-    // Initialize the volume layer
-    m_TetraVolumeLayer[i].SetIndex(m_TetraVI.get_row(i));
+      // Initialize the volume layer
+      m_TetraVolumeLayer[i].SetIndex(m_TetraVI.get_row(i));
 
-    // Find neighbors across each edge
-    vtkIdType edge[VDim];
-    for(unsigned int j = 0; j < VDim+1; j++)
-      {
-      vtkIdType *p_edge = edge;
-      for(unsigned int k = 0; k < VDim+1; k++)
-        if(k != j)
-          *p_edge++ = m_TetraVI(i,k);
+      // Find neighbors across each edge
+      vtkIdType edge[VDim];
+      for(unsigned int j = 0; j < VDim+1; j++)
+        {
+          vtkIdType *p_edge = edge;
+          for(unsigned int k = 0; k < VDim+1; k++)
+            if(k != j)
+              *p_edge++ = m_TetraVI(i,k);
 
-      nbr->Reset();
-      mesh->GetCellNeighbors(i, VDim, edge, nbr);
-      if(nbr->GetNumberOfIds() > 1)
-        throw GreedyException("Cell %d has wrong number of neighbors across %d's face: %d", i, j, nbr->GetNumberOfIds());
+          nbr->Reset();
+          mesh->GetCellNeighbors(i, VDim, edge, nbr);
+          if(nbr->GetNumberOfIds() > 1)
+            throw GreedyException("Cell %d has wrong number of neighbors across %d's face: %d", i, j, nbr->GetNumberOfIds());
 
-      if(nbr->GetNumberOfIds() == 1 && nbr->GetId(0) > i)
-        m_TetraNbr.push_back(std::make_pair(i, nbr->GetId(0)));
-      }
+          if(nbr->GetNumberOfIds() == 1 && nbr->GetId(0) > i)
+            m_TetraNbr.push_back(std::make_pair(i, nbr->GetId(0)));
+        }
     }
 
   // Allocate the internal computation arrays
@@ -164,7 +164,7 @@ void TetraMeshConstraints<TFloat, VDim>
 
 template<class TFloat, unsigned int VDim>
 void TetraMeshConstraints<TFloat, VDim>
-::SetReferenceImage(ImageBaseType *ref_space)
+    ::SetReferenceImage(ImageBaseType *ref_space)
 {
   if(!m_MeshVTK)
     throw GreedyException("TetraMeshConstraints::SetReferenceImage called before SetMesh");
@@ -194,9 +194,9 @@ void TetraMeshConstraints<TFloat, VDim>
 
 template<class TFloat, unsigned int VDim>
 double
-TetraMeshConstraints<TFloat, VDim>
-::ComputeObjectiveAndGradientDisp(
-    const vnl_matrix<double> &disp_ras, vnl_matrix<double> &grad, double weight)
+    TetraMeshConstraints<TFloat, VDim>
+    ::ComputeObjectiveAndGradientDisp(
+        const vnl_matrix<double> &disp_ras, vnl_matrix<double> &grad, double weight)
 {
   // Number of vertices and tetrahedra
   unsigned int nv = m_TetraX_Vox.rows(), nt = m_TetraVI.rows();
@@ -215,15 +215,15 @@ TetraMeshConstraints<TFloat, VDim>
   m_D_TetraVol_Warped.fill(0.0);
   for(unsigned int j = 0; j < m_TetraNbr.size(); j++)
     {
-    int i1, i2;
-    std::tie(i1, i2) = m_TetraNbr[j];
-    double jac_1 = m_TetraVol_Warped[i1] / m_TetraVol[i1];
-    double jac_2 = m_TetraVol_Warped[i2] / m_TetraVol[i2];
-    obj += (jac_1 - jac_2) * (jac_1 - jac_2);
+      int i1, i2;
+      std::tie(i1, i2) = m_TetraNbr[j];
+      double jac_1 = m_TetraVol_Warped[i1] / m_TetraVol[i1];
+      double jac_2 = m_TetraVol_Warped[i2] / m_TetraVol[i2];
+      obj += (jac_1 - jac_2) * (jac_1 - jac_2);
 
-    // Backprop onto the volumes of the tetrahedra
-    m_D_TetraVol_Warped[i1] += 2.0 * (jac_1 - jac_2) / m_TetraVol[i1];
-    m_D_TetraVol_Warped[i2] -= 2.0 * (jac_1 - jac_2) / m_TetraVol[i2];
+      // Backprop onto the volumes of the tetrahedra
+      m_D_TetraVol_Warped[i1] += 2.0 * (jac_1 - jac_2) / m_TetraVol[i1];
+      m_D_TetraVol_Warped[i2] -= 2.0 * (jac_1 - jac_2) / m_TetraVol[i2];
     }
 
   // Final objective value
@@ -242,7 +242,7 @@ TetraMeshConstraints<TFloat, VDim>
 
 template<class TFloat, unsigned int VDim>
 double TetraMeshConstraints<TFloat, VDim>
-::ComputeObjectiveAndGradientPhi(VectorImageType *phi_vox, VectorImageType *grad, double weight)
+    ::ComputeObjectiveAndGradientPhi(VectorImageType *phi_vox, VectorImageType *grad, double weight)
 {
   // Number of vertices and tetrahedra
   unsigned int nv = m_TetraX_Vox.rows(), nt = m_TetraVI.rows();
@@ -263,20 +263,20 @@ double TetraMeshConstraints<TFloat, VDim>
   // Apply transformation to the coordinates
   for(unsigned int i = 0; i < nv; i++)
     {
-    // Interpolate warp at this location
-    for(unsigned int d = 0; d < VDim; d++)
-      x_i[d] = (TFloat) m_TetraX_Vox(i,d);
-    interp.Interpolate(x_i, &phi_i);
+      // Interpolate warp at this location
+      for(unsigned int d = 0; d < VDim; d++)
+        x_i[d] = (TFloat) m_TetraX_Vox(i,d);
+      interp.Interpolate(x_i, &phi_i);
 
-    // Transform into a RAS displacement
-    for(unsigned int a = 0; a < VDim; a++)
-      {
-      double disp = 0.0;
-      for(unsigned int b = 0; b < VDim; b++)
-        disp += A_vox_to_ras[a][b] * phi_i[b];
-      m_TetraX_RAS_Disp[i][a] = disp;
-      m_TetraX_RAS_Warped[i][a] = m_TetraX_RAS[i][a] + disp;
-      }
+      // Transform into a RAS displacement
+      for(unsigned int a = 0; a < VDim; a++)
+        {
+          double disp = 0.0;
+          for(unsigned int b = 0; b < VDim; b++)
+            disp += A_vox_to_ras[a][b] * phi_i[b];
+          m_TetraX_RAS_Disp[i][a] = disp;
+          m_TetraX_RAS_Warped[i][a] = m_TetraX_RAS[i][a] + disp;
+        }
     }
 
   // Compute the gradient with respect to the displacement
@@ -287,24 +287,24 @@ double TetraMeshConstraints<TFloat, VDim>
   unsigned int n_inside = 0, n_outside = 0, n_border = 0;
   for(unsigned int i = 0; i < nv; i++)
     {
-    // Calculate the splat position and the splatted vector (derivative of objective
-    // with respect to the voxel-space displacement)
-    for(unsigned int a = 0; a < VDim; a++)
-      {
-      x_i[a] = (TFloat) m_TetraX_Vox(i, a);
-      D_phi_i_vox[a] = 0.0;
-      for(unsigned int b = 0; b < VDim; b++)
-        D_phi_i_vox[a] += A_vox_to_ras[b][a] * m_D_TetraX_RAS_Warped[i][b];
-      }
+      // Calculate the splat position and the splatted vector (derivative of objective
+      // with respect to the voxel-space displacement)
+      for(unsigned int a = 0; a < VDim; a++)
+        {
+          x_i[a] = (TFloat) m_TetraX_Vox(i, a);
+          D_phi_i_vox[a] = 0.0;
+          for(unsigned int b = 0; b < VDim; b++)
+            D_phi_i_vox[a] += A_vox_to_ras[b][a] * m_D_TetraX_RAS_Warped[i][b];
+        }
 
-    // Splat this derivative onto the phi gradient
-    auto status = interp_grad.Splat(x_i, &D_phi_i_vox);
-    if(status == Interpolator::INSIDE)
-      n_inside++;
-    else if(status == Interpolator::BORDER)
-      n_border++;
-    else
-      n_outside++;
+      // Splat this derivative onto the phi gradient
+      auto status = interp_grad.Splat(x_i, &D_phi_i_vox);
+      if(status == Interpolator::INSIDE)
+        n_inside++;
+      else if(status == Interpolator::BORDER)
+        n_border++;
+      else
+        n_outside++;
     }
 
   return obj;
@@ -388,7 +388,7 @@ vtkSmartPointer<vtkUnstructuredGrid> create_sample_tetra_mesh<2>()
 }
 
 template<class TFloat, unsigned int VDim>
-bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives(ImageBaseType *refspace, vtkUnstructuredGrid *mesh)
+bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives(std::mt19937 &rnd, ImageBaseType *refspace, vtkUnstructuredGrid *mesh)
 {
   double eps = 0.001;
 
@@ -401,9 +401,9 @@ bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives(ImageBaseType *refspace
   typename VectorImageType::Pointer phi;
   if(refspace)
     {
-    phi = LDDMMType::new_vimg(refspace);
-    LDDMMType::vimg_add_gaussian_noise_in_place(phi, 1.0);
-    LDDMMType::vimg_smooth(phi, phi, 2.0);
+      phi = LDDMMType::new_vimg(refspace);
+      LDDMMType::vimg_add_gaussian_noise_in_place(phi, 1.0, rnd);
+      LDDMMType::vimg_smooth(phi, phi, 2.0);
     }
   else
     phi = DisplacementSelfCompositionLayer<VDim, TFloat>::MakeTestDisplacement(32, 8.0, 1.0, true);
@@ -413,7 +413,7 @@ bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives(ImageBaseType *refspace
 
   // Generate a random variation of phi
   typename LDDMMType::VectorImagePointer variation = LDDMMType::new_vimg(phi, 0.0);
-  LDDMMType::vimg_add_gaussian_noise_in_place(variation, 1.0);
+  LDDMMType::vimg_add_gaussian_noise_in_place(variation, 1.0, rnd);
   LDDMMType::vimg_smooth(variation, variation, 1.2);
 
   // What weight to use
@@ -428,25 +428,25 @@ bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives(ImageBaseType *refspace
 
   // First, let's test the mesh portion of the network. We will apply a random set of
   // displacements to the mesh coordinates and check the derivatives
-  vnl_random randy;
+  std::normal_distribution<TFloat> ndist(0., 1.);
   vnl_matrix<double> disp_x_ras(tmc.m_TetraX_RAS.rows(), VDim);
   vnl_matrix<double> grad_disp_x_ras(tmc.m_TetraX_RAS.rows(), VDim);
   vnl_matrix<double> variation_x_ras(tmc.m_TetraX_RAS.rows(), VDim);
   auto tet_x_ras_warped = tmc.m_TetraX_RAS;
   for(unsigned int i = 0; i < tmc.m_TetraX_RAS.rows(); i++)
     {
-    for(unsigned int j = 0; j < VDim; j++)
-      {
-      disp_x_ras[i][j] = randy.normal() * 1.0;
-      variation_x_ras[i][j] = randy.normal() * 1.0;
-      }
+      for(unsigned int j = 0; j < VDim; j++)
+        {
+          disp_x_ras[i][j] = ndist(rnd) * 1.0;
+          variation_x_ras[i][j] = ndist(rnd) * 1.0;
+        }
     }
 
   // Compute the numerical derivative
   double obj_plus = tmc.ComputeObjectiveAndGradientDisp(
-                      disp_x_ras + variation_x_ras * eps, grad_disp_x_ras, weight);
+      disp_x_ras + variation_x_ras * eps, grad_disp_x_ras, weight);
   double obj_minus = tmc.ComputeObjectiveAndGradientDisp(
-                      disp_x_ras - variation_x_ras * eps, grad_disp_x_ras, weight);
+      disp_x_ras - variation_x_ras * eps, grad_disp_x_ras, weight);
 
   double num_deriv = (obj_plus - obj_minus) / (2.0 * eps);
 
@@ -475,12 +475,12 @@ bool TetraMeshConstraints<TFloat, VDim>::TestDerivatives(ImageBaseType *refspace
   report_interval = std::max(1, (int) (tmc.m_TetraNbr.size() / n_report));
   for(unsigned int i = 0; i < tmc.m_TetraNbr.size(); i+=report_interval)
     {
-    int i1, i2;
-    std::tie(i1, i2) = tmc.m_TetraNbr[i];
-    double v1 = tmc.m_TetraVol[i1], v2 = tmc.m_TetraVol[i2];
-    double w1 = tmc.m_TetraVol_Warped[i1], w2 = tmc.m_TetraVol_Warped[i2];
-    double jac1 = w1 / v1, jac2 = w2 / v2;
-    printf("Pair %d, %d  Jac = %12.9f / %12.9f  SD = %12.9f\n", i1, i2, jac1, jac2, (jac1 - jac2) * (jac1 - jac2));
+      int i1, i2;
+      std::tie(i1, i2) = tmc.m_TetraNbr[i];
+      double v1 = tmc.m_TetraVol[i1], v2 = tmc.m_TetraVol[i2];
+      double w1 = tmc.m_TetraVol_Warped[i1], w2 = tmc.m_TetraVol_Warped[i2];
+      double jac1 = w1 / v1, jac2 = w2 / v2;
+      printf("Pair %d, %d  Jac = %12.9f / %12.9f  SD = %12.9f\n", i1, i2, jac1, jac2, (jac1 - jac2) * (jac1 - jac2));
     }
 
   // Compute the analytic derivative with respect to variation

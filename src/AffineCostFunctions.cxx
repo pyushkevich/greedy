@@ -579,13 +579,15 @@ RigidCostFunctionImpl<3, TReal>
 template <typename TReal>
 typename RigidCostFunctionImpl<3, TReal>::Mat
 RigidCostFunctionImpl<3, TReal>
-::GetRandomRotation(vnl_random &randy, double alpha)
+::GetRandomRotation(std::mt19937 &randy, double alpha)
 {
+  std::normal_distribution<TReal> ndist(0., 1.);
+
   // Generate a random axis of rotation. A triple of Gaussian numbers, normalized to
   // unit length gives a uniform distribution over the sphere
   Vec q_axis;
   for(unsigned int d = 0; d < 3; d++)
-    q_axis[d] = randy.normal();
+    q_axis[d] = ndist(randy);
   q_axis.normalize();
 
   // Generate the axis-angle representation of the rotation
@@ -723,7 +725,7 @@ RigidCostFunctionImpl<2, TReal>
 template <typename TReal>
 typename RigidCostFunctionImpl<2, TReal>::Mat
 RigidCostFunctionImpl<2, TReal>
-::GetRandomRotation(vnl_random &, double alpha)
+::GetRandomRotation(std::mt19937 &, double alpha)
 {
   return GetRotationMatrix(alpha);
 }
@@ -933,7 +935,7 @@ vnl_vector<double> RigidCostFunction<VDim, TReal>::BackPropTransform(const Linea
 template <unsigned int VDim, typename TReal>
 typename RigidCostFunction<VDim, TReal>::Mat
 RigidCostFunction<VDim, TReal>
-::GetRandomRotation(vnl_random &randy, double alpha)
+::GetRandomRotation(std::mt19937 &randy, double alpha)
 {
   return Impl::GetRandomRotation(randy, alpha);
 }

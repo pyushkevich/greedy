@@ -1,27 +1,27 @@
 /*=========================================================================
 
-  Program:   ALFABIS fast medical image registration programs
-  Language:  C++
-  Website:   github.com/pyushkevich/greedy
-  Copyright (c) Paul Yushkevich, University of Pennsylvania. All rights reserved.
+Program:   ALFABIS fast medical image registration programs
+Language:  C++
+Website:   github.com/pyushkevich/greedy
+Copyright (c) Paul Yushkevich, University of Pennsylvania. All rights reserved.
 
-  This program is part of ALFABIS: Adaptive Large-Scale Framework for
-  Automatic Biomedical Image Segmentation.
+This program is part of ALFABIS: Adaptive Large-Scale Framework for
+Automatic Biomedical Image Segmentation.
 
-  ALFABIS development is funded by the NIH grant R01 EB017255.
+ALFABIS development is funded by the NIH grant R01 EB017255.
 
-  ALFABIS is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
+ALFABIS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-  ALFABIS is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
+ALFABIS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-  You should have received a copy of the GNU General Public License
-  along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
+You should have received a copy of the GNU General Public License
+along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
 #ifndef _LDDMM_DATA_H_
@@ -36,6 +36,7 @@
 #include <itkMatrix.h>
 #include <vnl/vnl_math.h>
 #include <vector>
+#include <random>
 
 #include <itkImageIOBase.h>
 
@@ -86,7 +87,7 @@ public:
 
   // Parameters
   double alpha, sigma, gamma, dt, sigma_sq;
-  
+
   // Dimensions
   uint n[VDim];
 
@@ -108,31 +109,31 @@ public:
   // Create and allocate velocity field
   static void new_vf(VelocityField &vf, uint nt, ImageBaseType *ref);
 
-  // Initialize LDDMM data 
-  static void init(LDDMMData<TFloat, VDim> &, 
-    ImageType *fix, ImageType *mov, 
-    uint nt, double alpha, double gamma, double sigma);
+  // Initialize LDDMM data
+  static void init(LDDMMData<TFloat, VDim> &,
+                    ImageType *fix, ImageType *mov,
+                    uint nt, double alpha, double gamma, double sigma);
 
   // Apply deformation to data
   static void interp_vimg(
-    VectorImageType *data, VectorImageType *field, 
-    TFloat def_scale, VectorImageType *out,
-    bool use_nn = false, bool phys_space = false);
+      VectorImageType *data, VectorImageType *field,
+      TFloat def_scale, VectorImageType *out,
+      bool use_nn = false, bool phys_space = false);
 
   // Apply deformation to data
   static void interp_img(ImageType *data, VectorImageType *field, ImageType *out,
-                         bool use_nn = false, bool phys_space = false, TFloat outside_value = 0.0);
+                          bool use_nn = false, bool phys_space = false, TFloat outside_value = 0.0);
 
   // Apply deformation to data
   static void interp_cimg(CompositeImageType *data, VectorImageType *field, CompositeImageType *out,
-                          bool use_nn = false, bool phys_space = false, TFloat outside_value = 0.0);
+                           bool use_nn = false, bool phys_space = false, TFloat outside_value = 0.0);
 
   // Apply deformation to matrix data
   static void interp_mimg(MatrixImageType *data, VectorImageType *field, MatrixImageType *out,
-                          bool use_nn = false, bool phys_space = false);
+                           bool use_nn = false, bool phys_space = false);
 
   // Compute the Jacobian of the field, to be placed into an array of vector images
-  // The output Jacobians are stored 
+  // The output Jacobians are stored
   static void field_jacobian(VectorImageType *vec, MatrixImageType *out);
 
   // Divergence of a vector field
@@ -142,21 +143,21 @@ public:
   // Suppose h(x) = f(g(x)), then w(x) = v(x) + u(x + v(x))
   // This code computes the Jacobian of w, Dw, given the Jacobians of u and v, as well as v itself.
   // Here jac_phi and jac_psi may be the same image, but they should both be different from
-  // the output image. 
+  // the output image.
   //
   // Keep in mind that Dw is not the same as Dh (there is a difference of identity matrix). However
-  // when composing warp jacobians it is better to work with Du and Dv than with Df and Dg because 
+  // when composing warp jacobians it is better to work with Du and Dv than with Df and Dg because
   // interpolation at the boundary fills unknown values with zeros
   static void jacobian_of_composition(
-    MatrixImageType *Du, MatrixImageType *Dv, VectorImageType *v, MatrixImageType *out_Dw);
+      MatrixImageType *Du, MatrixImageType *Dv, VectorImageType *v, MatrixImageType *out_Dw);
 
   // Compute a determinant of M + \lambda I
   static void mimg_det(MatrixImageType *M, double lambda, ImageType *out_det);
 
   // Compute (lambda) Ax + (mu) b and store in (out). Out may point to x or b for an in-place operation
   static void mimg_vimg_product_plus_vimg(
-    MatrixImageType *A, VectorImageType *x, VectorImageType *b, 
-    TFloat lambda, TFloat mu, VectorImageType *out);
+      MatrixImageType *A, VectorImageType *x, VectorImageType *b,
+      TFloat lambda, TFloat mu, VectorImageType *out);
 
   // Take Jacobian of deformation field
   static void field_jacobian_det(VectorImageType *vec, ImageType *out);
@@ -220,14 +221,14 @@ public:
 
   // Compute the range of the norm of a vector field
   static void vimg_norm_min_max(VectorImageType *image, ImageType *normsqr,
-    TFloat &min_norm, TFloat &max_norm);
+                                 TFloat &min_norm, TFloat &max_norm);
 
   // Update a vector image to make its maxumum length equal to given value. The
   // second parameter is a working image that will return unnormalized lengths squared
   static void vimg_normalize_to_fixed_max_length(VectorImageType *trg,
-                                                 ImageType *normsqr,
-                                                 double max_displacement,
-                                                 bool scale_down_only);
+                                                  ImageType *normsqr,
+                                                  double max_displacement,
+                                                  bool scale_down_only);
 
   // Scalar math
   static void img_add_in_place(ImageType *trg, ImageType *a);
@@ -269,7 +270,7 @@ public:
   static void cimg_add_in_place(CompositeImageType *trg, CompositeImageType *a);
   static void cimg_scale_in_place(CompositeImageType *trg, TFloat scale);
   static void cimg_threshold_in_place(CompositeImageType *trg,
-                                      double lt, double up, double fore, double back);
+                                       double lt, double up, double fore, double back);
 
   // Extract single component in cimg
   static void cimg_extract_component(CompositeImageType *src, ImageType *trg, unsigned int c);
@@ -277,16 +278,16 @@ public:
 
   // Apply noise to image components
   static void cimg_add_gaussian_noise_in_place(CompositeImageType *img,
-                                               const std::vector<double> &sigma,
-                                               unsigned long random_seed = 0);
+                                                const std::vector<double> &sigma,
+                                                std::mt19937 &rnd);
 
   static void vimg_add_gaussian_noise_in_place(VectorImageType *img,
-                                               double sigma,
-                                               unsigned long random_seed = 0);
+                                                double sigma,
+                                                std::mt19937 &rnd);
 
   // Convert voxel-space warp to a physical space warp
   static void warp_voxel_to_physical(VectorImageType *src, ImageBaseType *ref_space, VectorImageType *trg);
-  
+
   // Some IO methods
   typedef itk::ImageIOBase::IOComponentEnum IOComponentType;
 
@@ -300,15 +301,15 @@ public:
 
   // Write scalar image, with optional output format specification
   static void img_write(ImageType *src, const char *fn,
-                        IOComponentType comp = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE);
+                         IOComponentType comp = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE);
 
   // Write vector image, with optional output format specification
   static void vimg_write(VectorImageType *src, const char *fn,
-                         IOComponentType comp = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE);
+                          IOComponentType comp = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE);
 
   // Write composite image, with optional output format specification
   static void cimg_write(CompositeImageType *src, const char *fn,
-                         IOComponentType comp = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE);
+                          IOComponentType comp = itk::IOComponentEnum::UNKNOWNCOMPONENTTYPE);
 
   static void vfield_read(uint nt, const char *fnpat, VelocityField &v);
 
@@ -342,23 +343,23 @@ public:
   // Compute a array from v
   void compute_semi_lagrangean_a();
 
-  // Exponentiate a deformation field using scaling and recursive squaring. 
+  // Exponentiate a deformation field using scaling and recursive squaring.
   // The source image may not be the same as the target image!
   static void vimg_exp(
-    const VectorImageType *src, VectorImageType *trg, VectorImageType *work,
-    int exponent, TFloat scale = 1.0);
+      const VectorImageType *src, VectorImageType *trg, VectorImageType *work,
+      int exponent, TFloat scale = 1.0);
 
   // Exponentiate a deformation field and its Jacobian
   static void vimg_exp_with_jacobian(
-    const VectorImageType *src, VectorImageType *trg, VectorImageType *work,
-    MatrixImageType *trg_jac, MatrixImageType *work_mat,
-    int exponent, TFloat scale);
+      const VectorImageType *src, VectorImageType *trg, VectorImageType *work,
+      MatrixImageType *trg_jac, MatrixImageType *work_mat,
+      int exponent, TFloat scale);
 
   // Integrate forward tranform (phi_0_t)
   void integrate_phi_t0();
   void integrate_phi_t1();
 
-  // Rectifier functions that begin linear-like and switch to constant-like at the 
+  // Rectifier functions that begin linear-like and switch to constant-like at the
   // specified threshold. These should be applied to non-negative quantities
   static void img_linear_to_const_rectifier_fn(ImageType *src, ImageType *trg, TFloat thresh);
   static void img_linear_to_const_rectifier_deriv(ImageType *src, ImageType *trg, TFloat thresh);
@@ -409,8 +410,8 @@ public:
   ~LDDMMFFTInterface();
 
   void convolution_fft(
-    VectorImageType *img, ImageType *kernel_ft, bool inv_kernel, 
-    VectorImageType *out);
+      VectorImageType *img, ImageType *kernel_ft, bool inv_kernel,
+      VectorImageType *out);
 
 private:
 
@@ -439,9 +440,9 @@ public:
   LDDMMFFTInterface(ImageType *ref) {}
   ~LDDMMFFTInterface() {}
 
-   void convolution_fft(
-       VectorImageType *img, ImageType *kernel_ft, bool inv_kernel,
-       VectorImageType *out) { throw std::string("Code was not compiled with _LDDMM_FFT_"); }
+  void convolution_fft(
+      VectorImageType *img, ImageType *kernel_ft, bool inv_kernel,
+      VectorImageType *out) { throw std::string("Code was not compiled with _LDDMM_FFT_"); }
 
 };
 

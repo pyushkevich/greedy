@@ -33,8 +33,8 @@
 #include "MultiComponentMetricReport.h"
 #include "lddmm_data.h"
 #include "AffineCostFunctions.h"
-#include <vnl/vnl_random.h>
 #include <map>
+#include <random>
 #include "itkCommand.h"
 #include <vtkSmartPointer.h>
 #include <vtkObject.h>
@@ -90,7 +90,7 @@ public:
   typedef vtkSmartPointer<MeshType> MeshPointer;
   typedef std::vector<MeshPointer> MeshArray;
 
-  static void ConfigThreads(const GreedyParameters &param);
+  static void CommonConfig(const GreedyParameters &param);
 
   int Run(GreedyParameters &param);
 
@@ -355,6 +355,9 @@ protected:
 
   ImagePointer ResampleMaskToReferenceSpaceIfNeeded(
       ImageType *mask, ImageBaseType *ref_space, VectorImageType *resample_warp);
+
+  // A random number generator, seeded based on user-provided seed
+  static std::mt19937 m_Random;
 
   // friend class PureAffineCostFunction<VDim, TReal>;
 

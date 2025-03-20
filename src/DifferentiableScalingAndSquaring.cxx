@@ -4,7 +4,8 @@
 #include "itkMultiThreaderBase.h"
 #include "itkTimeProbe.h"
 #include "lddmm_common.h"
-#include <vnl/vnl_random.h>
+#include <random>
+#include <chrono>
 #include <functional>
 
 
@@ -341,10 +342,12 @@ DisplacementSelfCompositionLayer<VDim, TReal>::MakeTestDisplacement(
   phi->Allocate();
 
   // Fill image with random noise
-  vnl_random randy;
+  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+  std::mt19937 rnd(seed);
+  std::normal_distribution<TReal> ndist(0., 1.);
   for(itk::ImageRegionIteratorWithIndex<VectorImageType> it(phi, region); !it.IsAtEnd(); ++it)
     for(unsigned int d = 0; d < VDim; d++)
-      it.Value()[d] = randy.normal() * scale;
+      it.Value()[d] = ndist(rnd) * scale;
   LDDMMType::vimg_smooth(phi, phi, sigma);
 
   return phi;

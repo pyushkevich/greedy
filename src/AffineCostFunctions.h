@@ -28,10 +28,10 @@
 #define AFFINECOSTFUNCTIONS_H
 
 #include <vnl/vnl_cost_function.h>
-#include <vnl/vnl_random.h>
 #include <vnl/vnl_trace.h>
 #include <lddmm_data.h>
 #include <deque>
+#include <random>
 
 namespace itk {
   template <typename T, unsigned int D1, unsigned int D2> class MatrixOffsetTransformBase;
@@ -336,7 +336,7 @@ public:
 
   static vnl_vector<double> GetAxisAngle(const Mat &R) { return Vec().as_vector(); }
 
-  static Mat GetRandomRotation(vnl_random &randy, double alpha) { return Mat(); }
+  static Mat GetRandomRotation(std::mt19937 &randy, double alpha) { return Mat(); }
   static unsigned int GetNumberOfParameters() { return 0; }
 };
 
@@ -353,7 +353,7 @@ public:
                                      bool need_backward, bool uniform_scaling);
   virtual vnl_vector<double> backward(const vnl_vector<double> &g);
   static vnl_vector<double> GetAxisAngle(const Mat &R);
-  static Mat GetRandomRotation(vnl_random &randy, double alpha);
+  static Mat GetRandomRotation(std::mt19937 &randy, double alpha);
   static unsigned int GetNumberOfParameters() { return 7; }
 
 protected:
@@ -379,7 +379,7 @@ public:
                                      bool need_backward, bool uniform_scaling);
   virtual vnl_vector<double> backward(const vnl_vector<double> &g);
   static vnl_vector<double> GetAxisAngle(const Mat &R);
-  static Mat GetRandomRotation(vnl_random &randy, double alpha);
+  static Mat GetRandomRotation(std::mt19937 &randy, double alpha);
   static unsigned int GetNumberOfParameters() { return 4; }
 
 protected:
@@ -429,7 +429,7 @@ public:
   virtual vnl_vector<double> GetOptimalParameterScaling(const itk::Size<VDim> &image_dim);
 
   // Generate a random rotation matrix with rotation angle alpha (radians)
-  static Mat GetRandomRotation(vnl_random &randy, double alpha);
+  static Mat GetRandomRotation(std::mt19937 &randy, double alpha);
 
   // Get the metric image
   virtual ImageType *GetMetricImage() override { return m_AffineFn.GetMetricImage(); }

@@ -47,7 +47,6 @@
 #include "MultiImageRegistrationHelper.h"
 #include "FastWarpCompositeImageFilter.h"
 #include <vnl/vnl_cost_function.h>
-#include <vnl/vnl_random.h>
 #include <vnl/algo/vnl_powell.h>
 #include <vnl/algo/vnl_svd.h>
 #include <vnl/vnl_trace.h>

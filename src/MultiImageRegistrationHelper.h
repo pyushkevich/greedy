@@ -1,27 +1,27 @@
 /*=========================================================================
 
-  Program:   ALFABIS fast medical image registration programs
-  Language:  C++
-  Website:   github.com/pyushkevich/greedy
-  Copyright (c) Paul Yushkevich, University of Pennsylvania. All rights reserved.
+Program:   ALFABIS fast medical image registration programs
+Language:  C++
+Website:   github.com/pyushkevich/greedy
+Copyright (c) Paul Yushkevich, University of Pennsylvania. All rights reserved.
 
-  This program is part of ALFABIS: Adaptive Large-Scale Framework for
-  Automatic Biomedical Image Segmentation.
+This program is part of ALFABIS: Adaptive Large-Scale Framework for
+Automatic Biomedical Image Segmentation.
 
-  ALFABIS development is funded by the NIH grant R01 EB017255.
+ALFABIS development is funded by the NIH grant R01 EB017255.
 
-  ALFABIS is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
+ALFABIS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-  ALFABIS is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
+ALFABIS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-  You should have received a copy of the GNU General Public License
-  along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
+You should have received a copy of the GNU General Public License
+along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 
 =========================================================================*/
 #ifndef __MultiImageRegistrationHelper_h
@@ -31,7 +31,7 @@
 #include "itkImage.h"
 #include "itkVectorImage.h"
 #include "itkMatrixOffsetTransformBase.h"
-
+#include <random>
 #include "MultiComponentMetricReport.h"
 
 template <class MultiComponentImageType, class BinnedImageType> class MutualInformationPreprocessingFilter;
@@ -68,10 +68,10 @@ public:
   /** Set the pyramid factors - for multi-resolution (e.g., 8,4,2) */
   void SetPyramidFactors(const PyramidFactorsType &factors);
 
-  /** 
+  /**
    * Set whether the fixed images should be scaled down by the pyramid factors
    * when subsampling. This is needed for the Mahalanobis distance metric, but not for
-   * any of the metrics that use image intensities 
+   * any of the metrics that use image intensities
    */
   void SetScaleFixedImageWithVoxelSize(bool onoff) { m_ScaleFixedImageWithVoxelSize = onoff; }
 
@@ -99,11 +99,11 @@ public:
 
   /** Downsample an image, taking care of NaNs if necessary */
   void DownsampleImage(VectorImageType *src, VectorImageType *dst, int factor, bool has_nans);
-  
+
   /** Compute the composite image - must be run before any sampling is done */
   void BuildCompositeImages(double noise_sigma_relative, bool masked_downsampling,
-                            SizeType fixed_mask_dilate_radius, SizeType moving_mask_dilate_radius,
-                            bool zero_last_dim);
+                             SizeType fixed_mask_dilate_radius, SizeType moving_mask_dilate_radius,
+                             bool zero_last_dim, std::mt19937 &rnd);
 
   /**
    * Apply a dilation to the masks - this is used with the NCC and WNCC metrics.
@@ -111,8 +111,7 @@ public:
    *   1.0 : voxel is inside the user-specified mask
    *   0.5 : voxel is within radius of the user-specified mask
    *   0.0 : voxel is outside of the user-specified mask
-   *
-   * NCC metric exploits this mask format for faster processing - region where the mask is zero are
+   *    * NCC metric exploits this mask format for faster processing - region where the mask is zero are
    * excluded from NCC computation and accumulation.
    */
   void DilateCompositeGradientMasksForNCC(SizeType radius);
@@ -131,19 +130,19 @@ public:
 
   /** Get the fixed mask in given group at given pyramid level */
   FloatImageType *GetFixedMask(unsigned int group, unsigned int level)
-    { return m_InputGroups[group].m_FixedPyramid.mask_pyramid[level]; }
+  { return m_InputGroups[group].m_FixedPyramid.mask_pyramid[level]; }
 
   /** Get the moving mask in given group at given pyramid level */
   FloatImageType *GetMovingMask(unsigned int group, unsigned int level)
-    { return m_InputGroups[group].m_MovingPyramid.mask_pyramid[level]; }
+  { return m_InputGroups[group].m_MovingPyramid.mask_pyramid[level]; }
 
   /** Get the fixed image in given group at given pyramid level */
   MultiComponentImageType *GetFixedComposite(unsigned int group, unsigned int level)
-    { return m_InputGroups[group].m_FixedPyramid.image_pyramid[level]; }
+  { return m_InputGroups[group].m_FixedPyramid.image_pyramid[level]; }
 
   /** Get the moving image in given group at given pyramid level */
   MultiComponentImageType *GetMovingComposite(unsigned int group, unsigned int level)
-    { return m_InputGroups[group].m_MovingPyramid.image_pyramid[level]; }
+  { return m_InputGroups[group].m_MovingPyramid.image_pyramid[level]; }
 
   /** Get the smoothing factor for given level based on parameters */
   Vec GetSmoothingSigmasInPhysicalUnits(int level, double sigma, bool in_physical_units, bool zero_last_dim);
@@ -221,8 +220,8 @@ public:
   static void VoxelWarpToPhysicalWarp(VectorImageType *warp, ImageBaseType *moving_space, VectorImageType *result);
   static void PhysicalWarpToVoxelWarp(VectorImageType *warp, ImageBaseType *moving_space, VectorImageType *result);
 
-  /* 
-   * Write a warp to a file. The warp must be in voxel space, not physical space 
+  /*
+   * Write a warp to a file. The warp must be in voxel space, not physical space
    * this is the static version of this method
    */
   // static void WriteCompressedWarpInPhysicalSpace(
@@ -236,7 +235,7 @@ public:
    * square root command, and then inverting the small transformations
    */
   static void ComputeDeformationFieldInverse(
-    VectorImageType *warp, VectorImageType *result, int n_sqrt, bool verbose = false);
+      VectorImageType *warp, VectorImageType *result, int n_sqrt, bool verbose = false);
 
   /**
    * Compute the (2^k)-th root of a warp using an iterative scheme. For each
@@ -244,19 +243,17 @@ public:
    * is the input warp, and g is the square root.
    */
   static void ComputeWarpRoot(
-    VectorImageType *warp, VectorImageType *root, int exponent, TFloat tol = 0, int max_iter = 20);
+      VectorImageType *warp, VectorImageType *root, int exponent, TFloat tol = 0, int max_iter = 20);
 
   /**
    * Compute the square root of an input warp f = x + u(x) using an iterative scheme
-   *
-   *    g[0] = Id
+   *    *    g[0] = Id
    *    g[t+1] = g[t] + (f - g[t] o g[t]) / 2
-   *
-   * A working image of the same size as the input and output must be provided
+   *    * A working image of the same size as the input and output must be provided
    */
   static void ComputeWarpSquareRoot(
-    VectorImageType *warp, VectorImageType *out, VectorImageType *work, 
-    FloatImageType *error_norm = NULL, double tol = 0.0, int max_iter = 20);
+      VectorImageType *warp, VectorImageType *out, VectorImageType *work,
+      FloatImageType *error_norm = NULL, double tol = 0.0, int max_iter = 20);
 
   /**
    * Apply dilation to a mask, with option to make the dilated portion have value 0.5
@@ -267,8 +264,8 @@ public:
    * Internal method used to pack a bunch of multi-component images into a single one
    */
 
-  MultiImageOpticalFlowHelper() : 
-    m_JitterSigma(0.0), m_ScaleFixedImageWithVoxelSize(false) {}
+  MultiImageOpticalFlowHelper() :
+                                   m_JitterSigma(0.0), m_ScaleFixedImageWithVoxelSize(false) {}
 
 protected:
 
@@ -344,11 +341,12 @@ protected:
 
   // Remove NaNs and determine noise sigmas for either fixed or moving image
   void InitializePyramid(const MultiCompImageSet &src, FloatImageType *mask,
-                         ImagePyramid &pyramid, double noise_sigma_rel,
-                         bool masked_downsampling,
-                         SizeType mask_dilate_radius,
-                         bool scale_intensity_by_voxel_size,
-                         bool zero_last_dim);
+                          ImagePyramid &pyramid, double noise_sigma_rel,
+                          bool masked_downsampling,
+                          SizeType mask_dilate_radius,
+                          bool scale_intensity_by_voxel_size,
+                          bool zero_last_dim,
+                          std::mt19937 &rnd);
 
   void PlaceIntoComposite(FloatImageType *src, MultiComponentImageType *target, int offset);
   void PlaceIntoComposite(VectorImageType *src, MultiComponentImageType *target, int offset);
@@ -361,9 +359,9 @@ protected:
 
   typedef std::pair<MultiComponentImagePointer, FloatImagePointer> IMPair;
   IMPair MergeMaskWithNanMask(MultiComponentImageType *src_image,
-                              FloatImageType *src_mask,
-                              bool have_nans,
-                              SizeType dilate_radius);
+                               FloatImageType *src_mask,
+                               bool have_nans,
+                               SizeType dilate_radius);
 
   // Whether the fixed images should be scaled down by the pyramid factors
   // when subsampling. This is needed for the Mahalanobis distance metric, but not for
