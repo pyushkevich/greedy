@@ -789,8 +789,8 @@ void
 PointSetHamiltonianSystem<TFloat, VDim>
 ::ApplyHamiltonianHessianToAlphaBeta(
     const Matrix &q, const Matrix &p,
-    const Vector alpha[], const Vector beta[],
-    Vector d_alpha[], Vector d_beta[])
+    const Vector alpha[VDim], const Vector beta[VDim],
+    Vector d_alpha[VDim], Vector d_beta[VDim])
 {
   TFloat f = -0.5 / (sigma * sigma);
 
