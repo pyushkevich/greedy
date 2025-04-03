@@ -34,6 +34,10 @@ along with ALFABIS.  If not, see <http://www.gnu.org/licenses/>.
 #include <algorithm>
 #include <cstdarg>
 
+#ifdef _WIN32
+#include <chrono>
+#endif
+
 
 #include "lddmm_common.h"
 #include "lddmm_data.h"
