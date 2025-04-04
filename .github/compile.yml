@@ -2,8 +2,7 @@ name: Build
 
 on:
   pull_request:
-    branches:
-      - master
+    branches: [ "master" ]
   workflow_dispatch:
     inputs:
       debug_enabled:
@@ -15,7 +14,9 @@ on:
         type: boolean
         description: 'Upload wheels to PyPI?'
         required: false
-        default: false
+        default: false  
+  push:
+    branches: [ "master" ]
   # push:
   # release:
   #   types:
