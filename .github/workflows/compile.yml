@@ -14,7 +14,6 @@ on:
         description: 'Upload wheels to PyPI?'
         required: false
         default: false  
-  push:
   # push:
   # release:
   #   types:
