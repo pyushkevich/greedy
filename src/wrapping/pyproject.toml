@@ -1,0 +1,49 @@
+[build-system]
+requires = ["scikit-build-core"]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+build-dir = "pipbuild/{wheel_tag}"
+cmake.build-type = "Release"
+
+[tool.scikit-build.cmake.define]
+FETCH_DEPENDENCIES = {env="FETCH_DEPENDENCIES", default="ON"}
+CMAKE_PREFIX_PATH = {env="CMAKE_PREFIX_PATH"}
+
+[project]
+name = "picsl_greedy"
+version = "0.0.6"
+description = "Greedy: Fast Deformable Registration for 2D and 3D Medical Images"
+readme = "README.md"
+license.file = "LICENSE"
+authors = [
+  { name = "Paul A. Yushkevich", email = "pyushkevich@gmail.com" },
+]
+maintainers = [
+  { name = "Paul A. Yushkevich", email = "pyushkevich@gmail.com" },
+]
+requires-python = ">=3.8"
+
+dependencies = [
+  "typing_extensions",
+  "SimpleITK",
+  "numpy"
+]
+
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: BSD License",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.urls]
+Homepage = "https://github.com/pyushkevich/greedy"
+Documentation = "https://greedy.readthedocs.io/en/latest/"
+
+
