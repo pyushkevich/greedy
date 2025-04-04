@@ -15,7 +15,7 @@ name = "picsl_greedy"
 version = "0.0.6"
 description = "Greedy: Fast Deformable Registration for 2D and 3D Medical Images"
 readme = "README.md"
-license.file = "LICENSE"
+license.file = "COPYING.txt"
 authors = [
   { name = "Paul A. Yushkevich", email = "pyushkevich@gmail.com" },
 ]
