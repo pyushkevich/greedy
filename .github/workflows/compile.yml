@@ -14,10 +14,10 @@ on:
         description: 'Upload wheels to PyPI?'
         required: false
         default: false  
-  # push:
-  # release:
-  #   types:
-  #     - published
+  push:
+  release:
+    types:
+      - published
 
 jobs:
   build_wheels:
