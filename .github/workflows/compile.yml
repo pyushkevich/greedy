@@ -1,0 +1,96 @@
+name: Build
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
+        required: false
+        default: false
+      release_pypi:
+        type: boolean
+        description: 'Upload wheels to PyPI?'
+        required: false
+        default: false  
+  # push:
+  release:
+    types:
+      - published
+
+jobs:
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-20.04,macos-13,macos-14,windows-2019]
+        # os: [ubuntu-22.04,ubuntu-22.04-arm,macos-13,macos-13-xlarge,macos-14,macos-14-xlarge,windows-2019,windows-2022]
+
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+            submodules: true
+
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
+
+      - name: Compile and Build wheels
+        uses: pypa/cibuildwheel@v2.20.0
+        env:
+            CIBW_ARCHS_LINUX: x86_64
+            CIBW_ARCHS_WINDOWS: AMD64
+            CIBW_SKIP: "*musllinux*"
+            CIBW_BUILD_VERBOSITY: 1
+            CIBW_BEFORE_ALL: bash .github/workflows/prebuild.sh ${{ matrix.os }}
+            CIBW_ENVIRONMENT: >
+                FETCH_DEPENDENCIES=OFF CMAKE_PREFIX_PATH=be/install VTK_DIR=be/install/vtk/vtk-9.3.1.data/headers/cmake MACOSX_DEPLOYMENT_TARGET=10.13
+            CIBW_REPAIR_WHEEL_COMMAND_MACOS: >
+                DYLD_LIBRARY_PATH=./be/install/vtk/shared delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
+            CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
+                LD_LIBRARY_PATH=/project/be/install/vtk/shared auditwheel repair -w {dest_dir} {wheel}
+            CIBW_BEFORE_BUILD_WINDOWS: >
+                pip install delvewheel
+            CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: >
+                delvewheel repair -w {dest_dir} {wheel} --add-path be/install/vtk/bin
+            MACOSX_DEPLOYMENT_TARGET: 10.13
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          path: ./wheelhouse/*.whl
+
+  make_sdist:
+    name: Make SDist
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Build SDist
+      run: pipx run build --sdist
+
+    - uses: actions/upload-artifact@v4
+      with:
+        path: dist/*.tar.gz
+
+  upload_all:
+    needs: [build_wheels, make_sdist]
+    environment: pypi
+    permissions:
+      id-token: write
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'release' && github.event.action == 'published') || (github.event_name == 'workflow_dispatch' && inputs.release_pypi)
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: cibw-*
+        path: dist
+        merge-multiple: true
+
+    - uses: pypa/gh-action-pypi-publish@release/v1

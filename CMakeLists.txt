@@ -58,6 +58,9 @@ OPTION(GREEDY_USE_SPARSE_SOLVERS "Build registration tools that use sparse solve
 # Do we want to build the landmark geodesic shooting registration code?
 OPTION(GREEDY_BUILD_LMSHOOT "Build landmark geodesic shooting library and tools" OFF)
 
+# Do we want to build the python wrapping code?
+OPTION(GREEDY_BUILD_WRAPPING "Build wrapping code for Python" OFF)
+
 #--------------------------------------------------------------------------------
 # Dependent packages
 #--------------------------------------------------------------------------------
@@ -108,6 +111,12 @@ IF(GREEDY_BUILD_LMSHOOT)
   IF(EIGEN3_FOUND)
     ADD_DEFINITIONS(-DHAVE_EIGEN)
   ENDIF()
+ENDIF()
+
+# Stuff for python wrapping
+IF(GREEDY_BUILD_WRAPPING)
+  ADD_SUBDIRECTORY(src/wrapping)
+  SET(GREEDY_BUILD_LDDMM ON CACHE BOOL "" FORCE)
 ENDIF()
 
 #--------------------------------------------------------------------------------
