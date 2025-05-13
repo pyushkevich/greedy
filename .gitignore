@@ -9,3 +9,4 @@ docs/_build
 *.asv
 build/
 .vscode/
+src/wrapping/external/pybind11
