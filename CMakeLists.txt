@@ -113,12 +113,6 @@ IF(GREEDY_BUILD_LMSHOOT)
   ENDIF()
 ENDIF()
 
-# Stuff for python wrapping
-IF(GREEDY_BUILD_WRAPPING)
-  ADD_SUBDIRECTORY(src/wrapping)
-  SET(GREEDY_BUILD_LDDMM ON CACHE BOOL "" FORCE)
-ENDIF()
-
 #--------------------------------------------------------------------------------
 # Hard-coded documentation
 #--------------------------------------------------------------------------------
@@ -468,3 +462,17 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
   ENDIF()
 
 ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)
+
+# Stuff for python wrapping
+OPTION(GREEDY_BUILD_WRAPPING "Build greedy python wrapping" ON)
+IF(GREEDY_BUILD_WRAPPING)
+  message("Configurating Greedy Python wrapping...")
+  SET(GREEDY_BUILD_LDDMM ON CACHE BOOL "" FORCE)
+  SET(PYBIND11_FINDPYTHON ON)
+  ADD_SUBDIRECTORY(src/wrapping/external/pybind11)
+  INCLUDE_DIRECTORIES(src/wrapping/external/pybind11)
+  pybind11_add_module(picsl_greedy src/wrapping/GreedyPythonBindings.cxx)
+  TARGET_INCLUDE_DIRECTORIES(picsl_greedy PRIVATE ${Greedy_INCLUDE_DIRS} src/multichunk src/lmshoot/)
+  TARGET_LINK_LIBRARIES(picsl_greedy PUBLIC ${ITK_LIBRARIES} ${VTK_LIBRARIES} greedyapi lmshootapi multichunkgreedyapi)
+  install(TARGETS picsl_greedy DESTINATION .)
+ENDIF()
