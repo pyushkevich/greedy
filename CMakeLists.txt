@@ -465,7 +465,6 @@ ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)
 
 # Stuff for python wrapping
 IF(GREEDY_BUILD_WRAPPING)
-  # ADD_SUBDIRECTORY(src/wrapping)
   message("Configurating Greedy Python wrapping...")
   SET(GREEDY_BUILD_LDDMM ON CACHE BOOL "" FORCE)
   SET(PYBIND11_FINDPYTHON ON)
