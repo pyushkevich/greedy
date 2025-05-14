@@ -464,6 +464,7 @@ IF(NOT GREEDY_BUILD_AS_SUBPROJECT)
 ENDIF(NOT GREEDY_BUILD_AS_SUBPROJECT)
 
 # Stuff for python wrapping
+OPTION(GREEDY_BUILD_WRAPPING "Build greedy python wrapping" ON)
 IF(GREEDY_BUILD_WRAPPING)
   message("Configurating Greedy Python wrapping...")
   SET(GREEDY_BUILD_LDDMM ON CACHE BOOL "" FORCE)
