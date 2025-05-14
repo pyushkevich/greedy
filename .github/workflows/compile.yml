@@ -48,7 +48,7 @@ jobs:
             CIBW_BUILD_VERBOSITY: 1
             CIBW_BEFORE_ALL: bash .github/workflows/prebuild.sh ${{ matrix.os }}
             CIBW_ENVIRONMENT: >
-                FETCH_DEPENDENCIES=OFF CMAKE_PREFIX_PATH=be/install VTK_DIR=be/install/vtk/vtk-9.3.1.data/headers/cmake MACOSX_DEPLOYMENT_TARGET=10.13
+                FETCH_DEPENDENCIES=OFF DEPENDENCIES_ONLY=OFF CMAKE_PREFIX_PATH=be/install VTK_DIR=be/install/vtk/vtk-9.3.1.data/headers/cmake MACOSX_DEPLOYMENT_TARGET=10.13
             CIBW_REPAIR_WHEEL_COMMAND_MACOS: >
                 DYLD_LIBRARY_PATH=./be/install/vtk/shared delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
             CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
