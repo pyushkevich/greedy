@@ -12,7 +12,7 @@ CMAKE_PREFIX_PATH = {env="CMAKE_PREFIX_PATH"}
 
 [project]
 name = "picsl_greedy"
-version = "0.0.7"
+version = "0.0.8"
 description = "Greedy: Fast Deformable Registration for 2D and 3D Medical Images"
 readme = "README.md"
 license.file = "COPYING.txt"
