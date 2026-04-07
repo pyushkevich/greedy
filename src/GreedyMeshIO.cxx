@@ -31,22 +31,43 @@ vtkSmartPointer<TMesh> ReadMesh(const char *fname)
 };
 
 template <class TWriter>
-void ConfigureWriter(TWriter *w, const char *fname)
+void ConfigureWriter(TWriter *w, const char *fname, bool binary)
 {
   w->SetFileName(fname);
 }
 
 template <>
-void ConfigureWriter(vtkBYUWriter *w, const char *fname)
+void ConfigureWriter(vtkBYUWriter *w, const char *fname, bool binary)
 {
   w->SetGeometryFileName(fname);
 }
 
+template <>
+void ConfigureWriter(vtkPolyDataWriter *w, const char *fname, bool binary)
+{
+  w->SetFileName(fname);
+  if(binary)
+    w->SetFileTypeToBinary();
+  else
+    w->SetFileTypeToASCII();
+}
+
+template <>
+void ConfigureWriter(vtkUnstructuredGridWriter *w, const char *fname, bool binary)
+{
+  w->SetFileName(fname);
+  if(binary)
+    w->SetFileTypeToBinary();
+  else
+    w->SetFileTypeToASCII();
+}
+
+
 template <class TWriter, class TMesh>
-void WriteMesh(TMesh *mesh, const char *fname)
+void WriteMesh(TMesh *mesh, const char *fname, bool binary)
 {
   vtkSmartPointer<TWriter> writer = TWriter::New();
-  ConfigureWriter<TWriter>(writer, fname);
+  ConfigureWriter<TWriter>(writer, fname, binary);
   writer->SetInputData(mesh);
   writer->Update();
 };
@@ -82,28 +103,28 @@ vtkSmartPointer<TMesh> ReadMeshByExtension(const char *fname)
 }
 
 template<class TMesh>
-void WriteMeshByExtension(TMesh *mesh, const char *fname)
+void WriteMeshByExtension(TMesh *mesh, const char *fname, bool binary)
 {
   std::string fn_str = fname;
   if(fn_str.rfind(".byu") == fn_str.length() - 4)
-    WriteMesh<vtkBYUWriter, TMesh>(mesh, fname);
+    WriteMesh<vtkBYUWriter, TMesh>(mesh, fname, binary);
   else if(fn_str.rfind(".stl") == fn_str.length() - 4)
-    WriteMesh<vtkSTLWriter, TMesh>(mesh, fname);
+    WriteMesh<vtkSTLWriter, TMesh>(mesh, fname, binary);
   else if(fn_str.rfind(".ply") == fn_str.length() - 4)
-    WriteMesh<vtkPLYWriter, TMesh>(mesh, fname);
+    WriteMesh<vtkPLYWriter, TMesh>(mesh, fname, binary);
   else if(fn_str.rfind(".vtk") == fn_str.length() - 4)
     {
     vtkPolyData *pd = dynamic_cast<vtkPolyData *>(mesh);
     vtkUnstructuredGrid *usg = dynamic_cast<vtkUnstructuredGrid *>(mesh);
     if(pd)
-      WriteMesh<vtkPolyDataWriter, vtkPolyData>(pd, fname);
+      WriteMesh<vtkPolyDataWriter, vtkPolyData>(pd, fname, binary);
     else if (usg)
-      WriteMesh<vtkUnstructuredGridWriter, vtkUnstructuredGrid>(usg, fname);
+      WriteMesh<vtkUnstructuredGridWriter, vtkUnstructuredGrid>(usg, fname, binary);
     }
   else if (fn_str.rfind(".vtp") == fn_str.length() - 4)
     {
     vtkPolyData *pd = dynamic_cast<vtkPolyData *>(mesh);
-    WriteMesh<vtkXMLPolyDataWriter, TMesh>(pd, fname);
+    WriteMesh<vtkXMLPolyDataWriter, TMesh>(pd, fname, binary);
     }
   else
     throw GreedyException("No mesh writer for file %s", fname);
@@ -116,9 +137,9 @@ vtkSmartPointer<vtkPointSet> ReadMesh(const char *fname)
   return greedy_mesh_io::ReadMeshByExtension<vtkPointSet>(fname);
 }
 
-void WriteMesh(vtkPointSet *mesh, const char *fname)
+void WriteMesh(vtkPointSet *mesh, const char *fname, bool binary)
 {
-  greedy_mesh_io::WriteMeshByExtension<vtkPointSet>(mesh, fname);
+  greedy_mesh_io::WriteMeshByExtension<vtkPointSet>(mesh, fname, binary);
 }
 
 double GetCellVolumeOrArea(vtkPointSet *mesh, vtkCell *cell)
