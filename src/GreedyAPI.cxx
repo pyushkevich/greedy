@@ -3883,7 +3883,6 @@ void GreedyApproach<VDim, TReal>
   // Configure the random seed
   int seed = param.random_seed == 0 ? std::chrono::system_clock::now().time_since_epoch().count() : param.random_seed;
   m_Random.seed(seed);
-  std::cout << "Random seed set to " << seed << " first random value: " << m_Random() << std::endl;
 }
 
 template<unsigned int VDim, typename TReal>
