@@ -471,6 +471,10 @@ bool GreedyParameters::ParseCommandLine(const std::string &cmd, CommandLineHelpe
     {
     this->defopt_svf_smoothness_weight = cl.read_double();
     }
+  else if(cmd == "-vtk-bin")
+    {
+    this->flag_binary_mesh_output = true;
+    }
   else
     {
     return false;
@@ -920,16 +924,19 @@ std::string GreedyParameters::GenerateCommandLine()
     oss << " -V " << this->verbosity;
 
   if(this->lbfgs_param.ftol != def.lbfgs_param.ftol)
-    oss << "-lbfgs-ftol " << this->lbfgs_param.ftol;
+    oss << " -lbfgs-ftol " << this->lbfgs_param.ftol;
 
   if(this->lbfgs_param.gtol != def.lbfgs_param.gtol)
-    oss << "-lbfgs-gtol " << this->lbfgs_param.gtol;
+    oss << " -lbfgs-gtol " << this->lbfgs_param.gtol;
 
   if(this->lbfgs_param.memory != def.lbfgs_param.memory)
-    oss << "-lbfgs-memory " << this->lbfgs_param.memory;
+    oss << " -lbfgs-memory " << this->lbfgs_param.memory;
 
   if(this->defopt_svf_smoothness_weight > 0.0)
-    oss << "-wr " << this->defopt_svf_smoothness_weight;
+    oss << " -wr " << this->defopt_svf_smoothness_weight;
+
+  if(this->flag_binary_mesh_output)
+    oss << " -vtk-bin";
 
   return oss.str();
 }

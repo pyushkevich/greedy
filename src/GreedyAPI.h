@@ -344,7 +344,7 @@ protected:
   void WriteCompressedWarpInPhysicalSpaceViaCache(
     ImageBaseType *moving_ref_space, VectorImageType *warp, const char *filename, double precision);
 
-  void WriteMeshViaCache(MeshType *mesh, const std::string &filename);
+  void WriteMeshViaCache(MeshType *mesh, const std::string &filename, bool binary=false);
 
   // Compute the moments of a composite image (mean and covariance matrix of coordinate weighted by intensity)
   void ComputeImageMoments(CompositeImageType *image, const vnl_vector<float> &weights, VecFx &m1, MatFx &m2);

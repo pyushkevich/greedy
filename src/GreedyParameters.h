@@ -457,6 +457,9 @@ struct GreedyParameters
   // of the image - turn on for 2D/3D registration
   bool flag_zero_last_dim = false;
 
+  // Whether meshes should be written as binary
+  bool flag_binary_mesh_output = false;
+
   // Weight applied to new image pairs
   double current_weight = 1.0;
 

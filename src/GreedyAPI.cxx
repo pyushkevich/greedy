@@ -571,7 +571,7 @@ void
 template <unsigned int VDim, typename TReal>
 void
     GreedyApproach<VDim, TReal>
-    ::WriteMeshViaCache(MeshType *mesh, const std::string &filename)
+    ::WriteMeshViaCache(MeshType *mesh, const std::string &filename, bool binary)
 {
   typename MeshCache::const_iterator it = m_MeshCache.find(filename);
   if (it != m_MeshCache.end())
@@ -585,7 +585,7 @@ void
 
   if (it == m_MeshCache.end() || it->second.force_write)
     {
-      WriteMesh(mesh, filename.c_str());
+      WriteMesh(mesh, filename.c_str(), binary);
     }
 }
 
@@ -3475,7 +3475,7 @@ int GreedyApproach<VDim, TReal>
       if(r_param.meshes[i].jacobian_mode)
         WriteJacobianMesh(original_meshes[i], meshes[i], r_param.meshes[i].output.c_str());
       else
-        WriteMeshViaCache(meshes[i], r_param.meshes[i].output.c_str());
+        WriteMeshViaCache(meshes[i], r_param.meshes[i].output.c_str(), param.flag_binary_mesh_output);
     }
 
 
@@ -4054,6 +4054,7 @@ int greedy_usage(bool print_template_params)
   printf("  -threads N             : set the number of allowed concurrent threads\n");
   printf("  -version               : print version info\n");
   printf("  -V <level>             : set verbosity level (0: none, 1: default, 2: verbose)\n");
+  printf("  -vtk-bin               : write VTK meshes in binary format (for -rs, -rsj)\n");
   printf("Environment variables: \n");
   printf("  GREEDY_DATA_ROOT       : if set, filenames can be specified relative to this path\n");
   return -1;
