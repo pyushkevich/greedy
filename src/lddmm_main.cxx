@@ -220,7 +220,7 @@ int run_test(int argc, char *argv[])
 
     // Read the random variation
     typename LDDMM::VelocityField h;
-    LDDMM::alloc_vf(h, p.nt, p.fix);
+    LDDMM::new_vf(h, p.nt, p.fix);
     LDDMM::vfield_read(nt, argv[5], h);
 
     // gateaux_analytic = lddmm_vector_field_dot_product(dedvx, dedvy, varx, vary, p);
