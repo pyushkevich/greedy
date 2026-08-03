@@ -18,7 +18,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 INCLUDE(CMake/PYVersion.cmake)
 
 # Set the semantic version and version date
-VERSION_VARS(1 3 0 "-alpha" "20230928" "Sep 28, 2022")
+VERSION_VARS(1 4 0 "" "20260803" "Aug 03, 2026")
 
 #--------------------------------------------------------------------------------
 # Build configuration
