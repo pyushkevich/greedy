@@ -25,7 +25,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest,macos-13,macos-14,windows-2022]
+        os: [ubuntu-latest,ubuntu-22.04-arm,macos-13,macos-14,windows-2022]
         # os: [ubuntu-22.04,ubuntu-22.04-arm,macos-13,macos-13-xlarge,macos-14,macos-14-xlarge,windows-2019,windows-2022]
 
     steps:
@@ -42,7 +42,7 @@ jobs:
       - name: Compile and Build wheels
         uses: pypa/cibuildwheel@v2.20.0
         env:
-            CIBW_ARCHS_LINUX: x86_64
+            CIBW_ARCHS_LINUX: auto
             CIBW_ARCHS_WINDOWS: AMD64
             CIBW_SKIP: "*musllinux*"
             CIBW_BUILD_VERBOSITY: 1
