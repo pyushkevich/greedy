@@ -216,7 +216,8 @@ OneDimensionalInPlaceAccumulateFilterWorker<TPixel, TInputImage>
 
 // ### PY, 05/18/2016: checked again, this SSE code is not causing any differences in float/double
 //                     processing, safe to keep as is!
-#ifndef __aarch64__
+// SSE is x86 only. MSVC defines _M_ARM64 rather than __aarch64__ on ARM64
+#if !defined(__aarch64__) && !defined(_M_ARM64)
 #define _NCC_SSE_
 #endif
 #ifdef _NCC_SSE_
